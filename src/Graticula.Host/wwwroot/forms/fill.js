@@ -150,7 +150,7 @@
     }
 
     // ---------------------------------------------------------------------------------------------------------------
-    // The device's storage: IndexedDB, three stores. 'forms' holds a downloaded form; 'outbox' holds records waiting to
+    // The device's storage: IndexedDB, three stores (and a fourth, 'inbox', described where the Inbox is). 'forms' holds a downloaded form; 'outbox' holds records waiting to
     // be sent, each with its files as Blobs; 'drafts' holds forms being filled in (§5.10, ADR-287: the client always
     // keeps drafts), their files as Blobs too. Nothing is removed from the outbox until the server accepted all of it.
     // ---------------------------------------------------------------------------------------------------------------
@@ -162,12 +162,15 @@
         dbPromise = new Promise(function (resolve) {
             try {
                 if (!window.indexedDB) { resolve(null); return; }
-                var request = indexedDB.open('graticula-forms', 2);
+                // Version 3 adds 'inbox' (ADR-300 §5.6): the records an Inbox downloaded, one entry per record keyed
+                // form|member|GlobalID, and one per form and member keyed form|member| that says when it was refreshed.
+                var request = indexedDB.open('graticula-forms', 3);
                 request.onupgradeneeded = function () {
                     var db = request.result;
                     if (!db.objectStoreNames.contains('forms')) { db.createObjectStore('forms', { keyPath: 'id' }); }
                     if (!db.objectStoreNames.contains('outbox')) { db.createObjectStore('outbox', { keyPath: 'key', autoIncrement: true }); }
                     if (!db.objectStoreNames.contains('drafts')) { db.createObjectStore('drafts', { keyPath: 'id' }); }
+                    if (!db.objectStoreNames.contains('inbox')) { db.createObjectStore('inbox', { keyPath: 'key' }); }
                 };
                 request.onsuccess = function () {
                     // A tab still open on an older version must not hold up this one's upgrade, nor this one's the next.
@@ -343,6 +346,64 @@
         "Only the first 100 are listed; keep typing to narrow them.": "Yalnız ilk 100 seçenek listeleniyor; daraltmak için yazmaya devam edin.",
         "Choices": "Seçenekler"
     });
+    // Words of the Inbox (ADR-300, 2026-11-16).
+    Object.assign(STATIC_TEXT, {
+        "inbox-heading": ["Inbox", "Gelen kutusu"],
+        "inbox-refresh": ["Refresh", "Yenile"],
+        "inbox-hint": ["Records you can open and change. Refresh downloads them to this device; once downloaded they open and can be changed without a signal, and your changes wait in the Outbox.", "Açıp değiştirebileceğiniz kayıtlar. Yenile, onları bu cihaza indirir; indirildikten sonra sinyalsiz de açılır ve değiştirilir, değişiklikleriniz Giden kutusunda bekler."],
+        "inbox-waiting-why": ["A record whose changes are waiting in the Outbox opens again once they are sent or discarded.", "Değişiklikleri Giden kutusunda bekleyen bir kayıt, onlar gönderilince ya da silinince yeniden açılır."],
+        "compare-heading": ["Changed on the server since you downloaded it", "İndirdiğinizden beri sunucuda değişti"],
+        "compare-mine": ["Keep mine", "Benimki kalsın"],
+        "compare-server": ["Use the server’s", "Sunucudakini kullan"],
+        "compare-close": ["Close", "Kapat"],
+        "answers-heading": ["No longer on the server", "Artık sunucuda yok"],
+        "answers-hint": ["The record was deleted on the server, or is no longer one the Inbox gives you, after you downloaded it. Your answers are kept on this device: copy them before you discard the record.", "Kayıt, siz indirdikten sonra sunucuda silindi ya da artık Gelen kutusunun size verdiği kayıtlardan değil. Cevaplarınız bu cihazda duruyor: kaydı silmeden önce kopyalayın."],
+        "answers-copy": ["Copy answers", "Cevapları kopyala"],
+        "answers-close": ["Close", "Kapat"]
+    });
+    Object.assign(TR, {
+        "On the server": "Sunucuda",
+        "On the server; cannot be changed here": "Sunucuda; burada değiştirilemez",
+        "(shown when online)": "(çevrimiçiyken gösterilir)",
+        "Already on the server. These cannot be changed or removed here; new files are added beside them.": "Zaten sunucuda. Bunlar burada değiştirilemez ya da kaldırılamaz; yeni dosyalar yanlarına eklenir.",
+        "Downloading the records…": "Kayıtlar indiriliyor…",
+        "The names of their attachments could not be read.": "Eklerinin adları okunamadı.",
+        "You are offline. The records already on this device are shown.": "Çevrimdışısınız. Bu cihazda zaten bulunan kayıtlar gösteriliyor.",
+        "Sign in to refresh the Inbox.": "Gelen kutusunu yenilemek için giriş yapın.",
+        "The Inbox could not be refreshed: ": "Gelen kutusu yenilenemedi: ",
+        "Nothing downloaded to this device yet. Refresh to download the records.": "Bu cihaza henüz bir şey indirilmedi. Kayıtları indirmek için Yenile'ye basın.",
+        "No records on this device.": "Bu cihazda kayıt yok.",
+        "No record matches the search.": "Aramayla eşleşen kayıt yok.",
+        "No longer on the server.": "Artık sunucuda yok.",
+        "Changed on the server since you downloaded it.": "İndirdiğinizden beri sunucuda değişti.",
+        "Your changes are waiting in the Outbox.": "Değişiklikleriniz Giden kutusunda bekliyor.",
+        "Show answers": "Cevapları göster",
+        "Compare": "Karşılaştır",
+        "Open": "Aç",
+        "Your unsent changes to this record were reopened.": "Bu kayıtta gönderilmemiş değişiklikleriniz yeniden açıldı.",
+        "Record opened from the Inbox.": "Kayıt Gelen kutusundan açıldı.",
+        "The server did not answer for every changed row.": "Sunucu değiştirilen her satır için cevap vermedi.",
+        "Yours": "Sizinki",
+        "differs": "farklı",
+        "Discard your changes to this record and keep the server’s version?": "Bu kayıttaki değişiklikleriniz silinsin ve sunucudaki sürüm kalsın mı?",
+        "Sending your version again…": "Sizin sürümünüz yeniden gönderiliyor…",
+        "Keeping the server’s version…": "Sunucudaki sürüm tutuluyor…",
+        "Your version was sent.": "Sizin sürümünüz gönderildi.",
+        "The server’s version was kept. Anything else you added was sent.": "Sunucudaki sürüm kaldı. Eklediğiniz diğer her şey gönderildi.",
+        "It was changed on the server again. Compare once more.": "Sunucuda yeniden değişti. Bir kez daha karşılaştırın.",
+        "It is no longer on the server. Your answers are kept in the Outbox.": "Artık sunucuda yok. Cevaplarınız Giden kutusunda duruyor.",
+        "The answers were copied.": "Cevaplar kopyalandı.",
+        "This browser would not copy them; they are selected for you to copy.": "Bu tarayıcı kopyalamadı; kopyalamanız için seçildiler.",
+        "Changes to: ": "Değişiklik: ",
+        "Changed on the server since you downloaded it. Compare the two and choose which to keep.": "İndirdiğinizden beri sunucuda değişti. İkisini karşılaştırıp hangisinin kalacağını seçin.",
+        "No longer on the server. Your answers are kept here: show them to copy them.": "Artık sunucuda yok. Cevaplarınız burada duruyor: kopyalamak için gösterin.",
+        "Open its form to compare.": "Karşılaştırmak için formunu açın.",
+        "Discard this record? It is no longer on the server, and your answers cannot be recovered.": "Bu kayıt silinsin mi? Artık sunucuda yok ve cevaplarınız geri getirilemez.",
+        "Your changes were sent.": "Değişiklikleriniz gönderildi.",
+        "Not sent yet: the record was changed on the server since you downloaded it. Your changes are kept in the Outbox.": "Henüz gönderilmedi: kayıt siz indirdikten sonra sunucuda değişti. Değişiklikleriniz Giden kutusunda duruyor.",
+        "Not sent: the record is no longer on the server. Your answers are kept on this device, in the Outbox, to read and copy.": "Gönderilmedi: kayıt artık sunucuda yok. Cevaplarınız okumak ve kopyalamak için bu cihazda, Giden kutusunda duruyor.",
+        "The server refused the answers: ": "Sunucu cevapları kabul etmedi: "
+    });
     function isTurkish() { return /\(tr\)|türkçe|turkish/i.test(lang || ''); }
     function t(s) { return isTurkish() && Object.prototype.hasOwnProperty.call(TR, s) ? TR[s] : s; }
     function applyStaticText() {
@@ -358,6 +419,10 @@
         if (draftsToggle && draftsToggle.firstChild && draftsToggle.firstChild.nodeType === 3) { draftsToggle.firstChild.nodeValue = isTurkish() ? 'Taslaklar ' : 'Drafts '; }
         var toggle = document.getElementById('outbox-toggle');
         if (toggle && toggle.firstChild && toggle.firstChild.nodeType === 3) { toggle.firstChild.nodeValue = isTurkish() ? 'Giden kutusu ' : 'Outbox '; }
+        var inboxToggle = document.getElementById('inbox-toggle');
+        if (inboxToggle && inboxToggle.firstChild && inboxToggle.firstChild.nodeType === 3) { inboxToggle.firstChild.nodeValue = isTurkish() ? 'Gelen kutusu ' : 'Inbox '; }
+        var searchLabel = document.querySelector('label[for=inbox-search]');
+        if (searchLabel) { searchLabel.textContent = isTurkish() ? 'Ara' : 'Search'; }
     }
     var me = { name: '', email: '', fullName: '', firstName: '', lastName: '' };
     var root = null;         // the root instance
@@ -701,7 +766,7 @@
             case 'portalUrl': return me.name ? location.origin + location.pathname.replace(/\/forms(\/.*)?$/i, '') : '';
             case 'language': return lang || (form && form.defaultLanguage) || '';
             case 'surveyName': return (form && form.title) || '';
-            case 'mode': return 'new';          // there is no editing of a sent record in this client yet
+            case 'mode': return editing ? 'edit' : 'new';   // a record opened from the Inbox is being edited (ADR-300)
             case 'status': return '';           // Survey123: empty for a new response
         }
         return '';
@@ -763,7 +828,8 @@
                     var count = Math.max(0, Math.min(200, Math.floor(Number(evalString(n.repeatCount, inst, n)))));
                     if (isNaN(count)) { count = 0; }
                     while (list.length < count) { list.push(newInstance(n, inst)); changed = true; structureChanged = true; }
-                    while (list.length > count) { list.pop(); changed = true; structureChanged = true; }
+                    // A row the server already holds is never taken away (ADR-300 §5.7): a count below it stops there.
+                    while (list.length > count && !list[list.length - 1].existing) { list.pop(); changed = true; structureChanged = true; }
                 }
                 list.forEach(function (child) { walkInstance(child, r); });
             }
@@ -853,7 +919,7 @@
     function filesOf(inst, name) { return inst.files[name] || []; }
 
     function isEmpty(inst, q) {
-        if (isMedia(q)) { return filesOf(inst, q.name).length === 0; }
+        if (isMedia(q)) { return filesOf(inst, q.name).length === 0 && existingFilesOf(inst, q.name).length === 0; }
         var v = inst.values[q.name];
         return v === undefined || v === null || String(v).trim() === '';
     }
@@ -1170,7 +1236,7 @@
                     if (labelTemplate.indexOf('${') >= 0) { labelText.textContent = interpolate(labelTemplate, inst); }
                     var required = evalBool(q.required, inst, q, false);
                     star.hidden = !required;
-                    var readOnly = evalBool(q.readOnly, inst, q, false);
+                    var readOnly = evalBool(q.readOnly, inst, q, false) || lockedRow(inst);
                     var set = values();
                     var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
                     error.textContent = message;
@@ -1198,7 +1264,10 @@
             var inner = foldable ? el('div', { class: 'collapse-panel', id: 'r' + (++seq) }) : item;
             var toggle = foldable ? collapseHeading(level + 1, label + ' ' + (i + 1), inner, 'item:' + child.id) : null;
             var head = el('div', { class: 'instance-head' }, [toggle || heading(level + 1, label + ' ' + (i + 1))]);
-            if (!r.repeatCount) {
+            if (child.existing) {
+                // A row the server holds, opened from the Inbox: never removed here, and changed only where the repeat allows it.
+                head.appendChild(el('span', { class: 'existing-mark', text: child.existing.locked ? t('On the server; cannot be changed here') : t('On the server') }));
+            } else if (!r.repeatCount) {
                 var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove', text: t('Remove') });
                 remove.setAttribute('aria-label', isTurkish() ? label + ' ' + (i + 1) + ' kaldır' : 'Remove ' + label + ' ' + (i + 1));
                 remove.addEventListener('click', function () {
@@ -1222,7 +1291,7 @@
             if (toggle) { views.push({ update: toggle.flagUpdate }); }
             box.appendChild(item);
         });
-        if (!r.repeatCount) {
+        if (!r.repeatCount && !(editing && repeatParameter(r, 'allowAdds') === false)) {
             var add = el('button', { type: 'button', class: 'quiet', 'data-focus': 'add', text: isTurkish() ? label + ' ekle' : 'Add ' + label });
             add.addEventListener('click', function () {
                 var made = newInstance(r, inst);
@@ -1282,6 +1351,7 @@
 
         var widget = buildWidget(inst, q, id, describedBy);
         shell.appendChild(widget.node);
+        if (isMedia(q) && existingFilesOf(inst, q.name).length) { shell.appendChild(existingFilesNode(inst, q, id)); }
         if (q.calculation && (q.calculationMode === 'manual' || q.calculationMode === 'whenEmpty') && hasUi(q)) {
             var calculate = el('button', { type: 'button', class: 'quiet', 'data-focus': 'calculate', 'aria-describedby': id + '-label', text: t('Calculate') });
             var calculated = el('p', { class: 'hint', 'aria-live': 'polite' });
@@ -1309,6 +1379,7 @@
                 var required = evalBool(q.required, inst, q, false);
                 star.hidden = !required;
                 var readOnly = !!q.calculation && q.type !== 'note' ? evalBool(q.readOnly, inst, q, true) : evalBool(q.readOnly, inst, q, false);
+                if (lockedRow(inst)) { readOnly = true; }
                 if (widget.sync) { widget.sync(readOnly, required); }
                 var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
                 error.textContent = message;
@@ -2370,7 +2441,8 @@
 
     function setFiles(inst, q, list) {
         inst.files[q.name] = list;
-        inst.values[q.name] = list.map(function (f) { return f.name; }).join(' ');
+        // A record from the Inbox keeps the names of the files the server already holds in the answer, beside the new ones.
+        inst.values[q.name] = existingFilesOf(inst, q.name).concat(list).map(function (f) { return f.name; }).join(' ');
         inst.touched[q.name] = true;
         refresh(false);
         scheduleDraft();
@@ -2698,9 +2770,21 @@
         var attachments = [];
         var problemsFound = [];
 
+        // A record from the Inbox (ADR-300 §5.6–§5.8) goes to the Inbox view: its rows that the server holds are sent as
+        // updates, each with the EditDate it was downloaded with, and its new repeat rows as adds. A row of a repeat
+        // that does not allow updates is not sent at all, and one that allows them is sent only when it changed.
+        var edit = !!editing;
+        var known = {};    // GlobalID -> object id, for the rows the server already holds
+
         function emit(inst, repeatName, parent) {
             var layer = layerFor(repeatName);
             if (!layer) { problemsFound.push('No layer for ' + (repeatName || 'the form') + ' in the publication.'); return; }
+            if (edit && !layer.inboxUrl) { problemsFound.push('No Inbox layer for ' + (repeatName || 'the form') + ' in the publication.'); return; }
+            var url = edit ? layer.inboxUrl : layer.url;
+            var submitTo = edit ? layer.inboxUrl : (layer.submitUrl || layer.url);
+            var existing = edit ? inst.existing : null;
+            // Decided before the answers are read, so `end` moves only on a row that is sent for another reason.
+            var sendRow = !existing || !parent || (!existing.locked && changedSince(inst));
             var attributes = { globalid: inst.id };
             if (parent) { attributes.parentglobalid = parent.id; }
             var geometry = null;
@@ -2710,12 +2794,12 @@
                     if (inst.rel[n.name] === false) { return; }
                     if (n.kind === 'group') { fill(n.body || []); return; }
                     if (n.kind !== 'question') { return; }
-                    if (n.type === 'end') { inst.values[n.name] = localDateTime(now); }
+                    if (n.type === 'end' && sendRow) { inst.values[n.name] = localDateTime(now); }
                     var v = inst.values[n.name];
                     if (n.name === layer.location) { geometry = geometryOf(n, v); return; }
                     if (has(layer.attachments, n.name)) {
                         filesOf(inst, n.name).forEach(function (f) {
-                            attachments.push({ url: layer.url, submit: layer.submitUrl || layer.url, globalid: inst.id, question: n.name, name: f.name, type: f.type, size: f.size, blob: f.blob });
+                            attachments.push({ url: url, submit: submitTo, globalid: inst.id, question: n.name, name: f.name, type: f.type, size: f.size, blob: f.blob, edit: edit });
                         });
                         return;
                     }
@@ -2723,11 +2807,26 @@
                     if (!column) { return; }
                     var value = attributeValue(n, v);
                     if (value !== null && !(typeof value === 'number' && isNaN(value))) { attributes[column] = value; }
+                    // An answer cleared on a row the server holds is sent as cleared: left out, the server would keep it.
+                    else if (existing) { attributes[column] = null; }
                 });
             })(inst.node.body || []);
-            var add = { attributes: attributes };
-            if (geometry) { add.geometry = geometry; }
-            (byLayer[layer.url] || (byLayer[layer.url] = { url: layer.url, submit: layer.submitUrl || layer.url, depth: depthOf(layer), adds: [] })).adds.push(add);
+            var bucket = byLayer[url] || (byLayer[url] = { url: url, submit: submitTo, repeat: repeatName, depth: depthOf(layer), adds: [], updates: [], expected: {} });
+            if (existing) {
+                attributes[existing.oidField || 'objectid'] = existing.objectId;
+                bucket.oidField = existing.oidField || 'objectid';
+                known[inst.id] = existing.objectId;
+                if (sendRow) {
+                    var update = { attributes: attributes };
+                    if (geometry) { update.geometry = geometry; }
+                    bucket.updates.push(update);
+                    bucket.expected[inst.id] = existing.editDate;
+                }
+            } else {
+                var add = { attributes: attributes };
+                if (geometry) { add.geometry = geometry; }
+                bucket.adds.push(add);
+            }
 
             (function children(body) {
                 body.forEach(function (n) {
@@ -2738,7 +2837,7 @@
                             // Owner decision 2026-11-09: an item nobody answered anything in is not sent. A repeat starts
                             // with one item, and the first trial on dev sent an empty room row for it. A repeat_count
                             // asked for its items, so those are sent as they are.
-                            if (!n.repeatCount && !answered(child)) { return; }
+                            if (!n.repeatCount && !child.existing && !answered(child)) { return; }
                             emit(child, n.name, inst);
                         });
                     }
@@ -2749,7 +2848,8 @@
         emit(root, '', null);
         var layers = Object.keys(byLayer).map(function (k) { return byLayer[k]; }).sort(function (a, b) { return a.depth - b.depth; });
         var name = form.instanceName ? evalString(form.instanceName, root, null) : '';
-        return {
+        var record = {
+            kind: edit ? 'edit' : 'new',
             formId: itemId,
             formVersion: form.version || '',
             title: doc.title || form.title || '',
@@ -2759,9 +2859,14 @@
             message: '',
             layers: layers,
             attachments: attachments,
-            progress: { done: {}, attached: {}, attempted: {} },
+            progress: { done: {}, attached: {}, attempted: {}, updated: {}, known: known },
             problems: problemsFound
         };
+        if (edit) {
+            record.inbox = { key: editing.key, globalId: root.id, objectId: editing.objectId, label: editing.label };
+            record.answers = answersSummary(root);
+        }
+        return record;
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -2853,6 +2958,7 @@
     async function sendRecord(record, save) {
         var p = record.progress;
         for (var li = 0; li < record.layers.length; li++) {
+            if (record.layers[li].updates && record.layers[li].updates.length) { await sendUpdates(record, record.layers[li], p, save); }
             await sendLayer(record.layers[li], p, save);
         }
 
@@ -2861,6 +2967,7 @@
             var key = att.globalid + '/' + att.question + '/' + ai;
             if (p.attached[key]) { continue; }
             var oid = p.done[att.globalid];
+            if (oid === undefined && p.known) { oid = p.known[att.globalid]; }   // a row the server held already (Inbox)
             if (oid === undefined) { throw new Error('The row of ' + att.question + ' was not added.'); }
             if (oid === -1) {
                 var lost = new Error('The record reached the server on an earlier attempt, but this device could not learn which row it became, so '
@@ -2881,7 +2988,8 @@
             data.append('keywords', att.question); // before the file, so a streaming reader has it first
             data.append('attachment', att.blob, att.name);
             // The row's GlobalID shows the answers view, which shows no row, that this device made it (2026-11-16).
-            var added = await api((att.submit || att.url) + '/' + oid + '/addAttachment?parentGlobalId=' + encodeURIComponent(att.globalid), { method: 'POST', body: data });
+            // Through the Inbox view the row is readable, so it needs no GlobalID to show it is the sender's (ADR-300 §5.8).
+            var added = await api((att.submit || att.url) + '/' + oid + '/addAttachment' + (att.edit ? '' : '?parentGlobalId=' + encodeURIComponent(att.globalid)), { method: 'POST', body: data });
             if (added && added.addAttachmentResult && added.addAttachmentResult.success === false) {
                 var e = new Error((added.addAttachmentResult.error && added.addAttachmentResult.error.description) || t('The attachment was refused.'));
                 e.refused = true;
@@ -2906,6 +3014,8 @@
                 for (var i = 0; i < records.length; i++) {
                     var record = records[i];
                     if (record.status === 'refused' && !record.retry) { refused++; continue; }
+                    // A conflict waits for the person's choice, and a record gone from the server for them to copy it.
+                    if ((record.status === 'conflict' || record.status === 'gone') && !record.retry) { waiting++; continue; }
                     var outcome = await sendOne(record);
                     if (outcome === 'sent') { sent++; } else if (outcome === 'refused') { refused++; } else { waiting++; if (outcome === 'offline') { break; } }
                 }
@@ -2924,15 +3034,29 @@
         }
     }
 
-    // 'sent' | 'offline' | 'sign-in' | 'refused'
+    // 'sent' | 'offline' | 'sign-in' | 'refused' | 'conflict' | 'gone'
     async function sendOne(record) {
         var save = function () { return dbPut('outbox', record); };
         record.retry = false;
         try {
             await sendRecord(record, save);
             await dbDelete('outbox', record.key);
+            if (record.kind === 'edit') { await inboxAfterSent(record).catch(function () { /* the next Refresh brings it */ }); }
             return 'sent';
         } catch (e) {
+            if (e.conflict) {
+                record.status = 'conflict';
+                record.message = t('Changed on the server since you downloaded it.');
+                await save();
+                return 'conflict';
+            }
+            if (e.gone) {
+                record.status = 'gone';
+                record.message = t('No longer on the server.');
+                await save();
+                await inboxMarkGone(record).catch(function () { /* the record itself keeps the answers */ });
+                return 'gone';
+            }
             if (e.network) {
                 record.status = 'queued';
                 record.message = t('Waiting for a connection.');
@@ -2963,20 +3087,47 @@
         list.textContent = '';
         if (!records.length) {
             list.appendChild(el('li', { class: 'state', text: t('Nothing is waiting to be sent.') }));
+            if (inboxOn() && inboxCache) { drawInbox(); }
             return;
         }
+        var keep = document.activeElement && list.contains(document.activeElement) ? document.activeElement.getAttribute('data-focus') : null;
         records.forEach(function (r) {
             var when = new Date(r.created);
-            var title = (r.instanceName || r.title || 'Record') + ' — ' + when.toLocaleString();
+            var title = (r.kind === 'edit' ? t('Changes to: ') : '') + (r.instanceName || (r.inbox && r.inbox.label) || r.title || 'Record') + ' — ' + when.toLocaleString();
             var state = r.status === 'refused' ? 'Refused by the server: ' + r.message
                 : r.status === 'sign-in' ? t('Waiting: sign in to send it.')
+                : r.status === 'conflict' ? t('Changed on the server since you downloaded it. Compare the two and choose which to keep.')
+                : r.status === 'gone' ? t('No longer on the server. Your answers are kept here: show them to copy them.')
                 : r.status === 'queued' && r.message ? r.message : t('Waiting to be sent.');
             if (r.formId === itemId && form && r.formVersion !== (form.version || '')) { state += ' (filled in an earlier version of the form)'; }
             var item = el('li', { 'data-key': String(r.key) }, [
                 el('strong', { text: title }),
-                el('span', { class: 'state' + (r.status === 'refused' ? ' refused' : ''), text: state })
+                el('span', { class: 'state' + (r.status === 'refused' || r.status === 'conflict' || r.status === 'gone' ? ' refused' : ''), text: state })
             ]);
             var actions = el('div', { class: 'row-actions' });
+            if (r.status === 'conflict') {
+                if (r.formId === itemId && form) {
+                    var compare = el('button', { type: 'button', 'data-focus': 'compare-' + r.key, text: t('Compare') });
+                    compare.addEventListener('click', function () { openCompare(r, compare); });
+                    actions.appendChild(compare);
+                } else {
+                    actions.appendChild(el('span', { class: 'state', text: t('Open its form to compare.') }));
+                }
+            }
+            if (r.status === 'gone') {
+                var show = el('button', { type: 'button', 'data-focus': 'answers-' + r.key, text: t('Show answers') });
+                show.addEventListener('click', function () { showAnswers(r, show); });
+                var forget = el('button', { type: 'button', class: 'danger', 'data-focus': 'forget-' + r.key, text: t('Discard') });
+                forget.addEventListener('click', async function () {
+                    if (!window.confirm(t('Discard this record? It is no longer on the server, and your answers cannot be recovered.'))) { return; }
+                    await dbDelete('outbox', r.key);
+                    await inboxForget(r).catch(function () { /* nothing kept */ });
+                    await drawOutbox();
+                    $('outbox-toggle').focus();
+                });
+                actions.appendChild(show);
+                actions.appendChild(forget);
+            }
             if (r.status === 'refused') {
                 var retry = el('button', { type: 'button', class: 'quiet', text: t('Try again') });
                 retry.addEventListener('click', async function () { r.retry = true; await dbPut('outbox', r); sendOutbox(); });
@@ -2995,6 +3146,8 @@
             if (actions.childNodes.length) { item.appendChild(actions); }
             list.appendChild(item);
         });
+        if (keep) { var again = list.querySelector('[data-focus="' + cssEscape(keep) + '"]'); if (again) { again.focus(); } }
+        if (inboxOn() && inboxCache) { drawInbox(); }
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -3020,6 +3173,9 @@
             out.files[k] = (inst.files[k] || []).map(function (f) { return { name: f.name, type: f.type, size: f.size, blob: f.blob }; });
         });
         Object.keys(inst.repeats).forEach(function (k) { out.repeats[k] = (inst.repeats[k] || []).map(snapshot); });
+        // A record from the Inbox: which rows the server holds, and the files it holds for them (ADR-300).
+        if (inst.existing) { out.existing = inst.existing; }
+        if (inst.existingFiles) { out.existingFiles = inst.existingFiles; }
         return out;
     }
 
@@ -3027,7 +3183,10 @@
     // question it gained starts with its default, and the items of a repeat keep the GlobalIDs they were made with.
     function restoreInstance(node, parent, snap) {
         var inst = { id: snap.id || guid(), node: node, parent: parent, values: {}, files: {}, repeats: {}, rel: {}, touched: {}, relevant: true };
+        if (snap.existing) { inst.existing = snap.existing; }
+        if (snap.existingFiles) { inst.existingFiles = snap.existingFiles; }
         initBody(inst, node.body || []);
+        if (snap.existing) { inst.values = {}; }   // a row the server holds takes no defaults: its answers are its own
         var questions = {}, repeats = {};
         (function walk(body) {
             body.forEach(function (n) {
@@ -3102,7 +3261,7 @@
                 await dbPut('drafts', {
                     id: target.id, formId: itemId, formVersion: form.version || '', title: draftTitle(),
                     created: (existing && existing.created) || Date.now(), updated: Date.now(),
-                    lang: lang, pageIndex: pageIndex, tree: snapshot(target)
+                    lang: lang, pageIndex: pageIndex, tree: snapshot(target), inbox: editing || null
                 });
                 var first = !draftId;
                 draftId = target.id;
@@ -3184,8 +3343,10 @@
 
     function restoreFrom(d) {
         showAll = false;
+        editing = d.inbox || null;
         root = restoreInstance(form.root, null, d.tree);
         draftId = d.id;
+        drawEditingBar();
         pageIndex = Number(d.pageIndex) || 0;
         if (d.lang !== undefined && d.lang !== lang && (form.languages || []).indexOf(d.lang) >= 0) {
             lang = d.lang;
@@ -3196,6 +3357,7 @@
         $('summary').hidden = true;
         $('form').hidden = false;
         drawDraftBar();
+        drawEditingBar();
         refresh(true);
         drawDrafts();
     }
@@ -3206,6 +3368,852 @@
             if (!/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(first.tagName)) { first.setAttribute('tabindex', '-1'); }
             first.focus();
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The Inbox — ADR-300 §5.6–§5.8. A form whose publisher turned it on offers its signed-in members the records the
+    // Inbox view gives them. Refresh downloads them, with their repeat rows and the names of their attachments, into the
+    // 'inbox' store, so they can be listed, searched and opened without a signal. Opening one fills the form with its
+    // answers; sending queues the change in the outbox beside new records, each row with the EditDate it was
+    // downloaded with (the Graticula parameter expectedEditDates). The server refuses a row that moved since (412) or
+    // is gone (404); the first is shown beside the server's version for the person to choose, the second is kept on
+    // the device with its answers readable. Neither is ever dropped without the person deciding (ADR-287 condition 6).
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var editing = null;      // the Inbox record on screen: { key, globalId, objectId, editDate, label }; null for a new one
+    var loadedFrom = '';     // 'server' | 'device' | 'preview': where the form on screen came from
+    var inboxCache = null;   // { user, meta, entries } as last read from the store
+    var inboxBusy = false;
+    var inboxLabels = {};    // entry key|EditDate|language -> { label, search }
+    var INBOX_SHOWN = 200;   // INFERRED: a list longer than this is cut, and the search narrows it
+
+    /** True when this page offers the Inbox: the server said the form has one, which it says only to a signed-in member. */
+    function inboxOn() {
+        if (previewing || !doc || !doc.publication || !doc.publication.inbox) { return false; }
+        var top = layerFor('');
+        // Offline the member cannot be asked; the copy of form.json kept on the device (or by the service worker) was
+        // served to a signed-in one, since the server leaves publication.inbox out for anyone else.
+        return !!(top && top.inboxUrl) && (!!me.name || whoUnknown || loadedFrom === 'device');
+    }
+
+    function inboxPrefix(user) { return itemId + '|' + user + '|'; }
+
+    function normalGid(g) {
+        var s = String(g || '').trim().toUpperCase();
+        if (!s) { return ''; }
+        return s.charAt(0) === '{' ? s : '{' + s + '}';
+    }
+
+    function attr(attributes, name) {
+        if (!attributes) { return undefined; }
+        if (Object.prototype.hasOwnProperty.call(attributes, name)) { return attributes[name]; }
+        var lower = String(name).toLowerCase();
+        var keys = Object.keys(attributes);
+        for (var i = 0; i < keys.length; i++) { if (keys[i].toLowerCase() === lower) { return attributes[keys[i]]; } }
+        return undefined;
+    }
+
+    function editDateOf(a) {
+        var v = attr(a, 'last_edited_date');
+        if (v === undefined) { v = attr(a, 'EditDate'); }
+        return v === undefined || v === null ? null : Number(v);
+    }
+
+    function editorOf(a) { var v = attr(a, 'last_edited_user'); if (v === undefined) { v = attr(a, 'Editor'); } return v ? String(v) : ''; }
+
+    /** A repeat's bind::esri:parameters setting, as true, false or undefined when the form does not say. */
+    function repeatParameter(r, name) {
+        if (r && typeof r[name] === 'boolean') { return r[name]; }
+        var p = (r && r.parameters) || {};
+        var keys = Object.keys(p);
+        for (var i = 0; i < keys.length; i++) {
+            if (keys[i].toLowerCase() === name.toLowerCase()) { return isYes(p[keys[i]]) ? true : isNo(p[keys[i]]) ? false : undefined; }
+        }
+        var written = String((r && (r.esriParameters || r['bind::esri:parameters'])) || '');
+        var m = new RegExp('(?:^|[\\s,;&])' + name + '\\s*=\\s*(\\w+)', 'i').exec(written);
+        return m ? (isYes(m[1]) ? true : isNo(m[1]) ? false : undefined) : undefined;
+    }
+
+    /** A row of a repeat whose existing rows may not be changed (Survey123: allowUpdates is false unless the form says true). */
+    function lockedRow(inst) { return !!(inst && inst.existing && inst.existing.locked); }
+
+    function existingFilesOf(inst, name) { return (inst.existingFiles && inst.existingFiles[name]) || []; }
+
+    // The files the server holds for a question of a record from the Inbox: shown, linked when online, never removed.
+    function existingFilesNode(inst, q, id) {
+        var list = el('ul', { class: 'files existing-files', 'aria-labelledby': id + '-label ' + id + '-existing' });
+        var online = navigator.onLine !== false;
+        existingFilesOf(inst, q.name).forEach(function (f) {
+            var children = [];
+            if (online && f.url && /^image\//.test(f.contentType || '')) { children.push(el('img', { src: f.url, alt: '', loading: 'lazy' })); }
+            children.push(online && f.url ? el('a', { href: f.url, target: '_blank', rel: 'noopener', text: f.name })
+                : el('span', { text: f.name + ' ' + t('(shown when online)') }));
+            list.appendChild(el('li', null, children));
+        });
+        return el('div', { class: 'existing' }, [
+            el('p', { class: 'hint', id: id + '-existing', text: t('Already on the server. These cannot be changed or removed here; new files are added beside them.') }),
+            list
+        ]);
+    }
+
+    function canonical(values) {
+        var out = {};
+        Object.keys(values || {}).sort().forEach(function (k) { var v = values[k]; out[k] = v === undefined || v === null ? '' : String(v); });
+        return JSON.stringify(out);
+    }
+
+    function changedSince(inst) { return !inst.existing || canonical(inst.values) !== inst.existing.original; }
+
+    // ----- From the server's rows to answers
+
+    function answerFromAttribute(q, v) {
+        if (v === undefined || v === null || v === '') { return null; }
+        var d;
+        switch (q.type) {
+            case 'date': case 'today':
+                d = typeof v === 'number' || /^-?\d+$/.test(String(v)) ? new Date(Number(v)) : new Date(String(v));
+                return isNaN(d.getTime()) ? null : localDate(d);
+            case 'dateTime': case 'start': case 'end':
+                d = typeof v === 'number' || /^-?\d+$/.test(String(v)) ? new Date(Number(v)) : new Date(String(v));
+                return isNaN(d.getTime()) ? null : localDateTime(d);
+            case 'select_multiple': case 'select_multiple_from_file':
+                return String(v).split(/[\s,]+/).filter(Boolean).join(',');
+            default:
+                return String(v);
+        }
+    }
+
+    function answerFromGeometry(q, g) {
+        if (!g) { return null; }
+        if (typeof g.x === 'number' && typeof g.y === 'number') { return q.type === 'geopoint' ? g.y + ' ' + g.x + ' 0 0' : null; }
+        var line = (g.paths && g.paths[0]) || (g.rings && g.rings[0]);
+        if (!line || !line.length) { return null; }
+        var pts = line.slice();
+        if (g.rings && pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) { pts.pop(); }
+        return pts.map(function (p) { return p[1] + ' ' + p[0] + ' 0 0'; }).join(';');
+    }
+
+    // An instance of the form built from a downloaded row and the rows below it. It takes no defaults and starts no
+    // empty repeat item: everything in it is what the server holds. `original` is what is compared to find a change.
+    function instanceFromRow(node, parent, row, entry, repeatName) {
+        var layer = layerFor(repeatName) || {};
+        var inst = { id: normalGid(row.globalId), node: node, parent: parent, values: {}, files: {}, repeats: {}, rel: {}, touched: {}, relevant: true, existingFiles: {} };
+        var columns = layer.columns || {};
+        var held = (entry.attachments && entry.attachments[inst.id]) || [];
+        var media = [];
+        (function walk(body) {
+            body.forEach(function (n) {
+                if (n.kind === 'group') { walk(n.body || []); return; }
+                if (n.kind === 'repeat') {
+                    var rows = ((entry.repeats || {})[n.name] || []).filter(function (r) { return normalGid(r.parentGlobalId) === inst.id; });
+                    inst.repeats[n.name] = rows.map(function (r) { return instanceFromRow(n, inst, r, entry, n.name); });
+                    return;
+                }
+                if (n.kind !== 'question') { return; }
+                if (isMedia(n)) { media.push(n); return; }
+                var v = n.name === layer.location ? answerFromGeometry(n, row.geometry)
+                    : columns[n.name] ? answerFromAttribute(n, attr(row.attributes, columns[n.name])) : null;
+                if (v !== null) { inst.values[n.name] = v; }
+            });
+        })(node.body || []);
+        // Attachments are matched to their question by keywords, which this client sends; one media question takes all.
+        media.forEach(function (n) {
+            var mine = held.filter(function (a) { return a.keywords === n.name || (media.length === 1 && !a.keywords); });
+            if (!mine.length) { return; }
+            inst.existingFiles[n.name] = mine.map(function (a) {
+                return { id: a.id, name: a.name, contentType: a.contentType, size: a.size,
+                    url: layer.inboxUrl ? layer.inboxUrl + '/' + row.objectId + '/attachments/' + a.id : '' };
+            });
+            inst.values[n.name] = mine.map(function (a) { return a.name; }).join(' ');
+        });
+        inst.existing = {
+            objectId: row.objectId, oidField: entry.oidFields && entry.oidFields[repeatName || ''] || 'objectid',
+            editDate: row.editDate, locked: !!parent && repeatParameter(node, 'allowUpdates') !== true,
+            original: canonical(inst.values)
+        };
+        return inst;
+    }
+
+    function inboxInstance(entry) {
+        return instanceFromRow(form.root, null, { globalId: entry.globalId, objectId: entry.objectId, attributes: entry.attributes, geometry: entry.geometry, editDate: entry.editDate }, entry, '');
+    }
+
+    // ----- Labels and search
+
+    function shownAnswer(q, v) {
+        if (v === undefined || v === null || v === '') { return ''; }
+        var listName = q.list || q.file;
+        if (listName && choiceRows(listName)) {
+            var rows = choiceRows(listName);
+            return String(v).split(',').map(function (c) {
+                var row = rows.filter(function (r) { return String(r.name) === c; })[0];
+                return row ? choiceLabel(row) : c;
+            }).join(', ');
+        }
+        if (q.type === 'date') { return String(v).slice(0, 10); }
+        if (q.type === 'dateTime') { var d = new Date(v); return isNaN(d.getTime()) ? String(v) : d.toLocaleString(); }
+        return String(v);
+    }
+
+    function inboxLabelOf(entry) {
+        var key = entry.key + '|' + entry.editDate + '|' + lang;
+        if (inboxLabels[key]) { return inboxLabels[key]; }
+        var inst = inboxInstance(entry);
+        var label = '';
+        if (form.instanceName) {
+            var saved = root;
+            try { root = inst; label = String(X.evaluateString(form.instanceName, contextFor(inst, null)) || '').trim(); } catch (e) { label = ''; } finally { root = saved; }
+        }
+        if (!label) {
+            // The first answers that read as words: text, a choice, a number or a date, at most two.
+            var parts = [];
+            (function walk(body) {
+                body.forEach(function (n) {
+                    if (parts.length >= 2) { return; }
+                    if (n.kind === 'group') { walk(n.body || []); return; }
+                    if (n.kind !== 'question' || isMedia(n) || /^geo/.test(n.type) || !hasUi(n) || n.type === 'note') { return; }
+                    var s = shownAnswer(n, inst.values[n.name]);
+                    if (s.trim()) { parts.push(s.trim().slice(0, 60)); }
+                });
+            })(form.root.body || []);
+            label = parts.join(' · ');
+        }
+        if (!label) { label = (isTurkish() ? 'Kayıt ' : 'Record ') + entry.objectId; }
+        var search = [label].concat(Object.keys(entry.attributes || {}).map(function (k) { var v = entry.attributes[k]; return v === null || v === undefined ? '' : String(v); }));
+        inboxLabels[key] = { label: label.slice(0, 120), search: fold(search.join(' ')) };
+        return inboxLabels[key];
+    }
+
+    function inboxWhen(ms) { return ms ? new Date(ms).toLocaleString() : ''; }
+
+    // ----- The store
+
+    async function inboxUser() {
+        if (me.name) { return me.name; }
+        // Offline: the member who last refreshed this form's Inbox on this device.
+        var metas = (await dbAll('inbox')).filter(function (e) { return e.kind === 'meta' && e.formId === itemId; })
+            .sort(function (a, b) { return b.refreshed - a.refreshed; });
+        return metas.length ? metas[0].user : '';
+    }
+
+    async function inboxLoad() {
+        var user = await inboxUser();
+        var prefix = inboxPrefix(user);
+        var mine = (await dbDo('inbox', 'readonly', function (s) { return s.getAll(IDBKeyRange.bound(prefix, prefix + '￿')); })) || [];
+        inboxCache = {
+            user: user,
+            meta: mine.filter(function (e) { return e.kind === 'meta'; })[0] || null,
+            entries: mine.filter(function (e) { return e.kind === 'record'; })
+        };
+        return inboxCache;
+    }
+
+    async function inboxEdits() {
+        var out = {};
+        (await dbAll('outbox')).forEach(function (r) { if (r.kind === 'edit' && r.inbox && r.inbox.key) { out[r.inbox.key] = r; } });
+        return out;
+    }
+
+    function inboxQuery(url, params) {
+        return api(url + '/query?' + new URLSearchParams(Object.assign({ f: 'json', outFields: '*', returnGeometry: 'true', outSR: '4326' }, params)));
+    }
+
+    function rowOf(feature, oidField, gidField) {
+        var a = feature.attributes || {};
+        return {
+            globalId: normalGid(attr(a, gidField)), objectId: attr(a, oidField), parentGlobalId: normalGid(attr(a, 'parentglobalid')),
+            attributes: a, geometry: feature.geometry || null, editDate: editDateOf(a)
+        };
+    }
+
+    // Every row of a repeat layer below the given parents, a hundred parents to a query and every page of each.
+    async function inboxChildren(url, parents) {
+        var rows = [], oidField = 'objectid', gidField = 'globalid';
+        for (var i = 0; i < parents.length; i += 100) {
+            var ids = parents.slice(i, i + 100).map(function (g) { return "'" + g.replace(/'/g, '') + "'"; }).join(',');
+            for (var offset = 0, page = 0; page < 100; page++) {
+                var body = await inboxQuery(url, { where: 'parentglobalid in (' + ids + ')', resultOffset: String(offset) });
+                oidField = body.objectIdFieldName || oidField;
+                gidField = body.globalIdFieldName || gidField;
+                var features = body.features || [];
+                features.forEach(function (f) { rows.push(rowOf(f, oidField, gidField)); });
+                offset += features.length;
+                if (!body.exceededTransferLimit || !features.length) { break; }
+            }
+        }
+        return { rows: rows, oidField: oidField };
+    }
+
+    // The names of a layer's attachments, by the row's GlobalID. Shown online only, so a failure costs only the names.
+    async function inboxAttachments(url, rows) {
+        var out = {};
+        for (var i = 0; i < rows.length; i += 200) {
+            var slice = rows.slice(i, i + 200);
+            var byOid = {};
+            slice.forEach(function (r) { byOid[String(r.objectId)] = r.globalId; });
+            var body = await api(url + '/queryAttachments?' + new URLSearchParams({ f: 'json', objectIds: slice.map(function (r) { return r.objectId; }).join(','), returnMetadata: 'false' }));
+            (body.attachmentGroups || []).forEach(function (g) {
+                var gid = normalGid(g.parentGlobalId) || byOid[String(g.parentObjectId)];
+                if (!gid) { return; }
+                out[gid] = (out[gid] || []).concat((g.attachmentInfos || []).map(function (a) {
+                    return { id: a.id, name: a.name, contentType: a.contentType, size: a.size, keywords: a.keywords || '' };
+                }));
+            });
+        }
+        return out;
+    }
+
+    async function inboxRefresh() {
+        if (inboxBusy || !inboxOn()) { return; }
+        inboxBusy = true;
+        var status = $('inbox-status');
+        var button = $('inbox-refresh');
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        status.textContent = t('Downloading the records…');
+        try {
+            var pub = doc.publication;
+            var limit = Math.max(1, Math.min(5000, Number(pub.inbox.limit) || 1000));
+            var top = layerFor('');
+            var body = await inboxQuery(top.inboxUrl, { where: '1=1', resultRecordCount: String(limit) });
+            var oidFields = { '': body.objectIdFieldName || 'objectid' };
+            var gidField = body.globalIdFieldName || 'globalid';
+            var features = (body.features || []).slice(0, limit);
+            var cut = !!body.exceededTransferLimit || (body.features || []).length > limit;
+            var parents = features.map(function (f) { return rowOf(f, oidFields[''], gidField); });
+
+            // The repeats, parents before children, each read below the rows of the layer above it.
+            var byRepeat = {};
+            var idsOf = { '': parents.map(function (r) { return r.globalId; }) };
+            var repeatLayers = (pub.layers || []).filter(function (l) { return (l.repeat || '') !== '' && l.inboxUrl; })
+                .sort(function (a, b) { return depthOf(a) - depthOf(b); });
+            for (var i = 0; i < repeatLayers.length; i++) {
+                var rl = repeatLayers[i];
+                var above = idsOf[rl.parentRepeat || ''] || [];
+                var got = above.length ? await inboxChildren(rl.inboxUrl, above) : { rows: [], oidField: 'objectid' };
+                byRepeat[rl.repeat] = got.rows;
+                oidFields[rl.repeat] = got.oidField;
+                idsOf[rl.repeat] = got.rows.map(function (r) { return r.globalId; });
+            }
+
+            var attachments = {};
+            var namesMissing = false;
+            var withFiles = (pub.layers || []).filter(function (l) { return l.inboxUrl && (l.attachments || []).length; });
+            for (var j = 0; j < withFiles.length; j++) {
+                var rowsHere = (withFiles[j].repeat || '') === '' ? parents : (byRepeat[withFiles[j].repeat] || []);
+                if (!rowsHere.length) { continue; }
+                try { Object.assign(attachments, await inboxAttachments(withFiles[j].inboxUrl, rowsHere)); }
+                catch (e) { if (e.network) { throw e; } namesMissing = true; }
+            }
+
+            // Each record with the rows below it and their attachments' names.
+            var children = {};
+            Object.keys(byRepeat).forEach(function (name) {
+                byRepeat[name].forEach(function (r) { (children[r.parentGlobalId] || (children[r.parentGlobalId] = [])).push({ repeat: name, row: r }); });
+            });
+            var user = me.name;
+            var prefix = inboxPrefix(user);
+            var now = Date.now();
+            var entries = parents.map(function (p) {
+                var repeats = {}, held = {};
+                (function below(gid) {
+                    if (attachments[gid]) { held[gid] = attachments[gid]; }
+                    (children[gid] || []).forEach(function (c) { (repeats[c.repeat] || (repeats[c.repeat] = [])).push(c.row); below(c.row.globalId); });
+                })(p.globalId);
+                return {
+                    key: prefix + p.globalId, kind: 'record', formId: itemId, user: user, globalId: p.globalId, objectId: p.objectId,
+                    attributes: p.attributes, geometry: p.geometry, editDate: p.editDate, editor: editorOf(p.attributes),
+                    repeats: repeats, attachments: held, oidFields: oidFields, downloaded: now
+                };
+            });
+
+            // What the server no longer gives is taken off the device, except a record with a change still waiting
+            // for it in the outbox or one already found gone: those are the person's, not the Inbox's.
+            var edits = await inboxEdits();
+            var fresh = {};
+            entries.forEach(function (e) { fresh[e.key] = true; });
+            var old = (await dbDo('inbox', 'readonly', function (s) { return s.getAll(IDBKeyRange.bound(prefix, prefix + '￿')); })) || [];
+            var kept = old.filter(function (e) { return e.kind === 'record' && !fresh[e.key] && (e.gone || edits[e.key]); });
+            var drop = old.filter(function (e) { return e.kind === 'record' && !fresh[e.key] && !(e.gone || edits[e.key]); });
+            var meta = { key: prefix, kind: 'meta', formId: itemId, user: user, refreshed: now, count: entries.length, cut: cut, limit: limit };
+            await dbDo('inbox', 'readwrite', function (s) {
+                drop.forEach(function (e) { s.delete(e.key); });
+                entries.forEach(function (e) {
+                    var before = old.filter(function (o) { return o.key === e.key; })[0];
+                    if (before && before.gone) { e.gone = false; }   // it came back: the server holds it again
+                    s.put(e);
+                });
+                s.put(meta);
+                return null;
+            });
+            inboxCache = { user: user, meta: meta, entries: entries.concat(kept) };
+            inboxLabels = {};
+            var said = isTurkish() ? entries.length + ' kayıt indirildi.' : (entries.length === 1 ? 'Downloaded 1 record.' : 'Downloaded ' + entries.length + ' records.');
+            if (cut) { said += ' ' + (isTurkish() ? 'Gelen kutusunun sınırı ' + limit + ' kayıt; daha fazlası indirilmedi.' : 'The Inbox’s limit is ' + limit + ' records; more were not downloaded.'); }
+            if (namesMissing) { said += ' ' + t('The names of their attachments could not be read.'); }
+            status.textContent = said;
+        } catch (e) {
+            status.textContent = e.network ? t('You are offline. The records already on this device are shown.')
+                : authFailure(e.status) ? t('Sign in to refresh the Inbox.')
+                : t('The Inbox could not be refreshed: ') + (e.message || '');
+        } finally {
+            inboxBusy = false;
+            button.disabled = false;
+            button.removeAttribute('aria-disabled');
+            await drawInbox();
+        }
+    }
+
+    // ----- The list
+
+    async function drawInbox() {
+        if (!inboxOn()) { return; }
+        var cache = inboxCache || (await inboxLoad());
+        var edits = await inboxEdits();
+        var count = cache.entries.length;
+        $('inbox-count').textContent = String(count);
+        $('inbox-toggle').setAttribute('aria-label', isTurkish() ? 'Gelen kutusu, ' + count + ' kayıt' : 'Inbox, ' + count + (count === 1 ? ' record' : ' records'));
+        $('inbox-refreshed').textContent = cache.meta
+            ? (isTurkish() ? 'Son yenileme: ' : 'Last refreshed ') + inboxWhen(cache.meta.refreshed) + (isTurkish() ? '.' : '.')
+            : t('Nothing downloaded to this device yet. Refresh to download the records.');
+        var list = $('inbox-list');
+        var keep = document.activeElement && list.contains(document.activeElement) ? document.activeElement.getAttribute('data-focus') : null;
+        var query = fold($('inbox-search').value.trim());
+        var sorted = cache.entries.slice().sort(function (a, b) { return (b.editDate || 0) - (a.editDate || 0); });
+        var found = sorted.filter(function (e) { return !query || inboxLabelOf(e).search.indexOf(query) >= 0; });
+        var shown = found.slice(0, INBOX_SHOWN);
+        $('inbox-shown').textContent = !count ? ''
+            : isTurkish() ? (query ? count + ' kayıttan ' + found.length + ' tanesi eşleşiyor.' : count + ' kayıt.') + (found.length > shown.length ? ' İlk ' + shown.length + ' tanesi listeleniyor; daraltmak için arayın.' : '')
+            : (query ? found.length + ' of ' + count + (count === 1 ? ' record matches.' : ' records match.') : count + (count === 1 ? ' record.' : ' records.'))
+                + (found.length > shown.length ? ' The first ' + shown.length + ' are listed; search to narrow them.' : '');
+        list.textContent = '';
+        if (!count) { list.appendChild(el('li', { class: 'state', text: t('No records on this device.') })); return; }
+        if (!found.length) { list.appendChild(el('li', { class: 'state', text: t('No record matches the search.') })); return; }
+        shown.forEach(function (e) {
+            var label = inboxLabelOf(e).label;
+            var waiting = edits[e.key];
+            var state = (isTurkish() ? 'Son değişiklik ' : 'Last changed ') + inboxWhen(e.editDate) + (e.editor ? (isTurkish() ? ', ' + e.editor : ' by ' + e.editor) : '') + '.';
+            var flag = '';
+            if (e.gone || (waiting && waiting.status === 'gone')) { flag = t('No longer on the server.'); }
+            else if (waiting && waiting.status === 'conflict') { flag = t('Changed on the server since you downloaded it.'); }
+            else if (waiting) { flag = t('Your changes are waiting in the Outbox.'); }
+            var item = el('li', { 'data-key': e.key }, [el('strong', { text: label }), el('span', { class: 'state', text: state })]);
+            if (flag) { item.appendChild(el('span', { class: 'state refused', text: flag })); }
+            var actions = el('div', { class: 'row-actions' });
+            if (e.gone || (waiting && waiting.status === 'gone')) {
+                var show = el('button', { type: 'button', 'data-focus': 'answers-' + e.globalId, text: t('Show answers'), 'aria-label': t('Show answers') + ': ' + label });
+                show.addEventListener('click', function () { showAnswers(waiting || e, show); });
+                actions.appendChild(show);
+            } else if (waiting && waiting.status === 'conflict') {
+                var compare = el('button', { type: 'button', 'data-focus': 'compare-' + e.globalId, text: t('Compare'), 'aria-label': t('Compare') + ': ' + label });
+                compare.addEventListener('click', function () { openCompare(waiting, compare); });
+                actions.appendChild(compare);
+            } else {
+                // INFERRED: a record whose change still waits is not opened again; a second change would be sent against
+                // the same EditDate and refused once the first lands. The Outbox is where it is sent or discarded.
+                var open = el('button', { type: 'button', 'data-focus': 'open-' + e.globalId, text: t('Open'), 'aria-label': t('Open') + ': ' + label });
+                if (waiting) { open.disabled = true; open.setAttribute('aria-describedby', 'inbox-waiting-why'); }
+                open.addEventListener('click', function () { inboxOpen(e); });
+                actions.appendChild(open);
+            }
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+        if (keep) { var again = list.querySelector('[data-focus="' + cssEscape(keep) + '"]'); if (again && !again.disabled) { again.focus(); } }
+    }
+
+    function drawEditingBar() {
+        var bar = $('inbox-editing');
+        if (!bar) { return; }
+        bar.hidden = !editing || $('form').hidden;
+        $('inbox-editing-text').textContent = editing
+            ? (isTurkish() ? 'Gelen kutusundaki bir kayıt değiştiriliyor: ' + editing.label + '. Gönder, değişikliklerinizi bu kayda gönderir.'
+                : 'Changing a record from the Inbox: ' + editing.label + '. Submit sends your changes to it.')
+            : '';
+    }
+
+    async function inboxOpen(entry) {
+        await flushDraft();
+        var label = inboxLabelOf(entry).label;
+        // A change to this record that was being made and not sent is a draft under its GlobalID: that is reopened.
+        var draft = await dbGet('drafts', entry.globalId).catch(function () { return null; });
+        clearRedirect();
+        $('inbox').hidden = true;
+        $('inbox-toggle').setAttribute('aria-expanded', 'false');
+        if (draft && draft.formId === itemId && draft.inbox) {
+            restoreFrom(draft);
+            sayDraft(t('Your unsent changes to this record were reopened.'));
+        } else {
+            editing = { key: entry.key, globalId: entry.globalId, objectId: entry.objectId, editDate: entry.editDate, label: label };
+            showAll = false;
+            pageIndex = 0;
+            draftId = null;
+            sayReopened('');
+            root = inboxInstance(entry);
+            $('done').hidden = true;
+            $('summary').hidden = true;
+            $('form').hidden = false;
+            drawDraftBar();
+            drawEditingBar();
+            refresh(true);
+            drawDrafts();
+            sayDraft(t('Record opened from the Inbox.'));
+        }
+        focusFormTop();
+    }
+
+    // After a change was accepted: the record is read again, so the next change is made against the new EditDate.
+    async function inboxAfterSent(record) {
+        var top = layerFor('');
+        if (!top || !top.inboxUrl || !record.inbox) { return; }
+        var body = await inboxQuery(top.inboxUrl, { where: "globalid = '" + String(record.inbox.globalId).replace(/'/g, '') + "'" });
+        var f = (body.features || [])[0];
+        var all = await dbGet('inbox', record.inbox.key).catch(function () { return null; });
+        if (!all) { return; }
+        if (!f) { return; }
+        var row = rowOf(f, body.objectIdFieldName || 'objectid', body.globalIdFieldName || 'globalid');
+        all.attributes = row.attributes; all.geometry = row.geometry; all.editDate = row.editDate; all.editor = editorOf(row.attributes);
+        // The rows below it: read again too, so an added repeat row is an existing one the next time it is opened.
+        var layers = (doc.publication.layers || []).filter(function (l) { return (l.repeat || '') !== '' && l.inboxUrl; }).sort(function (a, b) { return depthOf(a) - depthOf(b); });
+        var ids = { '': [row.globalId] }, repeats = {};
+        for (var i = 0; i < layers.length; i++) {
+            var above = ids[layers[i].parentRepeat || ''] || [];
+            var got = above.length ? await inboxChildren(layers[i].inboxUrl, above) : { rows: [] };
+            repeats[layers[i].repeat] = got.rows;
+            ids[layers[i].repeat] = got.rows.map(function (r) { return r.globalId; });
+        }
+        all.repeats = repeats;
+        all.gone = false;
+        await dbPut('inbox', all);
+        inboxCache = null;
+    }
+
+    async function inboxMarkGone(record) {
+        if (!record.inbox) { return; }
+        var entry = await dbGet('inbox', record.inbox.key).catch(function () { return null; });
+        if (entry) { entry.gone = true; await dbPut('inbox', entry); }
+        inboxCache = null;
+    }
+
+    async function inboxForget(record) {
+        if (!record.inbox) { return; }
+        var entry = await dbGet('inbox', record.inbox.key).catch(function () { return null; });
+        if (entry && entry.gone) { await dbDelete('inbox', record.inbox.key); }
+        inboxCache = null;
+    }
+
+    // ----- Sending a change, and the two refusals
+
+    // The rows of one layer the server holds, sent as updates with the EditDate each was downloaded with. A row refused
+    // as stale is read again: when the server's version is already what was sent — an earlier attempt that arrived and
+    // whose answer was lost — it is done; otherwise both versions are kept on the record for the person to choose.
+    async function sendUpdates(record, layer, p, save) {
+        if (!p.updated) { p.updated = {}; }
+        var gidOf = function (u) { return u.attributes.globalid; };
+        var oidField = layer.oidField || 'objectid';
+        var pending = layer.updates.filter(function (u) { return !p.updated[gidOf(u)]; });
+        if (!pending.length) { return; }
+        var expected = {};
+        pending.forEach(function (u) {
+            var ms = layer.expected[gidOf(u)];
+            if (ms !== undefined && ms !== null) { expected[String(u.attributes[oidField])] = ms; }
+        });
+        var result = await api(layer.submit + '/applyEdits', {
+            method: 'POST',
+            body: formBody({ f: 'json', useGlobalIds: 'true', rollbackOnFailure: 'false', updates: JSON.stringify(pending), expectedEditDates: JSON.stringify(expected) })
+        });
+        var results = result.updateResults || [];
+        var stale = [], gone = [], refusals = [];
+        pending.forEach(function (u, i) {
+            var r = results.filter(function (x) { return (x.globalId && normalGid(x.globalId) === normalGid(gidOf(u))) || (x.objectId !== undefined && String(x.objectId) === String(u.attributes[oidField])); })[0] || results[i];
+            if (!r) { refusals.push(t('The server did not answer for every changed row.')); return; }
+            if (r.success) { p.updated[gidOf(u)] = true; return; }
+            var code = r.error ? Number(r.error.code) : 0;
+            if (code === 412) { stale.push(u); } else if (code === 404) { gone.push(u); } else { refusals.push((r.error && (r.error.description || r.error.message)) || t('The server refused this record.')); }
+        });
+        await save();
+        if (stale.length) {
+            var there = await inboxRowsByGid(layer.url, stale.map(gidOf));
+            var conflicts = [];
+            stale.forEach(function (u) {
+                var f = there[normalGid(gidOf(u))];
+                if (!f) { gone.push(u); return; }
+                if (sameAnswers(u, f, oidField)) { p.updated[gidOf(u)] = true; layer.expected[gidOf(u)] = editDateOf(f.attributes); return; }
+                conflicts.push({
+                    layer: layer.url, repeat: layer.repeat || '', globalId: gidOf(u),
+                    mine: u.attributes, mineGeometry: u.geometry || null,
+                    server: f.attributes, serverGeometry: f.geometry || null,
+                    serverEditDate: editDateOf(f.attributes), serverEditor: editorOf(f.attributes)
+                });
+            });
+            await save();
+            if (conflicts.length) {
+                record.conflicts = conflicts;
+                await save();
+                var c = new Error(t('Changed on the server since you downloaded it.'));
+                c.conflict = true;
+                throw c;
+            }
+        }
+        if (gone.length) {
+            record.goneRows = gone.map(gidOf);
+            await save();
+            var g = new Error(t('No longer on the server.'));
+            g.gone = true;
+            throw g;
+        }
+        if (refusals.length) {
+            var refused = new Error(refusals.filter(function (x, i, all) { return all.indexOf(x) === i; }).join(' '));
+            refused.refused = true;
+            throw refused;
+        }
+    }
+
+    async function inboxRowsByGid(url, ids) {
+        var where = 'globalid IN (' + ids.map(function (g) { return "'" + String(g).replace(/'/g, '') + "'"; }).join(',') + ')';
+        var body = await inboxQuery(url, { where: where });
+        var gidField = body.globalIdFieldName || 'globalid';
+        var out = {};
+        (body.features || []).forEach(function (f) { out[normalGid(attr(f.attributes, gidField))] = f; });
+        return out;
+    }
+
+    function sameValue(a, b) {
+        var emptyA = a === undefined || a === null || a === '', emptyB = b === undefined || b === null || b === '';
+        if (emptyA || emptyB) { return emptyA && emptyB; }
+        if (typeof a === 'number' || typeof b === 'number') { return Number(a) === Number(b); }
+        return String(a) === String(b);
+    }
+
+    function sameAnswers(update, feature, oidField) {
+        var mine = update.attributes;
+        return Object.keys(mine).every(function (k) {
+            if (k === oidField || k === 'globalid' || k === 'parentglobalid') { return true; }
+            return sameValue(mine[k], attr(feature.attributes, k));
+        });
+    }
+
+    // ----- The comparison (412)
+
+    var compareRecord = null;
+    var compareReturn = null;
+
+    function questionsOfLayer(repeatName) {
+        var layer = layerFor(repeatName) || {};
+        var out = [];
+        var node = repeatName ? (defs[repeatName] || {}).node : form.root;
+        (function walk(body) {
+            (body || []).forEach(function (n) {
+                if (n.kind === 'group') { walk(n.body); return; }
+                if (n.kind !== 'question' || isMedia(n)) { return; }
+                if (n.name === layer.location) { out.push({ q: n, location: true }); return; }
+                if ((layer.columns || {})[n.name]) { out.push({ q: n, column: layer.columns[n.name] }); }
+            });
+        })(node ? node.body : []);
+        return out;
+    }
+
+    function comparedText(item, attributes, geometry) {
+        if (item.location) {
+            var v = answerFromGeometry(item.q, geometry);
+            if (!v) { return ''; }
+            return vertices(v).map(function (p) { return p[0] + ', ' + p[1]; }).join('; ');
+        }
+        return shownAnswer(item.q, answerFromAttribute(item.q, attr(attributes, item.column)));
+    }
+
+    function openCompare(record, opener) {
+        compareRecord = record;
+        compareReturn = { focus: opener || null, formHidden: $('form').hidden };
+        var body = $('compare-body');
+        body.textContent = '';
+        var conflicts = record.conflicts || [];
+        conflicts.forEach(function (c, i) {
+            var who = c.serverEditor ? (isTurkish() ? c.serverEditor + ', ' : c.serverEditor + ' changed it on ') : (isTurkish() ? '' : 'It was changed on ');
+            body.appendChild(el('p', { text: isTurkish()
+                ? who + inboxWhen(c.serverEditDate) + ' tarihinde sunucuda değiştirdi. Hangisinin kalacağını seçin.'
+                : who + inboxWhen(c.serverEditDate) + ' on the server. Choose which version to keep.' }));
+            var caption = c.repeat ? text((defs[c.repeat] || { node: {} }).node.labels, c.repeat) : (record.instanceName || (record.inbox && record.inbox.label) || record.title);
+            var table = el('table', { class: 'compare-table', id: 'compare-table-' + i });
+            table.appendChild(el('caption', { text: caption }));
+            table.appendChild(el('thead', null, [el('tr', null, [
+                el('th', { scope: 'col', text: t('Question') }), el('th', { scope: 'col', text: t('Yours') }), el('th', { scope: 'col', text: t('On the server') })
+            ])]));
+            var tbody = el('tbody');
+            var differ = 0;
+            questionsOfLayer(c.repeat).forEach(function (item) {
+                var mine = comparedText(item, c.mine, c.mineGeometry);
+                var theirs = comparedText(item, c.server, c.serverGeometry);
+                if (!item.location && !Object.prototype.hasOwnProperty.call(c.mine, item.column) && !theirs) { return; }
+                var different = mine !== theirs;
+                if (different) { differ++; }
+                tbody.appendChild(el('tr', { class: different ? 'differs' : null, 'data-question': item.q.name }, [
+                    el('th', { scope: 'row' }, [el('span', { text: text(item.q.labels, item.q.name) }), different ? el('span', { class: 'differs-flag', text: ' — ' + t('differs') }) : null]),
+                    el('td', { 'data-label': t('Yours'), text: mine || '—' }),
+                    el('td', { 'data-label': t('On the server'), text: theirs || '—' })
+                ]));
+            });
+            table.appendChild(tbody);
+            body.appendChild(el('div', { class: 'compare-scroll', role: 'region', tabindex: '0', 'aria-label': caption }, [table]));
+            body.appendChild(el('p', { class: 'hint', text: isTurkish() ? differ + ' cevap farklı.' : (differ === 1 ? 'One answer differs.' : differ + ' answers differ.') }));
+        });
+        $('compare-actions').hidden = false;
+        $('compare-close').hidden = true;
+        $('compare-status').textContent = '';
+        $('form').hidden = true;
+        $('answers-view').hidden = true;
+        $('compare').hidden = false;
+        drawEditingBar();
+        $('compare-heading').setAttribute('tabindex', '-1');
+        $('compare-heading').focus();
+        $('compare').scrollIntoView && $('compare').scrollIntoView({ block: 'start' });
+    }
+
+    async function resolveCompare(keepMine) {
+        var record = compareRecord;
+        if (!record) { return; }
+        if (!keepMine && !window.confirm(t('Discard your changes to this record and keep the server’s version?'))) { return; }
+        var fresh = await dbGet('outbox', record.key).catch(function () { return null; });
+        if (fresh) { record = fresh; }
+        var p = record.progress;
+        (record.conflicts || []).forEach(function (c) {
+            var layer = record.layers.filter(function (l) { return l.url === c.layer; })[0];
+            if (!layer) { return; }
+            if (keepMine) { layer.expected[c.globalId] = c.serverEditDate; } else { p.updated[c.globalId] = true; }
+        });
+        record.conflicts = null;
+        record.status = 'queued';
+        record.message = '';
+        await dbPut('outbox', record);
+        $('compare-actions').hidden = true;
+        var status = $('compare-status');
+        status.textContent = t(keepMine ? 'Sending your version again…' : 'Keeping the server’s version…');
+        var outcome = navigator.onLine === false ? 'offline' : await sendOne(record);
+        status.textContent = outcome === 'sent' ? t(keepMine ? 'Your version was sent.' : 'The server’s version was kept. Anything else you added was sent.')
+            : outcome === 'conflict' ? t('It was changed on the server again. Compare once more.')
+            : outcome === 'gone' ? t('It is no longer on the server. Your answers are kept in the Outbox.')
+            : outcome === 'offline' ? t('Saved on this device. It will be sent when you are back online.')
+            : outcome === 'sign-in' ? t('Saved on this device. Sign in, then send it from the Outbox.')
+            : t('The server refused this record.') + ' ' + (record.message || '');
+        await drawOutbox();
+        if (outcome === 'conflict') {
+            var again = await dbGet('outbox', record.key).catch(function () { return null; });
+            if (again) { var said = status.textContent; openCompare(again, compareReturn && compareReturn.focus); $('compare-status').textContent = said; return; }
+        }
+        $('compare-close').hidden = false;
+        $('compare-close').focus();
+    }
+
+    function closeCompare() {
+        $('compare').hidden = true;
+        compareRecord = null;
+        var back = compareReturn || {};
+        compareReturn = null;
+        if (!back.formHidden) { $('form').hidden = false; }
+        drawEditingBar();
+        var target = back.focus && document.body.contains(back.focus) && !back.focus.closest('[hidden]') ? back.focus : null;
+        if (!target) { target = !$('done').hidden ? $('new-form') : $('outbox-toggle'); }
+        target.focus();
+    }
+
+    // ----- A record gone from the server (404): its answers, readable and copyable
+
+    var answersReturn = null;
+
+    function answersSummary(inst) {
+        var out = [];
+        (function walk(i, prefix) {
+            (function body(nodes) {
+                nodes.forEach(function (n) {
+                    if (i.rel[n.name] === false) { return; }
+                    if (n.kind === 'group') { body(n.body || []); return; }
+                    if (n.kind === 'repeat') {
+                        (i.repeats[n.name] || []).forEach(function (child, k) { walk(child, prefix + text(n.labels, n.name) + ' ' + (k + 1) + ' › '); });
+                        return;
+                    }
+                    if (n.kind !== 'question' || n.type === 'note') { return; }
+                    var v = isMedia(n) ? existingFilesOf(i, n.name).concat(filesOf(i, n.name)).map(function (f) { return f.name; }).join(', ') : shownAnswer(n, i.values[n.name]);
+                    if (v === '' || v === null || v === undefined) { return; }
+                    out.push({ label: prefix + text(n.labels, n.name), value: String(v) });
+                });
+            })(i.node.body || []);
+        })(inst, '');
+        return out;
+    }
+
+    function showAnswers(source, opener) {
+        answersReturn = { focus: opener || null, formHidden: $('form').hidden };
+        var answers = source.answers;
+        if (!answers && source.kind === 'record') {
+            var saved = root;
+            try { root = inboxInstance(source); recompute(); answers = answersSummary(root); } finally { root = saved; }
+        }
+        var list = $('answers-list');
+        list.textContent = '';
+        (answers || []).forEach(function (a) {
+            list.appendChild(el('dt', { text: a.label }));
+            list.appendChild(el('dd', { text: a.value }));
+        });
+        $('answers-view').answers = answers || [];
+        $('answers-status').textContent = '';
+        $('form').hidden = true;
+        $('compare').hidden = true;
+        $('answers-view').hidden = false;
+        drawEditingBar();
+        $('answers-heading').setAttribute('tabindex', '-1');
+        $('answers-heading').focus();
+    }
+
+    async function copyAnswers() {
+        var words = ($('answers-view').answers || []).map(function (a) { return a.label + ': ' + a.value; }).join('\n');
+        var status = $('answers-status');
+        status.textContent = '';
+        try {
+            await navigator.clipboard.writeText(words);
+            status.textContent = t('The answers were copied.');
+        } catch (e) {
+            // No clipboard (an insecure page, or refused): the words are selected for the person to copy.
+            var range = document.createRange();
+            range.selectNodeContents($('answers-list'));
+            var sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            status.textContent = t('This browser would not copy them; they are selected for you to copy.');
+        }
+    }
+
+    function closeAnswers() {
+        $('answers-view').hidden = true;
+        var back = answersReturn || {};
+        answersReturn = null;
+        if (!back.formHidden) { $('form').hidden = false; }
+        drawEditingBar();
+        var target = back.focus && document.body.contains(back.focus) && !back.focus.closest('[hidden]') ? back.focus : null;
+        (target || $('outbox-toggle')).focus();
+    }
+
+    function wireInbox() {
+        $('inbox-toggle').addEventListener('click', function () {
+            var box = $('inbox');
+            box.hidden = !box.hidden;
+            $('inbox-toggle').setAttribute('aria-expanded', String(!box.hidden));
+            if (!box.hidden) { drawInbox(); $('inbox-heading').setAttribute('tabindex', '-1'); $('inbox-heading').focus(); }
+        });
+        $('inbox-refresh').addEventListener('click', function () { inboxRefresh(); });
+        $('inbox-search').addEventListener('input', function () { drawInbox(); });
+        $('compare-mine').addEventListener('click', function () { resolveCompare(true); });
+        $('compare-server').addEventListener('click', function () { resolveCompare(false); });
+        $('compare-close').addEventListener('click', closeCompare);
+        $('answers-copy').addEventListener('click', copyAnswers);
+        $('answers-close').addEventListener('click', closeAnswers);
+    }
+
+    /** Shows the Inbox's button when this page offers one, and reads what the device holds. */
+    async function startInbox() {
+        $('inbox-toggle').hidden = !inboxOn();
+        if (!inboxOn()) { $('inbox').hidden = true; return; }
+        await inboxLoad();
+        await drawInbox();
     }
 
     // The form is opened on its most recent draft, when it has one: a reload brings back what was being filled in.
@@ -3397,12 +4405,19 @@
             var outcome = await sendOne(record);
             await drawOutbox();
             if (outcome === 'sent') {
-                finish('Your answers were sent.', false, true);
+                finish(record.kind === 'edit' ? 'Your changes were sent.' : 'Your answers were sent.', false, true);
+            } else if (outcome === 'conflict') {
+                // Refused as stale (ADR-300 §5.5): both versions, at once, for the person to choose.
+                finish('Not sent yet: the record was changed on the server since you downloaded it. Your changes are kept in the Outbox.', true);
+                var held = await dbGet('outbox', record.key).catch(function () { return null; });
+                openCompare(held || record, $('new-form'));
+            } else if (outcome === 'gone') {
+                finish('Not sent: the record is no longer on the server. Your answers are kept on this device, in the Outbox, to read and copy.', true);
             } else if (outcome === 'offline') {
                 finish('The server could not be reached. Your answers are saved on this device and will be sent when the connection returns.', true);
             } else if (outcome === 'sign-in') {
                 finish('Saved on this device. Sign in, then send it from the Outbox.', true);
-            } else if (Object.keys(record.progress.done).length === 0) {
+            } else if (Object.keys(record.progress.done).length === 0 && Object.keys(record.progress.updated || {}).length === 0) {
                 // INFERRED: refused before anything was accepted — nothing reached the server, so the record leaves the
                 // outbox and the form stays filled in, for the person to correct and send again.
                 await dbDelete('outbox', record.key);
@@ -3462,10 +4477,12 @@
     // redirect for anyone able to write a URL.
     function finish(message, queued, sent) {
         $('form').hidden = true;
+        // "Submit sends your changes" means nothing once the form has gone; a new form or the next record redraws it.
+        drawEditingBar();
         $('summary').hidden = true;
         var thanks = sent && form && form.thankYou ? form.thankYou : '';
         $('done-heading').textContent = queued ? t('Saved on this device') : STATIC_TEXT['done-heading'][isTurkish() ? 1 : 0];
-        $('done-text').textContent = thanks || message;
+        $('done-text').textContent = thanks || t(message);
         // The draft this answer came from is gone (it was queued or sent): its "saved" line would now say the opposite.
         sayDraft('');
         $('done').hidden = false;
@@ -3503,6 +4520,8 @@
         showAll = false;
         pageIndex = 0;
         draftId = null;
+        editing = null;
+        drawEditingBar();
         sayReopened('');
         drawDraftBar();
         root = newInstance(form.root, null);
@@ -3612,8 +4631,13 @@
                     me.lastName = (self && self.lastName) || '';
                 } catch (e) { /* no email */ }
             }
-        } catch (e) { /* anonymous or offline */ }
+        } catch (e) {
+            // Anonymous, or offline. Offline the member cannot be asked, which the Inbox needs to tell apart (ADR-300).
+            whoUnknown = !!e.network;
+        }
     }
+
+    var whoUnknown = false;  // true when the server could not be reached to ask who is signed in
 
     /** The designer's preview — /forms/preview, framed by Studio (ADR-287 §5.8): sent its form, sends nothing. */
     var previewing = /\/forms\/preview\/?$/i.test(location.pathname);
@@ -3643,6 +4667,7 @@
         });
         $('send-now').addEventListener('click', function () { exchanged = false; sendOutbox(); });
         wireDrafts();
+        wireInbox();
         $('link-notices-dismiss').addEventListener('click', function () { $('link-notices').hidden = true; $('form-main').focus(); });
         $('redirect-stay').addEventListener('click', function () {
             clearInterval(redirectTimer);
@@ -3733,12 +4758,13 @@
             document.documentElement.lang = (/\(([a-z]{2,3})\)/i.exec(lang) || [])[1] || document.documentElement.lang;
             applyStaticText();
             render();
-            if (!previewing) { drawOutbox(); }
+            if (!previewing) { drawOutbox(); drawEditingBar(); }
         });
     }
 
     /** Draws a loaded form: its lists, languages and title, then a blank record. Called again for each preview. */
     async function begin(loaded) {
+        loadedFrom = loaded.from;
         doc = loaded.doc;
         form = doc.form;
         defs = {};
@@ -3799,6 +4825,7 @@
 
         await openInitial();
         drawLinkNotices();
+        if (loaded.from !== 'preview') { await startInbox(); }
     }
 
     /**
@@ -3807,7 +4834,7 @@
      */
     function startPreview() {
         document.documentElement.classList.add('previewing');
-        ['outbox-toggle', 'drafts-toggle', 'draft-bar', 'connection', 'offline-panel'].forEach(function (id) { var n = $(id); if (n) { n.hidden = true; } });
+        ['outbox-toggle', 'drafts-toggle', 'inbox-toggle', 'draft-bar', 'connection', 'offline-panel'].forEach(function (id) { var n = $(id); if (n) { n.hidden = true; } });
         wireForm();
         var drawing = Promise.resolve();
         window.addEventListener('message', function (event) {

@@ -36774,9 +36774,12 @@ function drawFormState() {
         keeps its field and its answers.</p>`
       : pub ? `<p class="hint">Change its questions in the designer; the changes reach the people filling it in when it is
         published again.</p>` : ""}
-    <div id="formPlan" hidden></div>`;
+    <div id="formPlan" hidden></div>
+    ${refusals.length ? "" : `<section id="formInbox" class="forminbox" aria-labelledby="formInboxHead">
+      <h5 id="formInboxHead">Inbox</h5><p class="hint">Reading the Inbox's settings…</p></section>`}`;
   box.hidden = false;
   if (had && $(had) && box.contains($(had))) $(had).focus();
+  if (!refusals.length) drawFormInbox(f, had);
   if (formPublishOnOpen && $("formPublishOpen")) {
     formPublishOnOpen = false;
     formShowPlan($("formPublishOpen"));
@@ -37424,9 +37427,104 @@ async function formShareSave(button) {
   }
 }
 
+/**
+ * The form's Inbox — ADR-300 §5.1: on or off, the filter that chooses each member's records, and how many a device
+ * downloads. Survey123 keeps these in Connect's settings rather than the workbook (§5.9 (f)); here they sit on the form's
+ * own page, under its state. `/admin/forms/{id}/inbox` answers and takes `{enabled, filter, limit}`; a filter it cannot
+ * parse is refused with a 400 whose words are shown beside the filter.
+ */
+async function drawFormInbox(f, had) {
+  let now;
+  try {
+    now = await api(`/admin/forms/${encodeURIComponent(f.id)}/inbox`);
+  } catch (e) {
+    if (formHere !== f || !$("formInbox")) return;
+    $("formInbox").innerHTML = `<h5 id="formInboxHead">Inbox</h5><p class="bad-inline">The Inbox's settings could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
+    return;
+  }
+  const section = $("formInbox");
+  if (formHere !== f || !section) return;
+  const kept = document.activeElement && section.contains(document.activeElement) ? document.activeElement.id : had;
+  const on = !!now?.enabled;
+  const filter = now?.filter ?? "created_user = ${username}";
+  const limit = now?.limit ?? 1000;
+  const shared = f.read.sharing || "private";
+  section.innerHTML = `
+    <h5 id="formInboxHead">Inbox</h5>
+    <p class="hint" id="formInboxWhy">Lets the people the form is shared with download records that already exist, change
+      them on their device — with or without a signal — and send the changes back, as Survey123's Inbox does. Only
+      signed-in members have an Inbox${shared === "public" ? "; this form is public, so its Inbox is shared with your organization" : ""}.
+      ${f.read.publication ? "" : " It is made when the form is published."}</p>
+    <label class="check forminboxon"><input type="checkbox" id="formInboxOn"${on ? " checked" : ""} aria-describedby="formInboxWhy">
+      <span>Turn on the Inbox</span></label>
+    <div class="stacked"><label for="formInboxFilter">Which records each person gets</label>
+      <input type="text" id="formInboxFilter" autocomplete="off" spellcheck="false" value="${h(filter)}"
+        aria-describedby="formInboxFilterSays formInboxFilterHint"></div>
+    <p class="bad-inline" id="formInboxFilterSays" role="status" aria-live="polite"></p>
+    <p class="hint" id="formInboxFilterHint">A SQL <code>where</code> over the form's layer, as Survey123 writes it.
+      <code>\${username}</code> stands for the person signed in. <code>created_user = \${username}</code> gives each person
+      the records they sent; <code>POSITION(\${username} IN assigned_to) &gt; 0</code> gives them the records whose
+      <code>assigned_to</code> field names them. A filter without <code>\${username}</code> gives everybody the same records.</p>
+    <div class="stacked"><label for="formInboxLimit">Most records a device downloads</label>
+      <input type="number" id="formInboxLimit" min="1" max="5000" step="1" inputmode="numeric" value="${h(String(limit))}"
+        aria-describedby="formInboxLimitSays formInboxLimitHint"></div>
+    <p class="bad-inline" id="formInboxLimitSays" role="status" aria-live="polite"></p>
+    <p class="hint" id="formInboxLimitHint">From 1 to 5,000; Survey123's most is 5,000. Each record comes with its repeats
+      and the names of its attachments.</p>
+    <p class="formact"><button type="button" class="primary" id="formInboxSave">Save Inbox settings</button></p>
+    <p class="hint" id="formInboxSays" role="status" aria-live="polite"></p>`;
+  if (kept && $(kept) && section.contains($(kept))) $(kept).focus();
+}
+
+/** Save, in the form's Inbox: the server's refusal is said beside the field it is about, and focus goes to that field. */
+async function formInboxSave(button) {
+  const f = formHere;
+  const filterBox = $("formInboxFilter");
+  const limitBox = $("formInboxLimit");
+  const filterSays = $("formInboxFilterSays");
+  const limitSays = $("formInboxLimitSays");
+  const says = $("formInboxSays");
+  const refuse = (box, line, words) => {
+    line.textContent = words;
+    box.setAttribute("aria-invalid", "true");
+    box.focus();
+  };
+  for (const box of [filterBox, limitBox]) box.removeAttribute("aria-invalid");
+  filterSays.textContent = "";
+  limitSays.textContent = "";
+  says.textContent = "";
+  const filter = filterBox.value.trim();
+  const limitText = limitBox.value.trim();
+  const limit = Number(limitText);
+  if (!filter) { refuse(filterBox, filterSays, "Write which records each person gets. created_user = ${username} gives each person the records they sent."); return; }
+  if (!/^\d+$/.test(limitText) || limit < 1 || limit > 5000) { refuse(limitBox, limitSays, "Write a whole number from 1 to 5,000."); return; }
+  const enabled = $("formInboxOn").checked;
+  button.disabled = true;
+  says.textContent = "Saving…";
+  try {
+    const saved = await api(`/admin/forms/${encodeURIComponent(f.id)}/inbox`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled, filter, limit }) });
+    if (formHere !== f) return;
+    const isOn = saved && typeof saved.enabled === "boolean" ? saved.enabled : enabled;
+    says.textContent = isOn
+      ? `Saved. The Inbox is on: each person signed in gets up to ${num(saved?.limit ?? limit)} records that the filter chooses for them.`
+      : "Saved. The Inbox is off; nobody can download records to change.";
+  } catch (e) {
+    if (formHere !== f) return;
+    const words = e.message || String(e);
+    // A 400 is about one of the two fields; the server's sentence names which. Anything else is said under Save.
+    if (e.status === 400 && /limit|5[,.]?000|whole number/i.test(words) && !/filter|where|username|column|field/i.test(words)) refuse(limitBox, limitSays, words);
+    else if (e.status === 400) refuse(filterBox, filterSays, words);
+    else says.textContent = `Not saved: ${lowerFirst(words)}`;
+    says.textContent = says.textContent || "Not saved.";
+  } finally {
+    button.disabled = false;
+  }
+}
+
 document.addEventListener("click", async event => {
   const t = event.target instanceof Element
-    ? event.target.closest("#kindForm, #formAdd, #formPublishOpen, #formPublishGo, #formPublishCancel, #formDownload, #formShareSave, #formFilterClear, #formExportGo")
+    ? event.target.closest("#kindForm, #formAdd, #formPublishOpen, #formPublishGo, #formPublishCancel, #formDownload, #formShareSave, #formFilterClear, #formExportGo, #formInboxSave")
     : null;
   if (!t) return;
   if (t.id === "kindForm") { itemStep = "form"; drawAddItem(); return; }
@@ -37443,6 +37541,7 @@ document.addEventListener("click", async event => {
   if (t.id === "formDownload") { await formDownloadWorkbook(); return; }
   if (t.id === "formFilterClear") { formHere.filter = {}; await formRedrawResults(); return; }
   if (t.id === "formExportGo") { await formExport(t); return; }
+  if (t.id === "formInboxSave") { await formInboxSave(t); return; }
   if (t.id === "formShareSave") await formShareSave(t);
 });
 

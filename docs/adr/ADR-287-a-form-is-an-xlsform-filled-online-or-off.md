@@ -892,7 +892,7 @@ measurable question. The two device claims are, so they are conditions and not a
       client then refuses it when it runs. **INFERRED:** (1) an anonymous form, and any value the portal does not hold,
       answers an empty string, since Survey123's page says nothing; (2) `online` is a true boolean, `utcOffset` a number,
       so `if(pulldata("@property", 'online'), …)` means what it says; (3) `mode` is always `new` and `status` always empty,
-      the value Survey123 gives for a new response, because this client does not yet edit a sent record; (4) `language` is
+      the value Survey123 gives for a new response, because this client does not yet edit a sent record *(since 2026-11-16 `mode` is `edit` for a record opened from the Inbox, [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md) §5.11; `status` stays empty)*; (4) `language` is
       the active language's name as the form writes it, `surveyName` the form's title, `portalUrl` this server's address
       for a signed-in member and empty otherwise; (5) **`property(name)` takes the three names ODK documents, `deviceid`,
       `username` and `email`, with or without the `uri:` prefix ODK's own forms write, and also every name
