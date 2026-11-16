@@ -101,6 +101,8 @@ Q-232 named.
 | Attachments read past a view's filter until v1.0.521 | AFormIsPublishedAndFilledInTests failed on v1.0.520, passed on v1.0.521 | this repository |
 | A per-command setting survives pooling correctly | tenancy's `graticula.tenant`, ADR-204, in production since v1.0.4xx | this repository |
 | The writer refuses a stale update atomically, in the update's `where` | OGC face's 412, D-186 | this repository |
+| The per-statement name costs no meaningful throughput on a layer that is not a view | 2026-11-16, Release builds of `c378e7c2` (before) and `inbox-server` (after) on one machine, the same fixture: 5 alternating rounds of 2,000 `query?where=1=1&resultRecordCount=10` on `hosted/ci_parcels`, 4 keep-alive clients, logging at Warning. Medians — signed in: 523.7 → 522.7 req/s, p50 7.28 → 7.45 ms; anonymous: 711.1 → 691.6 req/s, p50 5.56 → 5.70 ms. Round-to-round spread on the same build was larger (anonymous before: 647.6–813.1) | measured, condition 3 |
+| A leading `SET` does not shift a streamed reader's result set; a pooled connection does not carry one member's name to the next | `ReaderSessionTests`, PostgreSQL 16, Npgsql 9, one connection reused by two members and nobody | measured |
 
 ## 5. Decision
 
@@ -155,6 +157,73 @@ Q-232 named.
    - (f) the Inbox's settings live in the form's model, not in the XLSForm, as Survey123 keeps them in Connect and not in
      the workbook.
 
+10. **Built 2026-11-16** (branch `inbox-server`, the server half; the client half is the client's). What was built beyond
+    the words above, each choice that is this session's marked **INFERRED** and listed with Q-235 for the owner:
+    - **(a) The name on every statement.** `ReaderSession` (Providers.PostGis): an `AsyncLocal` the authentication
+      middleware sets to `RequestPrincipal.QualifiedName` for a signed-in member and to nothing otherwise. A
+      connectionless command carries `SET graticula.username = '…';` in its own batch — **always, the empty name
+      included**, so a statement never runs under a name it did not set; a connection opened from a layer pool runs the
+      `SET` before it is handed back, only when there is a name (a round trip), relying on the reset. **Reset on close is
+      forced on both layer pools** (`LayerConnections.ResetOnClose`): a registered connection string may say
+      `No Reset On Close=true`, which would have handed one member's name to the next request. Every statement in
+      PostGisFeatureSource, -Writer, -RelatedRecords, -AttachmentStore, -FeatureHistory, -TileSource and the importer's
+      `OpenAsync` goes through it; the projector and the reference checks use positional parameters (a second statement
+      in their message is refused by PostgreSQL) and read `spatial_ref_sys`, so they stay on the pool.
+      **`PostGisFeatureSource`'s note that a leading `SET` shifts the result set was measured, not trusted:** Npgsql's
+      reader passes over a statement that returns no rows, streamed and sequential alike (`ReaderSessionTests`).
+    - **(b) `${username}`** is read on **every** ADR-113 view filter, not only the Inbox's — a Studio view may be
+      per-reader too, as Survey123's fieldworker views are. Bare or quoted; inside a longer literal it is refused. The
+      DDL reads `nullif(current_setting('graticula.username', true), '')`, so an empty name is no name and matches
+      nothing (`created_user = ''` would otherwise match rows written anonymously). **INFERRED.**
+    - **(c) Per-reader is derived from the recorded filter** (`PublishedLayer.IsPerReader`: a view whose definition holds
+      `${username}`), not a flag, so no migration and the record cannot disagree with the rule. A repeat's Inbox layer
+      records what its view does — `parentglobalid in (globalid of the rows layer 0 shows to ${username})` — and is
+      therefore per-reader too. **INFERRED.** That text does not parse as a filter; a publisher who edits it in Studio is
+      refused, which is the right answer for a table whose rows follow its parent.
+    - **(d) §5.4 said thumbnails are "the source's": wrong, corrected.** The source's picture is every reader's rows. A
+      per-reader view has no thumbnail (404, the placeholder), from a request and from the warmer.
+    - **(e) The time extent** is not measured for a per-reader view, and — the same leak, found beside it — not for a
+      layer whose ceiling refuses Query either: the dimension is stated with its span unknown.
+    - **(f) Tiles** are refused twice: the view is made with its tile switch off, and `VectorTileEndpoints.Tileable`
+      answers false for any per-reader layer, so a view whose filter is later changed to name its reader stops tiling
+      with nothing to remember (and `SetViewDefinitionAsync` turns the switch off then too).
+    - **(g) The Inbox offers Query, Create and Update — not Delete.** §5.1 said "no Create"; changed on the client
+      half's finding that §5.7 adds repeat rows and §5.8 adds pictures through the Inbox. **INFERRED: Create on the
+      top layer too** — a member may add a new record through the Inbox, which they could through the form anyway.
+    - **(h) `WITH CASCADED CHECK OPTION`** on every per-reader view and on each repeat of an Inbox: a row added or
+      changed through the view must be one the view shows its writer. So a repeat row is added only under a record the
+      reader's Inbox shows, and no edit takes a record out of one's own Inbox. **INFERRED; consequence:** with a filter
+      on a column the member does not write (`assigned_to = ${username}`), a new top record through the Inbox is refused
+      unless it assigns itself — Survey123's own Inbox does not add top records either.
+    - **(i) Who may write through it** (`Authorize.UpdatesThroughView`): a per-reader view offering Update takes updates —
+      and an attachment's add — from any **signed-in** member who can read it; adds ride on Create as ADR-287 §5.11 (l)
+      already made them. A plain ADR-113 view keeps ADR-075's rule. Deletes never.
+    - **(j) Settings are an item resource, `graticula/inbox.json`** (`{enabled, filter, limit}`), beside the publication
+      rather than in it or in the model, because a form not yet published has no publication and the Inbox may be
+      turned on before. **INFERRED** (§5.9 (f) said the model). `PUT` validates the filter against the published top
+      layer, or — unpublished — the layer publishing would make, or the `submission_url` layer, which must be a hosted
+      layer its publisher manages; 400 with the parser's words.
+    - **(k) The view is made again, never patched:** on enabling, on every publish (a view's columns are fixed when it is
+      made, ADR-113 §3), and on every change of the form's sharing. It holds no rows, so remaking loses nothing; between
+      drop and make an Inbox refresh fails and is retried. Turning it off drops it.
+    - **(l) Relationships between the Inbox's own layers** are declared, so `queryRelatedRecords` works on the Inbox;
+      each repeat's publication layer gains **`inboxRelationshipId`** beside `inboxUrl` — an addition to the contract.
+    - **(m) The Inbox is filed** in the form's `Survey-<title>` folder as `<title>_inbox`. **INFERRED.**
+    - **(n) `expectedEditDates`** is compared by a **layer's** `applyEdits` only; `updateFeatures` and a service's
+      `applyEdits` refuse it (400) rather than ignore it. Keys are object ids or, with `useGlobalIds=true`, GlobalIDs;
+      a `null` value expects a record never dated. When it is sent: a moved record answers `412`, a missing one `404`,
+      each with `globalId`; with `useGlobalIds=true` a GlobalID nothing carries is a `404` entry (`objectId: -1`), not
+      the request's 400. **A refused update still rolls the whole request back under `rollbackOnFailure=true`** (the
+      default): a client sending several records should send one per request, or `rollbackOnFailure=false`.
+    - **(o) An administrator reading the Inbox sees their own rows** — none, usually. The view is per reader for
+      everybody; the source layer is the administrator's.
+    - **(p) Refused as inputs:** feature export (`data-exports` and the synchronous layer export), analysis and toolbox
+      inputs. Replicas and map areas were already refused for views (`SyncFlags`). **Not refused, and failing closed
+      instead:** a scene layer rebuilt from a per-reader view and a print job run in the background read nobody's rows.
+    - **(q) Repeat parameters:** `bind::esri:parameters` on `begin repeat` takes `allowAdds` and `allowUpdates`
+      (defaults true and false, Survey123's), refuses `query` with its reason and any other key by name; `form.json`
+      carries `parameters: {allowAdds, allowUpdates}` on every table.
+
 ## 6. Consequences
 
 **Positive.** The largest gap between Graticula's forms and Survey123 closes, through the arrangement an ArcGIS
@@ -186,10 +255,17 @@ never shared. On the device: the downloaded records, in the form client's own st
 1. **Every face of a per-reader view is asked as two members**, each seeing their own rows and not the other's: query,
    count, ids, statistics, renderer, related records, attachments (list, query, download, add), OGC API Features, WFS,
    WMS/MapServer, tiles, the documents' extent, and an export or analysis job naming the view.
+   **DISCHARGED 2026-11-16:** `AFormsInboxShowsEachMemberTheirOwnTests.Each_member_reads_their_own_rows_on_every_face_of_the_Inbox_and_nobody_else_does`
+   asks each of them as each of two members, and anonymously; MapServer is asked by its query and `identify` (WMS draws
+   through the same source per request and was not asked separately). The thumbnail, the HTTP caching and the
+   Inbox's update and conflict rules are asked there and in its two sibling tests.
 2. **A conflict is tested as ADR-287 condition 6 says**: the same record changed in Studio and on a device that is
    offline; the device's edit is refused and both versions are shown; a record deleted online while edited offline is
    kept on the device. Neither loses an edit silently.
 3. **The per-command setting is measured**: the query benchmark before and after, on a layer that is not a view.
+   **DISCHARGED 2026-11-16:** §4, *the per-statement name costs no meaningful throughput* — medians within 3% (signed in
+   −0.2%, anonymous −2.7%, p50 +0.15 ms), inside the spread between rounds of the same build. Measured on a shared
+   development machine, not a quiet one; a regression smaller than that spread would not show.
 4. **The owner confirms §5.9** through Q-235.
 
 ## 10. Revisit triggers
