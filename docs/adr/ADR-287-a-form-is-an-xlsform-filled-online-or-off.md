@@ -922,10 +922,12 @@ measurable question. The two device claims are, so they are conditions and not a
       calculates while the question is empty and recalculates when a value it reads has changed, and leaves what the person
       typed; *manual* calculates only when its **Calculate** button is pressed; *whenEmpty* calculates until it gives a value,
       then waits for the button, even if the value is cleared. The button is a button, named by its question, with a polite
-      status saying *Calculated.* **INFERRED:** (1) **a calculation with no mode is now `auto`, which is a change:** until
-      this item every calculation was recalculated on every change, which is what `always` means, and a calculation the
-      person edited (a `read_only` of `no`) was overwritten; now such a calculation keeps the person's answer, and one that
-      reads only `now()` or `today()` is taken once and not again as the clock moves; (2) "when a value it reads has changed"
+      status saying *Calculated.* (1) **A calculation with no mode is `auto`, which is a change — the owner's, 2026-11-16**
+      (asked with both behaviours named, *"Survey123 gibi"*): until this item every calculation was recalculated on every
+      change, which is what `always` means and what ODK does, and a calculation the person edited (a `read_only` of `no`)
+      was overwritten; now such a calculation keeps the person's answer, and one that reads only `now()` or `today()` is
+      taken once and not again as the clock moves. A form that wants the old behaviour says `calculationMode=always`.
+      **INFERRED:** (2) "when a value it reads has changed"
       is the answers named by `${…}` in the calculation, its repeat position and the language, and a calculation that reads
       by a path (`../q`, `/data/q`), `current()` or `instance()` is judged by every answer in the form; (3) `manual` on a
       question the person does not see (`calculate`, `hidden`, or the `hidden` appearance) is refused, since the button is on
