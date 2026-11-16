@@ -21,10 +21,72 @@ public sealed class FormFillBarcodeTests : IClassFixture<FormFillClientTests.Sit
     /// <param name="site">The stand-in server and the browser, opened once for the class.</param>
     public FormFillBarcodeTests(FormFillClientTests.Site site) => _site = site;
 
-    /// <summary>A browser with no reader, which is Safari and, on Windows, Chrome too; made certain rather than assumed.</summary>
+    /// <summary>
+    /// A page with no camera API at all: no reader of the browser's own and no <c>getUserMedia</c>, which is every page not
+    /// opened at a secure address. Since 2026-11-17 a browser without a reader of its own but with a camera scans with
+    /// ZXing, so the camera has to go too for the box to be the only way.
+    /// </summary>
     private const string NoReader = """
         try { Object.defineProperty(window, 'BarcodeDetector', { value: undefined, configurable: true, writable: true }); } catch (e) { }
+        try { Object.defineProperty(Navigator.prototype, 'mediaDevices', { get: function () { return undefined; }, configurable: true }); } catch (e) { }
         """;
+
+    /// <summary>
+    /// A browser with a camera but no reader of its own — Safari on iPhone, Firefox, Chrome on Windows — whose camera is a
+    /// canvas showing a real QR code, drawn with the console's vendored <c>qrcode.js</c> (planted before this script), and
+    /// repainted ten times a second so the stream keeps giving frames. <c>window.__scan.text</c> is what the code says.
+    /// </summary>
+    private const string ZxingCamera = """
+        (function () {
+          try { Object.defineProperty(window, 'BarcodeDetector', { value: undefined, configurable: true, writable: true }); } catch (e) { }
+          var log = window.__scan = { gum: 0, stopped: 0, live: 0, constraints: null, text: 'GRT-4006381333931' };
+          navigator.mediaDevices.getUserMedia = function (constraints) {
+            log.gum++;
+            log.constraints = constraints;
+            var canvas = document.createElement('canvas');
+            canvas.width = 320; canvas.height = 240;
+            var g = canvas.getContext('2d');
+            function paint() {
+              g.fillStyle = '#fff';
+              g.fillRect(0, 0, 320, 240);
+              var qr = qrcode(0, 'M');
+              qr.addData(log.text);
+              qr.make();
+              var n = qr.getModuleCount(), size = Math.floor(200 / n), x0 = Math.floor((320 - n * size) / 2), y0 = Math.floor((240 - n * size) / 2);
+              g.fillStyle = '#000';
+              for (var r = 0; r < n; r++) { for (var c = 0; c < n; c++) { if (qr.isDark(r, c)) { g.fillRect(x0 + c * size, y0 + r * size, size, size); } } }
+            }
+            paint();
+            var timer = setInterval(paint, 100);
+            var stream = canvas.captureStream(10);
+            stream.getTracks().forEach(function (track) {
+              log.live++;
+              var stop = track.stop.bind(track);
+              track.stop = function () { clearInterval(timer); log.stopped++; log.live--; stop(); };
+            });
+            return Promise.resolve(stream);
+          };
+        })();
+        """;
+
+    /// <summary>The vendored library's SHA-256, as copied byte for byte from <c>@zxing/library</c> 0.23.0's <c>umd/index.min.js</c>.</summary>
+    private const string ZxingSha256 = "3ede94153fb0c5b67a12d7adff6decd827c2b22714fdc6faecf27a8f20937ea6";
+
+    private static string Wwwroot()
+    {
+        System.IO.DirectoryInfo? directory = new(AppContext.BaseDirectory);
+
+        while (directory is not null && !System.IO.File.Exists(System.IO.Path.Combine(directory.FullName, "CLAUDE.md")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        return System.IO.Path.Combine(directory!.FullName, "src", "Graticula.Host", "wwwroot");
+    }
+
+    /// <summary>The QR generator and the ZXing camera, planted together.</summary>
+    private static string QrCamera() => System.IO.File.ReadAllText(System.IO.Path.Combine(Wwwroot(), "qrcode.js")) + "\n" + ZxingCamera;
 
     /// <summary>
     /// A reader that finds a code on its third look, and a camera that is a painted canvas. <c>window.__scan.mode</c> is
@@ -211,6 +273,156 @@ public sealed class FormFillBarcodeTests : IClassFixture<FormFillClientTests.Sit
             await _site.OpenAsync(id);
             await _site.WaitAsync("document.getElementById('draft-reopened').textContent.indexOf('reopened') > 0", "the draft to be reopened");
             await _site.WaitAsync("!document.querySelector('[data-name=gizli] .barcode-value').hidden && document.querySelector('[data-name=gizli] .barcode-value').textContent === '4006381333931'", "the drafted code to be shown");
+            return true;
+        });
+
+    /// <summary>
+    /// Owner decision 2026-11-17 (*"ZXing'i benimse"*): a browser with a camera and no reader of its own scans with the
+    /// vendored ZXing. The library is not fetched until Scan is pressed, and the code in the camera's picture — a real QR
+    /// code, not a stubbed answer — goes into the box, after which the camera is stopped.
+    /// </summary>
+    [Fact]
+    public async Task Without_a_browser_reader_scan_loads_zxing_only_when_pressed_reads_a_real_code_and_stops_the_camera() =>
+        await WithPlantedAsync(QrCamera(), async () =>
+        {
+            string id = _site.Publish(Codes());
+            await _site.OpenAsync(id);
+            await _site.WaitAsync("!document.querySelector('[data-name=kod] [data-focus=scan]').hidden", "the Scan button");
+
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=kod] [id$=-no-reader]').hidden"), "The no-reader hint was shown beside a camera.");
+            Assert.True(await _site.EvalAsync<bool>("typeof window.BarcodeDetector === 'undefined'"), "The planted browser had a reader of its own.");
+            // minimal hides the box here too: there is a scanner to fill it.
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] input').hidden"));
+            // Lazy: nothing of ZXing is in the page before Scan.
+            Assert.True(await _site.EvalAsync<bool>("!window.ZXing && !document.querySelector('script[src$=\"zxing.min.js\"]')"), "ZXing was loaded before Scan was pressed.");
+
+            await _site.EvalAsync<bool>("document.querySelector('[data-name=kod] [data-focus=scan]').click(); true");
+            await _site.WaitAsync("document.querySelector('[data-name=kod] input').value === 'GRT-4006381333931'", "the code read into the box", seconds: 20);
+
+            Assert.True(await _site.EvalAsync<bool>("!!window.ZXing && !!document.querySelector('script[src$=\"zxing.min.js\"]')"), "The code was read without ZXing.");
+            Assert.Equal(1, await _site.EvalAsync<int>("window.__scan.gum"));
+            Assert.Equal("environment", await _site.EvalAsync<string>("window.__scan.constraints.video.facingMode.ideal"));
+            Assert.False(await _site.EvalAsync<bool>("window.__scan.constraints.audio"));
+            Assert.Equal(0, await _site.EvalAsync<int>("window.__scan.live"));
+            Assert.Equal(1, await _site.EvalAsync<int>("window.__scan.stopped"));
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=kod] .scanner').hidden"), "The preview stayed open.");
+            Assert.Null(await _site.EvalAsync<string>("document.querySelector('[data-name=kod] video').srcObject"));
+            // iOS Safari plays a camera inline only with playsinline, and autoplays only muted.
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=kod] video').hasAttribute('playsinline') && document.querySelector('[data-name=kod] video').muted"));
+            await _site.WaitAsync("document.querySelector('[data-name=kod] [aria-live]').textContent === 'Code read.'", "the announcement");
+            Assert.True(await _site.EvalAsync<bool>("document.activeElement === document.querySelector('[data-name=kod] input')"), "Focus was not on the box with the code.");
+
+            // The second scan reuses the loaded library: one script tag, and the minimal question shows what it read.
+            await _site.EvalAsync<bool>("window.__scan.text = 'ETK-42'; document.querySelector('[data-name=gizli] [data-focus=scan]').click(); true");
+            await _site.WaitAsync("document.querySelector('[data-name=gizli] [aria-live]').textContent === 'Code read: ETK-42'", "the second code", seconds: 20);
+            Assert.Equal(1, await _site.EvalAsync<int>("document.querySelectorAll('script[src$=\"zxing.min.js\"]').length"));
+            Assert.Equal(0, await _site.EvalAsync<int>("window.__scan.live"));
+
+            await _site.EvalAsync<bool>("document.getElementById('submit').click(); true");
+            await _site.WaitAsync("!document.getElementById('done').hidden", "the confirmation");
+            Assert.Contains(_site.Adds, a => a.Contains("GRT-4006381333931", StringComparison.Ordinal) && a.Contains("ETK-42", StringComparison.Ordinal));
+            return true;
+        });
+
+    /// <summary>
+    /// The library cannot be fetched — offline on a device that never had the page's shell, or a proxy that strips it: the
+    /// scan stops, the camera with it, and the person is told in words, with the box shown to type into.
+    /// </summary>
+    [Fact]
+    public async Task A_reader_that_cannot_be_loaded_stops_the_camera_and_says_so() =>
+        await WithPlantedAsync(QrCamera() + """
+            (function () {
+              var d = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+              Object.defineProperty(HTMLScriptElement.prototype, 'src', {
+                configurable: true, get: d.get,
+                set: function (v) { d.set.call(this, /zxing\.min\.js$/.test(String(v)) ? 'zxing-missing.js' : v); }
+              });
+            })();
+            """, async () =>
+        {
+            string id = _site.Publish(Codes());
+            await _site.OpenAsync(id);
+            await _site.WaitAsync("!document.querySelector('[data-name=gizli] [data-focus=scan]').hidden", "the Scan button");
+
+            await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] [data-focus=scan]').click(); true");
+            await _site.WaitAsync("document.querySelector('[data-name=gizli] [aria-live]').textContent === 'The code reader could not be loaded. Connect once to download it, or type the code instead.'",
+                "the reader failure said in words", seconds: 20);
+            Assert.False(await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] input').hidden"), "The box stayed hidden with no reader.");
+            Assert.True(await _site.EvalAsync<bool>("document.activeElement === document.querySelector('[data-name=gizli] input')"));
+            await _site.WaitAsync("window.__scan.live === 0", "the camera to be stopped");
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] .scanner').hidden"));
+            return true;
+        });
+
+    /// <summary>
+    /// Offline is a first-class mode: the service worker keeps the port and the vendored library with the page, so a form
+    /// opened with no server at all still scans with ZXing.
+    /// </summary>
+    [Fact]
+    public async Task The_reader_is_kept_with_the_page_and_scans_with_no_server() =>
+        await WithPlantedAsync(QrCamera(), async () =>
+        {
+            string id = _site.Publish(Codes());
+            await _site.OpenAsync(id);
+            await _site.WaitAsync("!!navigator.serviceWorker.controller", "the service worker to take the page", seconds: 20);
+            await _site.WaitAsync("caches.keys().then(function (n) { return caches.open(n.filter(function (x) { return x.indexOf('graticula-forms-shell-') === 0; })[0] || 'none'); })"
+                + ".then(function (c) { return c.keys(); }).then(function (k) { return k.some(function (r) { return r.url.endsWith('/zxing.min.js'); })"
+                + " && k.some(function (r) { return r.url.endsWith('/barcode-reader.js'); }); })", "the reader to be kept", seconds: 20);
+            // The person's own step: Download for offline use.
+            await _site.EvalAsync<bool>("document.getElementById('download-offline').click(); true");
+            await _site.WaitAsync("/^Saved for offline use/.test(document.getElementById('offline-status').textContent)", "the form to be kept on the device", seconds: 20);
+
+            _site.Stop();
+            try
+            {
+                await _site.OpenAsync(id, expectServer: false);
+                await _site.WaitAsync("!document.querySelector('[data-name=kod] [data-focus=scan]').hidden", "the Scan button offline", seconds: 20);
+                await _site.EvalAsync<bool>("document.querySelector('[data-name=kod] [data-focus=scan]').click(); true");
+                await _site.WaitAsync("document.querySelector('[data-name=kod] input').value === 'GRT-4006381333931'", "the code read with no server", seconds: 20);
+                Assert.Equal(0, await _site.EvalAsync<int>("window.__scan.live"));
+            }
+            finally
+            {
+                _site.Start();
+            }
+
+            return true;
+        });
+
+    /// <summary>
+    /// The vendored file is the one whose integrity was checked (DEPENDENCY-LICENSES.md): byte for byte the package's own
+    /// build, so a hand edit or a silent upgrade fails here. And it needs nothing the form page's policy refuses — no
+    /// <c>eval</c> and no <c>new Function</c> under <c>script-src 'self'</c> — and fetches nothing.
+    /// </summary>
+    [Fact]
+    public void The_vendored_reader_is_the_pinned_build_and_evaluates_no_strings()
+    {
+        string path = System.IO.Path.Combine(Wwwroot(), "forms", "zxing.min.js");
+        byte[] bytes = System.IO.File.ReadAllBytes(path);
+        Assert.Equal(ZxingSha256, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant());
+
+        string text = System.Text.Encoding.UTF8.GetString(bytes);
+        Assert.DoesNotContain("eval(", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("new Function", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("fetch(", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("XMLHttpRequest", text, StringComparison.Ordinal);
+
+        // The port is the only file that names ZXing; the form filler talks to the port.
+        string fill = System.IO.File.ReadAllText(System.IO.Path.Combine(Wwwroot(), "forms", "fill.js"));
+        Assert.DoesNotMatch(@"ZXing\s*\.|zxing\.min\.js", fill);
+        Assert.Contains("'zxing.min.js'", System.IO.File.ReadAllText(System.IO.Path.Combine(Wwwroot(), "forms", "sw.js")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_page_that_is_not_https_says_scanning_needs_https() =>
+        await WithPlantedAsync(NoReader + "Object.defineProperty(window, 'isSecureContext', { get: function () { return false; } });", async () =>
+        {
+            string id = _site.Publish(Codes());
+            await _site.OpenAsync(id);
+            await _site.WaitAsync("!document.querySelector('[data-name=kod] [id$=-no-reader]').hidden", "the no-camera hint");
+            Assert.Equal("Scanning needs the form to be opened at an https address. Type the code instead.",
+                await _site.EvalAsync<string>("document.querySelector('[data-name=kod] [id$=-no-reader]').textContent"));
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=kod] [data-focus=scan]').hidden"));
             return true;
         });
 
