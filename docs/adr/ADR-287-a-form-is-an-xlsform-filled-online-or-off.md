@@ -1040,7 +1040,17 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    fill ten records with photos in flight mode, close the browser, restart the device, restore the signal, and every
    record arrives once. On an iPhone in Safari, installed to the home screen: the same, and the queue survives eight
    days unopened. The iPhone half needs a device the owner supplies; until then the client says *offline on iPhone
-   is not yet verified* where it offers offline use.
+   is not yet verified* where it offers offline use. **PARTLY DISCHARGED 2026-11-16 — the Android half, measured on the emulator:** Chrome 124 on the
+   `FieldMaps_API35` image (Android 15), the form downloaded for offline use by a member signed in with *Keep me signed
+   in*. Flight mode on **and** the `adb reverse` tunnel removed, because the tunnel reaches the server through adb and
+   would have carried requests that flight mode alone does not stop; the page read `navigator.onLine` false and a fetch
+   to the server failed. Ten records filled, each with a 0.94 MB JPEG; the server held none. Chrome force-stopped, the
+   device rebooted with flight mode still on, the signal restored, the form opened: *10 records sent*, and the layer
+   held ten rows, ten distinct records, each with one attachment of exactly the size the device made, each
+   `created_user` the member — so after the restart the session cookie was traded for a token as §5.5 says. Two
+   limits: the photos were made in the page and handed to the file input, so the camera picker was not exercised; and
+   a member who left *Keep me signed in* clear waits for sign-in after a restart, by design. **The iPhone half is
+   open**, and the client's note stays.
 3. **The first version's list is written down** in this ADR before the client is built: question types, functions
    and appearances, each one either supported or refused. That list is what the evaluator is tested against and what
    condition 5 refuses by. **DISCHARGED 2026-11-08:** §5.10. What is on it was confirmed through
@@ -1052,7 +1062,8 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19. **With §5.19, §5.20 and §5.21 together, measured after the three were merged: 42 of the 61 (68%) and 59 of the 108 (55%).** The rest is in §5.21.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both
    while one is offline, and the second to arrive is refused and shown both versions. A record deleted online while
-   edited offline is kept on the device. Neither case may lose an edit silently.
+   edited offline is kept on the device. Neither case may lose an edit silently. **DISCHARGED 2026-11-16** on the emulator and the
+   server, recorded under [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md) condition 2.
 7. **The model and the workbook round-trip.** Every form in condition 4's and condition 5's sets goes workbook →
    model → workbook → model, and the two models are identical: same rows, same columns, same values, unknown columns
    included. A difference is a defect in the reader or the writer, and forms are not released with one. **DISCHARGED 2026-11-15:** all 108 readable corpus workbooks go workbook → model → workbook → model, with identical models, and each model's JSON round-trips (`AFormRoundTripsThroughItsWorkbookTests`). The corpus run found three reader defects that broke the round trip or changed a value, and they are fixed with tests built from minimal workbooks: Excel's `_xHHHH_` escapes (239 occurrences, 57 workbooks), date-formatted numbers read as serials, and carriage returns in text. The writer was not measured against its pre-change self on these inputs.

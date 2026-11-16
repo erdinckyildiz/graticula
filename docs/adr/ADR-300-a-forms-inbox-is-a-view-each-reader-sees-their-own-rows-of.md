@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — the shape is the owner's (Q-232 (a), 2026-11-09) and the mechanism is one this server already runs for tenancy; the details in §5.9 are this session's and are listed for the owner to confirm, and nothing of it has met a device |
+| **Status** | `ACCEPTED` — every condition discharged by 2026-11-16 (§9); `ACCEPTED WITH CONDITIONS` until then |
+| **Confidence** | `MEDIUM` — the shape is the owner's (Q-232 (a), 2026-11-09) and the mechanism is one this server already runs for tenancy; the details in §5.9 are this session's and are listed for the owner to confirm, and nothing of it had met a device until 2026-11-16, when the conflict rule was run on the Android emulator (condition 2) |
 | **Decided** | 2026-11-16. The owner chose **a view** for the Inbox on 2026-11-09 ([Q-232](../open-questions.md) (a), *"Survey123's fieldworker view"*), against this session's recommendation of a route through the form, and on 2026-11-16 asked for it to be built (*"Inbox'ı yapalım"*). Q-232 said the design goes into its own ADR before the code; this is it. |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -340,7 +340,17 @@ never shared. On the device: the downloaded records, in the form client's own st
    Inbox's update and conflict rules are asked there and in its two sibling tests.
 2. **A conflict is tested as ADR-287 condition 6 says**: the same record changed in Studio and on a device that is
    offline; the device's edit is refused and both versions are shown; a record deleted online while edited offline is
-   kept on the device. Neither loses an edit silently.
+   kept on the device. Neither loses an edit silently. **DISCHARGED 2026-11-16, on the Android emulator** (Chrome 124,
+   the device of ADR-287 condition 2's run). A member's Inbox refreshed online with ten records; the device cut off
+   (flight mode and the adb tunnel removed); three records changed on it — the Note of each. While it was offline the
+   office changed record 1's Note, deleted record 2 and changed only record 3's Count, through the layer's
+   `applyEdits` as an administrator — the call Studio's editor makes, not Studio's screen. Signal back: nothing was
+   written by the device. Records 1 and 3 waited as *changed on the server — compare*, record 2 as *no longer on the
+   server, your answers are kept here*. The comparison of 1 showed the Note *changed by you and on the server*; of 3, the
+   Note *you changed it* and the Count *changed on the server, kept either way*. *Keep mine* on both left the server with
+   record 1's Note the device's, and record 3's Note the device's **and its Count the office's 300** — §5.12's rule on a
+   real browser. Record 2's answers stayed on the device with *Show answers* and *Discard*. No edit was lost on either
+   side.
 3. **The per-command setting is measured**: the query benchmark before and after, on a layer that is not a view.
    **DISCHARGED 2026-11-16:** §4, *the per-statement name costs no meaningful throughput* — medians within 3% (signed in
    −0.2%, anonymous −2.7%, p50 +0.15 ms), inside the spread between rounds of the same build. Measured on a shared
