@@ -37519,6 +37519,9 @@ async function formInboxSave(button) {
     says.textContent = says.textContent || "Not saved.";
   } finally {
     button.disabled = false;
+    // Disabling the button while it saved dropped the keyboard on <body>; it goes back to Save unless a refusal moved it
+    // to the field it is about (UX review 2026-11-16).
+    if (button.isConnected && (!document.activeElement || document.activeElement === document.body)) button.focus();
   }
 }
 
