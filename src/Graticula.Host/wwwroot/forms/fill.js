@@ -333,6 +333,7 @@
         "Opening the camera…": "Kamera açılıyor…",
         "Point the camera at the code.": "Kamerayı koda doğru tutun.",
         "Code read.": "Kod okundu.",
+        "Code read: ": "Okunan kod: ",
         "Scan cancelled.": "Tarama iptal edildi.",
         "Scanning stopped because the page was left.": "Sayfadan ayrıldığınız için tarama durdu.",
         "This browser cannot scan codes. Type the code instead.": "Bu tarayıcı kod okuyamıyor. Kodu elle yazın.",
@@ -359,8 +360,8 @@
         "These choices come from a layer of another server, which this form does not query.": "Bu seçenekler başka bir sunucunun katmanından geliyor; bu form o sunucuya sorgu göndermez.",
         "The choices could not be loaded from the layer.": "Seçenekler katmandan yüklenemedi.",
         "Looking this up…": "Sorgulanıyor…",
-        "This answer is looked up on the server and needs a connection. You can still submit the form.": "Bu cevap sunucudan sorgulanıyor ve bağlantı gerektiriyor. Formu yine de gönderebilirsiniz.",
-        "This answer would be looked up in a layer of another server, which this form does not query.": "Bu cevap başka bir sunucunun katmanından sorgulanacaktı; bu form o sunucuya sorgu göndermez.",
+        "This answer comes from the server and needs a connection. It fills in by itself when you are back online; if you submit before then, it is left empty.": "Bu cevap sunucudan geliyor ve bağlantı gerektiriyor. Bağlantı gelince kendiliğinden dolar; daha önce gönderirseniz boş kalır.",
+        "This answer would be looked up in a layer of another server, which this form does not query.": "Bu cevabın sorgulanacağı katman başka bir sunucunun; bu form o sunucuya sorgu göndermez.",
         "This answer could not be looked up: the layer could not be read.": "Bu cevap sorgulanamadı: katman okunamadı.",
         "Nothing was found for this answer.": "Bu cevap için bir kayıt bulunamadı.",
         "Type to narrow the choices.": "Seçenekleri daraltmak için yazın.",
@@ -903,12 +904,24 @@
     function layerStatusText(inst, q) {
         switch (layerStatus[inst.id + '/' + q.name]) {
             case 'pending': return t('Looking this up…');
-            case 'offline': return t('This answer is looked up on the server and needs a connection. You can still submit the form.');
+            case 'offline': return t('This answer comes from the server and needs a connection. It fills in by itself when you are back online; if you submit before then, it is left empty.');
             case 'foreign': return t('This answer would be looked up in a layer of another server, which this form does not query.');
             case 'error': return t('This answer could not be looked up: the layer could not be read.');
-            case 'none': return t('Nothing was found for this answer.');
+            case 'none': return lookupInputsEmpty(inst, q) ? '' : t('Nothing was found for this answer.');
         }
         return '';
+    }
+
+    // A lookup whose every input is still unanswered found nothing because nothing was asked yet: "Nothing was found"
+    // under a question the person has not reached is noise, and they read it as a fault (UX review 2026-11-16). A
+    // calculation that reads no question keeps the words.
+    function lookupInputsEmpty(inst, q) {
+        var names = [], re = /\$\{\s*([^}\s]+)\s*\}/g, m;
+        while ((m = re.exec(String(q.calculation || ''))) !== null) { names.push(m[1]); }
+        return names.length > 0 && names.every(function (n) {
+            var v = valueIn(inst, n);
+            return v === undefined || v === null || (Array.isArray(v) ? v.length === 0 : String(v) === '');
+        });
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -1725,6 +1738,25 @@
         // pulldata("@layer") (section 5.23): what the lookup is doing, said where the answer is, and announced.
         var lookup = q.calculation && /@layer/.test(q.calculation) ? el('p', { class: 'hint layer-status', id: id + '-lookup', 'aria-live': 'polite' }) : null;
         if (lookup) { shell.appendChild(lookup); }
+        // "Looking this up…" is said only when the answer has not come back within half a second: a lookup per keystroke
+        // in the question it reads otherwise announced it, and blanked it, once a letter (UX review 2026-11-16).
+        var lookupTimer = 0;
+        function sayLookup() {
+            var said = layerStatusText(inst, q);
+            if (said === t('Looking this up…') && lookup.textContent !== said) {
+                if (!lookupTimer) {
+                    lookupTimer = setTimeout(function () {
+                        lookupTimer = 0;
+                        var now = layerStatusText(inst, q);
+                        if (lookup.isConnected && lookup.textContent !== now) { lookup.textContent = now; }
+                    }, 500);
+                }
+                return;
+            }
+            clearTimeout(lookupTimer);
+            lookupTimer = 0;
+            if (lookup.textContent !== said) { lookup.textContent = said; }
+        }
         wrap.appendChild(error);
         if (q.type === 'note' && labelNode.tagName === 'DIV') { wrap.classList.add('note'); }
         container.appendChild(wrap);
@@ -1742,7 +1774,7 @@
                 var readOnly = !!q.calculation && q.type !== 'note' ? evalBool(q.readOnly, inst, q, true) : evalBool(q.readOnly, inst, q, false);
                 if (lockedRow(inst)) { readOnly = true; }
                 if (widget.sync) { widget.sync(readOnly, required); }
-                if (lookup) { var said = layerStatusText(inst, q); if (lookup.textContent !== said) { lookup.textContent = said; } }
+                if (lookup) { sayLookup(); }
                 var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
                 error.textContent = message;
                 wrap.classList.toggle('invalid', !!message);
@@ -1869,10 +1901,15 @@
         var cancel = el('button', { type: 'button', class: 'quiet', 'data-focus': 'cancel-scan', text: t('Cancel scan') });
         var video = el('video', { playsinline: true, autoplay: true, 'aria-label': t('Camera preview') });
         video.muted = true;
-        var panel = el('div', { class: 'scanner', hidden: true }, [video, el('p', { class: 'hint', text: t('Point the camera at the code.') }),
-            el('div', { class: 'inline' }, [cancel])]);
+        // The instruction is the status line's alone: written here as well it stood twice under the preview (UX review 2026-11-16).
+        var panel = el('div', { class: 'scanner', hidden: true }, [video, el('div', { class: 'inline' }, [cancel])]);
         var noReader = el('p', { class: 'hint', id: id + '-no-reader', text: t('This browser cannot scan codes. Type the code instead.'), hidden: true });
         var status = el('p', { class: 'hint', id: id + '-scan', 'aria-live': 'polite' });
+        // Where the box is hidden (minimal, hidden-answer) the code read is still shown, as text: a person who cannot see
+        // which code went in cannot catch a wrong label, and after a draft reload nothing else said there was one
+        // (UX review 2026-11-16). It describes the Scan button, which is where focus is.
+        var shownValue = el('p', { class: 'value-out barcode-value', id: id + '-value', hidden: true });
+        scan.setAttribute('aria-describedby', id + '-label ' + id + '-value');
         var readOnly = false;
         var mine = null;
 
@@ -1886,7 +1923,13 @@
             scan.hidden = !reader;
             noReader.hidden = reader;
             input.hidden = reader && answerHidden && !barcodeTyped[key];
+            showValue();
             input.setAttribute('aria-describedby', describedBy + ' ' + id + '-scan' + (reader ? '' : ' ' + id + '-no-reader'));
+        }
+        function showValue() {
+            var v = current(inst, q);
+            shownValue.hidden = !input.hidden || v === '';
+            if (shownValue.textContent !== v) { shownValue.textContent = v; }
         }
         if (barcodeFormats !== undefined) { apply(); } else { barcodeReader().then(apply); }
 
@@ -1953,12 +1996,13 @@
                 }[how];
                 if (how === 'read') {
                     input.value = value;
-                    say(t('Code read.'));
+                    say(input.hidden ? t('Code read: ') + value : t('Code read.'));
                     (input.hidden ? scan : input).focus();
                     setValue(inst, q, value);
                 } else if (failed) {
                     barcodeTyped[key] = true;
                     input.hidden = false;
+                    showValue();
                     say(t(failed));
                     if (video.isConnected) { input.focus(); }
                 } else if (how === 'cancel') {
@@ -1973,11 +2017,12 @@
         scan.addEventListener('click', start);
         cancel.addEventListener('click', function () { if (mine) { mine.stop('cancel'); } });
         return {
-            node: el('div', { class: 'barcode' }, [input, el('div', { class: 'inline' }, [scan]), noReader, panel, status]),
+            node: el('div', { class: 'barcode' }, [input, shownValue, el('div', { class: 'inline' }, [scan]), noReader, panel, status]),
             controls: function () { return [input]; },
             sync: function (ro) {
                 readOnly = !!ro;
                 syncInput(input, current(inst, q), ro);
+                showValue();
                 scan.disabled = readOnly || !!mine;
                 if (readOnly && mine) { mine.stop('cancel'); }
             }
@@ -2147,7 +2192,10 @@
                 var rows = availableChoices(inst, q);
                 if (!rows) {
                     unavailable.hidden = false;
-                    unavailable.textContent = listUnavailableText(inst, q);
+                    // Written only when it changes: a status region rewritten with the same words is announced again, and
+                    // sync runs on every keystroke anywhere in the form (UX review 2026-11-16).
+                    var unsaid = listUnavailableText(inst, q);
+                    if (unavailable.textContent !== unsaid) { unavailable.textContent = unsaid; }
                     holder.textContent = '';
                     controls = [];
                     return;
@@ -2309,7 +2357,10 @@
                 var available = availableChoices(inst, q);
                 if (!available) {
                     unavailable.hidden = false;
-                    unavailable.textContent = listUnavailableText(inst, q);
+                    // Written only when it changes: a status region rewritten with the same words is announced again, and
+                    // sync runs on every keystroke anywhere in the form (UX review 2026-11-16).
+                    var unsaid = listUnavailableText(inst, q);
+                    if (unavailable.textContent !== unsaid) { unavailable.textContent = unsaid; }
                     input.disabled = true;
                     return;
                 }
@@ -3152,7 +3203,7 @@
         "This photo could not be opened for drawing. It is attached as it is.": "Bu fotoğraf çizim için açılamadı. Olduğu gibi eklendi.",
         "Line saved on the photo.": "Çizgi fotoğrafa kaydedildi.",
         "Last line undone.": "Son çizgi geri alındı.",
-        "Drawing cleared. The photo is as it was.": "Çizim temizlendi. Fotoğraf eski hâlinde.",
+        "Drawing cleared. The photo is as it was.": "Çizim temizlendi; fotoğraf ilk hâline döndü.",
         "The photo is saved with your drawing.": "Fotoğraf çiziminizle birlikte kaydedildi.",
         "The photo is attached as it is.": "Fotoğraf olduğu gibi eklendi.",
         "Photo removed.": "Fotoğraf kaldırıldı."
@@ -3301,6 +3352,10 @@
             if (!now) { s.open = false; }
             held.hidden = !now || s.open;
             pad.hidden = !now || !s.open || !s.base;
+            // The browser's file box says "No file chosen" once its value is emptied, which it is after every choice, and
+            // that stood over the attached photo (UX review 2026-11-16). With a photo held it goes: Remove photo brings
+            // it back for another.
+            input.hidden = !!now;
             if (now && preview.getAttribute('data-for') !== String(now.size) + ':' + now.name) {
                 if (preview.src) { URL.revokeObjectURL(preview.src); }
                 preview.hidden = false;
@@ -3321,6 +3376,7 @@
                 setFiles(inst, q, [raw]);
                 show();
                 say(t('This photo could not be opened for drawing. It is attached as it is.'));
+                if (focusWasHere()) { removeButton.focus(); }
                 return;
             }
             var photo;
@@ -3334,6 +3390,24 @@
             setFiles(inst, q, [photo]);
             show();
             say(t('Photo attached. You can draw on it, or leave it as it is.'));
+            if (focusWasHere()) { canvas.focus({ preventScroll: true }); }
+            reveal();
+        }
+
+        // The file box the person used is hidden once it holds a photo; focus that was on it (or fell to the page when it
+        // went) moves into the widget, and focus the person has since put elsewhere is left alone.
+        function focusWasHere() {
+            var a = document.activeElement;
+            return input.isConnected && (!a || a === document.body || a === input);
+        }
+
+        // The pad brought whole onto the screen when it opens, so Done is not below the fold on a phone (UX review
+        // 2026-11-16: at 390 by 844 it was 270 px below). Taller than the screen, its top is shown.
+        function reveal() {
+            if (pad.hidden || !pad.isConnected || !pad.scrollIntoView) { return; }
+            var r = pad.getBoundingClientRect();
+            if (r.top >= 0 && r.bottom <= window.innerHeight) { return; }
+            pad.scrollIntoView({ block: r.height <= window.innerHeight ? 'end' : 'start' });
         }
 
         input.addEventListener('change', function () {
@@ -3355,7 +3429,8 @@
             }
             s.open = true;
             show();
-            canvas.focus();
+            canvas.focus({ preventScroll: true });
+            reveal();
         });
 
         removeButton.addEventListener('click', function () {

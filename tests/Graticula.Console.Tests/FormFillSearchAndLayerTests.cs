@@ -322,6 +322,71 @@ public sealed class FormFillSearchAndLayerTests : IClassFixture<FormFillClientTe
         }
     }
 
+    /// <summary>
+    /// UX review 2026-11-16. A lookup whose input is still empty said "Nothing was found" under a question nobody had
+    /// reached; and the words of a layer list with no connection, in a status region, were written again on every
+    /// keystroke anywhere in the form, which a screen reader announces again each time.
+    /// </summary>
+    [Fact]
+    public async Task A_lookup_is_quiet_until_its_input_is_answered_and_a_list_with_no_connection_is_said_once()
+    {
+        _site.Layers = LayerAnswer;
+        string id = _site.Publish(new FormFillClientTests.Form
+        {
+            Root = FormFillClientTests.Form.Repeat("", [
+                Q("kod", "text", "Kod"),
+                With(Q("ad", "text", "Ad"), "calculation",
+                    $"pulldata(\"@layer\", \"getValue\", \"attributes.place_name\", '{LayerPath}', concat(\"country = '\", ${{kod}}, \"'\"))"),
+                Search(Q("yer", "select_one", "Yer", null, "places"), url: LayerPath, type: "matches", column: "country", text: "${kod}"),
+                Q("not", "text", "Not"),
+            ]),
+            Choices = Places,
+        });
+        await _site.OpenAsync(id);
+        await _site.WaitAsync("!!document.querySelector('[data-name=yer] input[role=combobox]') && !document.querySelector('[data-name=yer] input[role=combobox]').disabled", "the layer's choices");
+        // The lookup for the empty input was asked and answered (nothing found) before the status is read.
+        for (int i = 0; i < 50 && !_site.LayerRequests.Any(r => r.Contains("where=country = ''", StringComparison.Ordinal) && r.Contains("resultRecordCount=1", StringComparison.Ordinal)); i++)
+        {
+            await Task.Delay(100);
+        }
+
+        Assert.Contains(_site.LayerRequests, r => r.Contains("where=country = ''", StringComparison.Ordinal) && r.Contains("resultRecordCount=1", StringComparison.Ordinal));
+        await Task.Delay(700);
+        Assert.Equal("", await _site.EvalAsync<string>("document.querySelector('[data-name=ad] .layer-status').textContent"));
+
+        // Answered, and found nothing: now it is said.
+        await _site.SetAsync("kod", "XX");
+        await _site.WaitAsync("document.querySelector('[data-name=ad] .layer-status').textContent.indexOf('Nothing was found') >= 0", "nothing found to be said");
+
+        _site.Stop();
+        try
+        {
+            await _site.SetAsync("kod", "DE");
+            await _site.WaitAsync("document.querySelector('[data-name=yer] .note-warn').textContent.indexOf('need a connection') >= 0", "the list to say it needs a connection");
+            await _site.WaitAsync("document.querySelector('[data-name=ad] .layer-status').textContent.indexOf('back online') >= 0", "the value to say when it fills in");
+            int written = await _site.EvalAsync<int>("""
+                (function () {
+                  window.__rewrites = 0;
+                  var watch = new MutationObserver(function (m) { window.__rewrites += m.length; });
+                  watch.observe(document.querySelector('[data-name=yer] .note-warn'), { childList: true, characterData: true, subtree: true });
+                  watch.observe(document.querySelector('[data-name=ad] .layer-status'), { childList: true, characterData: true, subtree: true });
+                  return 0;
+                })()
+                """);
+            foreach (string typed in new[] { "b", "bi", "bir", "biri" })
+            {
+                await _site.SetAsync("not", typed);
+            }
+
+            await Task.Delay(200);
+            Assert.Equal(written, await _site.EvalAsync<int>("window.__rewrites"));
+        }
+        finally
+        {
+            _site.Start();
+        }
+    }
+
     [Fact]
     public async Task The_words_are_turkish_when_the_form_is()
     {

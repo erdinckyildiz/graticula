@@ -144,6 +144,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
   outline: 3px solid var(--accent); outline-offset: 2px;
 }
 input[readonly], textarea[readonly] { background: var(--surface-2); }
+/* A disabled box looked like an empty one waiting for an answer: a search() list with no connection was tapped and did
+   nothing (UX review 2026-11-16). */
+input:disabled:not([type=file]):not([type=checkbox]):not([type=radio]):not([type=range]), select:disabled, textarea:disabled { background: var(--surface-2); border-style: dashed; cursor: not-allowed; }
 
 .choices { display: grid; gap: 2px; }
 .choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 2px; cursor: pointer; }
@@ -195,9 +198,16 @@ button[aria-disabled="true"] { opacity: 0.55; cursor: progress; }
 /* annotate (ADR-287 section 5.24): the photo shown whole, scaled to fit, its pixels the photo's own. */
 .annotate-preview { display: block; max-width: 100%; max-height: 240px; margin-top: 8px; border-radius: 4px; border: 1px solid var(--rule); }
 .annotate-pad canvas {
-  display: block; width: auto; height: auto; max-width: 100%; max-height: 70vh; margin-top: 8px; touch-action: none; cursor: crosshair;
+  display: block; width: auto; height: auto; max-width: 100%; margin-top: 8px; touch-action: none; cursor: crosshair;
+  /* The pad's words and tools take about 240 px under and over the photo; the photo leaves them room on the screen, so
+     Done is in reach without scrolling off a canvas that does not scroll (UX review 2026-11-16). Never under 160 px. */
+  max-height: 70vh;
+  max-height: max(160px, min(70vh, calc(100dvh - 240px)));
   border: 1px solid var(--control-edge); border-radius: 6px; background: #ffffff;
 }
+
+/* minimal and hidden-answer barcode: the code read, shown as text where the box is not. */
+.barcode-value { margin: 0 0 4px; overflow-wrap: anywhere; }
 
 /* The barcode scanner's live preview (ADR-287 §5.22): as wide as the question, never taller than half the screen. */
 .scanner { margin-top: 8px; }

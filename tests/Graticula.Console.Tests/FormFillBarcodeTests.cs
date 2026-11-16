@@ -178,6 +178,42 @@ public sealed class FormFillBarcodeTests : IClassFixture<FormFillClientTests.Sit
             return true;
         });
 
+    /// <summary>
+    /// UX review 2026-11-16: a minimal question read a code into a box nobody could see, so a wrong label went unnoticed,
+    /// and after a draft reload nothing showed there was an answer at all. The code is shown as text, said with the
+    /// announcement, and describes the Scan button; the instruction under the preview is said once, not twice.
+    /// </summary>
+    [Fact]
+    public async Task A_minimal_question_shows_the_code_it_read_and_keeps_showing_it_after_a_reload() =>
+        await WithPlantedAsync(Reader, async () =>
+        {
+            string id = _site.Publish(Codes());
+            await _site.OpenAsync(id);
+            await _site.WaitAsync("!document.querySelector('[data-name=gizli] [data-focus=scan]').hidden", "the Scan button");
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] .barcode-value').hidden"), "An empty code was shown.");
+
+            await _site.EvalAsync<bool>("window.__scan.mode = 'none'; document.querySelector('[data-name=gizli] [data-focus=scan]').click(); true");
+            await _site.WaitAsync("window.__scan.live === 1", "the preview");
+            Assert.Equal(0, await _site.EvalAsync<int>("document.querySelectorAll('[data-name=gizli] .scanner .hint').length"));
+            await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] [data-focus=cancel-scan]').click(); true");
+
+            await _site.EvalAsync<bool>("window.__scan.mode = 'read'; document.querySelector('[data-name=gizli] [data-focus=scan]').click(); true");
+            await _site.WaitAsync("document.querySelector('[data-name=gizli] [aria-live]').textContent === 'Code read: 4006381333931'", "the code said with the announcement");
+            Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] input').hidden"), "minimal showed the box.");
+            Assert.False(await _site.EvalAsync<bool>("document.querySelector('[data-name=gizli] .barcode-value').hidden"), "The code read is not shown.");
+            Assert.Equal("4006381333931", await _site.EvalAsync<string>("document.querySelector('[data-name=gizli] .barcode-value').textContent"));
+            Assert.Contains(await _site.EvalAsync<string>("document.querySelector('[data-name=gizli] .barcode-value').id") ?? "-",
+                await _site.EvalAsync<string>("document.querySelector('[data-name=gizli] [data-focus=scan]').getAttribute('aria-describedby')") ?? "", StringComparison.Ordinal);
+            Assert.True(await _site.EvalAsync<bool>("document.activeElement === document.querySelector('[data-name=gizli] [data-focus=scan]')"));
+
+            // The draft comes back: the code is still there to see.
+            await _site.WaitAsync($"{FormFillClientTests.Site.IdbAll("drafts")}.then(function (all) {{ return all.some(function (d) {{ return d.formId === '{id}' && JSON.stringify(d.tree).indexOf('4006381333931') >= 0; }}); }})", "the draft to hold the code");
+            await _site.OpenAsync(id);
+            await _site.WaitAsync("document.getElementById('draft-reopened').textContent.indexOf('reopened') > 0", "the draft to be reopened");
+            await _site.WaitAsync("!document.querySelector('[data-name=gizli] .barcode-value').hidden && document.querySelector('[data-name=gizli] .barcode-value').textContent === '4006381333931'", "the drafted code to be shown");
+            return true;
+        });
+
     [Fact]
     public async Task The_scan_words_are_turkish_where_the_browser_is() =>
         await WithPlantedAsync(NoReader + "Object.defineProperty(navigator, 'language', { get: function () { return 'tr-TR'; } }); Object.defineProperty(navigator, 'languages', { get: function () { return ['tr-TR']; } });", async () =>

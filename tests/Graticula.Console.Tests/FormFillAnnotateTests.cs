@@ -245,4 +245,51 @@ public sealed class FormFillAnnotateTests : IClassFixture<FormFillClientTests.Si
             })
             """, "the file to be kept as the answer");
     }
+
+    /// <summary>
+    /// UX review 2026-11-16. The browser's file box said "No file chosen" over the attached photo, because its value is
+    /// emptied after every choice; and on a phone the pad's Done was below the fold of a canvas that does not scroll. The
+    /// box goes while a photo is held, focus moves from it to the pad (or, for a file that cannot be drawn on, to Remove
+    /// photo), the pad is brought onto the screen, and Remove photo brings the box back with focus on it.
+    /// </summary>
+    [Fact]
+    public async Task The_file_box_goes_while_a_photo_is_held_focus_follows_and_done_is_on_the_screen()
+    {
+        string id = PublishPhoto(null);
+        await _site.OpenAsync(id);
+        await _site.EvalAsync<bool>("document.querySelector('[data-name=foto] input[type=file]').focus(); true");
+        await SetPhotoAsync();
+        await _site.WaitAsync("!document.querySelector('[data-name=foto] .annotate-pad').hidden", "the pad to open");
+        Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=foto] input[type=file]').hidden"), "The empty file box stayed over the photo.");
+        await _site.WaitAsync("document.activeElement.getAttribute('data-focus') === 'pad'", "focus to move from the hidden box to the pad");
+        Assert.True(await _site.EvalAsync<bool>("""
+            (function () {
+              var r = document.querySelector('[data-name=foto] [data-focus=done]').getBoundingClientRect();
+              return r.top >= 0 && r.bottom <= innerHeight + 1;
+            })()
+            """), "Done is not on the screen when the pad opens.");
+
+        await _site.EvalAsync<bool>("document.querySelector('[data-name=foto] [data-focus=done]').click(); true");
+        await _site.WaitAsync("!document.querySelector('[data-name=foto] .annotate-held').hidden", "the pad to close");
+        Assert.True(await _site.EvalAsync<bool>("document.querySelector('[data-name=foto] input[type=file]').hidden"), "The empty file box came back beside the held photo.");
+
+        await _site.EvalAsync<bool>("document.querySelector('[data-name=foto] [data-focus=remove]').click(); true");
+        await _site.WaitAsync("document.querySelector('[data-name=foto] .annotate-held').hidden", "the photo to be removed");
+        Assert.False(await _site.EvalAsync<bool>("document.querySelector('[data-name=foto] input[type=file]').hidden"));
+        Assert.Equal("input", await _site.EvalAsync<string>("document.activeElement.getAttribute('data-focus')"));
+
+        // A file that cannot be drawn on: attached as it is, and focus goes to Remove photo rather than to nothing.
+        await _site.EvalAsync<bool>("""
+            (function () {
+              var input = document.querySelector('[data-name=foto] input[type=file]');
+              input.focus();
+              var dt = new DataTransfer();
+              dt.items.add(new File([new Uint8Array([1, 2, 3, 4])], 'broken.heic', { type: 'image/heic' }));
+              input.files = dt.files;
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            })()
+            """);
+        await _site.WaitAsync("document.activeElement.getAttribute('data-focus') === 'remove'", "focus to go to Remove photo");
+    }
 }
