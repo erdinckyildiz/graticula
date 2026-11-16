@@ -69,6 +69,7 @@ public static partial class FormEndpoints
         app.MapPut("/admin/forms/{id}/sharing", ShareAsync);
         app.MapGet("/forms/{id}/form.json", ClientAsync);
         MapInbox(app);
+        MapReports(app);
         app.MapGet("/forms/{id:regex(^[0-9a-fA-F]{{32}}$)}", PageAsync);
         app.MapGet("/forms/preview", (HttpContext context, CancellationToken cancellation) => PageAsync(context, "preview", cancellation));
 

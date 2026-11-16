@@ -23,7 +23,7 @@ namespace Graticula.Conformance.Tests;
 /// on none; an anonymous caller finds nothing; the faces that would keep one reader's rows for the next are refused.
 /// </remarks>
 [Collection("catalogue walk")]
-public sealed class AFormsInboxShowsEachMemberTheirOwnTests : ArcGisClient
+public sealed partial class AFormsInboxShowsEachMemberTheirOwnTests : ArcGisClient
 {
     private const string Password = "Zz-inbox-member-9!";
 

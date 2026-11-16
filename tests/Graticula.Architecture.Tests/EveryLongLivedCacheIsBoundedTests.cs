@@ -69,6 +69,8 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["FormDefinition.searches"] = "one check: a Checker is built per FormDefinition.Check, and holds the search() appearances of one form's rows (ADR-287 §5.23)",
         ["FormDefinition.translated"] = "one sheet: a Columns is built per sheet of one check, and holds that sheet's translated headers (ADR-287)",
         ["FormEndpoints.domainIds"] = "one publish: a Publisher is built per form publish, and holds that form's choice lists (ADR-287)",
+        ["ReportTemplate._entries"] = "one report request: a ReportTemplate is opened per upload or report, and holds one template's parts, at most 64 MB unpacked (ADR-301)",
+        ["ReportTemplate._parts"] = "one report request: the document, headers and footers of one template, at most its 2,000 parts (ADR-301)",
         ["FormEndpoints.relationshipNumbers"] = "one publish: a Publisher is built per form publish, and holds that form's repeats (ADR-287)",
         ["FormDefinition.plain"] = "one sheet: a Columns is built per sheet of one check, and holds that sheet's headers (ADR-287)",
         ["AdminEndpoints.WebMapTasks._members"] = "one request: an Access is built per tasks answer, and holds at most the organization's groups (ADR-286)",

@@ -1207,6 +1207,25 @@ internal static class AttachmentEndpoints
         // Kept for the write's webhook event (ADR-266 condition 1), which needs the layer's service and index.
         context.Items[ResolvedLayer] = layer;
 
+        (IAttachmentStore? store, int status, string? refusal) = await StoreOfAsync(context, layer, connections, cancellation).ConfigureAwait(false);
+
+        if (store is null)
+        {
+            await Refuse(context, status, refusal!).ConfigureAwait(false);
+            return null;
+        }
+
+        return store;
+    }
+
+    /// <summary>
+    /// The store that holds a layer's attachments — the layer's own, or a view's source layer's — or the status and reason
+    /// none is: the checks every attachment door makes after the layer is resolved, here once so a report reading a form's
+    /// photographs (ADR-301 §5.5) reads them by the same rules.
+    /// </summary>
+    internal static async Task<(IAttachmentStore? Store, int Status, string? Refusal)> StoreOfAsync(
+        HttpContext context, PublishedLayer layer, LayerConnections connections, CancellationToken cancellation)
+    {
         // <b>Both halves of the question, because this endpoint runs DDL.</b>
         // `PostGisAttachmentStore.EnsureTableAsync` issues `create table if not
         // exists` in the *layer's own* schema, so the guard has to be the same one
@@ -1231,23 +1250,20 @@ internal static class AttachmentEndpoints
         if (layer.Definition.IsHosted
             && !HostedDataEndpoints.AlterableSchema(layer.Definition.IsHosted, layer.Definition.SchemaName))
         {
-            await Refuse(context, 501,
+            return (null, 501,
                 $"Attachments are not available on '{layer.Definition.Name}' because it is served from the "
                 + $"'{layer.Definition.SchemaName}' schema, which this server did not create. Attachments need a companion "
-                + "table beside the layer's own, and this server creates tables only in the schema it made.")
-                .ConfigureAwait(false);
-            return null;
+                + "table beside the layer's own, and this server creates tables only in the schema it made.");
         }
 
         // <b>ADR-207: a registered layer keeps them where an administrator switched them on</b> — beside its table in
         // its own database, or in the datastore — and none until then.
         if (!layer.Definition.IsHosted && !layer.KeepsAttachments)
         {
-            await Refuse(context, 501,
+            return (null, 501,
                 $"'{layer.Definition.Name}' keeps no attachments. An administrator switches them on with "
                 + $"POST /admin/layers/{layer.Definition.Name}/attachments, choosing beside its table or in the datastore "
-                + "(ADR-207).").ConfigureAwait(false);
-            return null;
+                + "(ADR-207).");
         }
 
         // <b>A view's attachments are its source layer's — ADR-113, measured 2026-11-09.</b> A view is a PostgreSQL view,
@@ -1259,10 +1275,10 @@ internal static class AttachmentEndpoints
             && (await context.RequestServices.GetRequiredService<PostgresLayerCatalog>().ListAsync(cancellation).ConfigureAwait(false))
                 .FirstOrDefault(l => l.ServiceId == source && l.LayerIndex == layer.LayerIndex) is { } underlying)
         {
-            return connections.AttachmentsFor(underlying);
+            return (connections.AttachmentsFor(underlying), 200, null);
         }
 
-        return connections.AttachmentsFor(layer);
+        return (connections.AttachmentsFor(layer), 200, null);
     }
 
     /// <summary>Only the last path segment, and nothing that could traverse.</summary>
