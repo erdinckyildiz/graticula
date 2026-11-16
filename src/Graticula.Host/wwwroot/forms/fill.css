@@ -174,6 +174,8 @@ button {
 button.quiet { color: var(--accent-ink); background: var(--surface); border-color: var(--control-edge); }
 button.danger { color: var(--alert); background: var(--surface); border-color: var(--alert); }
 button:disabled { opacity: 0.55; cursor: default; }
+/* Busy without giving up focus (the Inbox's Refresh): looks disabled, keeps the keyboard where it was. */
+button[aria-disabled="true"] { opacity: 0.55; cursor: progress; }
 
 .inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
@@ -211,6 +213,9 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 .done { margin-top: 24px; padding: 16px; background: var(--ok-soft); border-radius: 8px; outline: none; }
 .done h2 { margin-top: 0; color: var(--ok); }
+/* Kept on the device, not sent: a holding state, not a success. */
+.done.queued { background: var(--warn-soft); }
+.done.queued h2 { color: var(--warn); }
 
 .device-forms ul { list-style: none; padding: 0; }
 .device-forms li { padding: 8px 0; border-top: 1px solid var(--rule); }
@@ -355,6 +360,7 @@ button.quiet.guidance-toggle { margin: 0 0 4px; min-height: 44px; padding: 8px 0
 .compare-table thead th { border-top: 0; font-size: 14px; color: var(--muted); }
 .compare-table tr.differs th, .compare-table tr.differs td { background: var(--warn-soft); }
 .differs-flag { color: var(--warn); font-weight: 400; }
+.compare-explain { margin: 12px 0 0; font-size: 15px; }
 /* A phone: each answer under its question, "Yours" and "On the server" named on their own lines. */
 @media (max-width: 480px) {
   .compare-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

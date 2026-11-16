@@ -350,14 +350,14 @@
     Object.assign(STATIC_TEXT, {
         "inbox-heading": ["Inbox", "Gelen kutusu"],
         "inbox-refresh": ["Refresh", "Yenile"],
-        "inbox-hint": ["Records you can open and change. Refresh downloads them to this device; once downloaded they open and can be changed without a signal, and your changes wait in the Outbox.", "Açıp değiştirebileceğiniz kayıtlar. Yenile, onları bu cihaza indirir; indirildikten sonra sinyalsiz de açılır ve değiştirilir, değişiklikleriniz Giden kutusunda bekler."],
-        "inbox-waiting-why": ["A record whose changes are waiting in the Outbox opens again once they are sent or discarded.", "Değişiklikleri Giden kutusunda bekleyen bir kayıt, onlar gönderilince ya da silinince yeniden açılır."],
+        "inbox-hint": ["Records you can open and change. Refresh downloads them to this device; once downloaded they open and can be changed without a signal, and your changes wait in the Outbox.", "Açıp değiştirebileceğiniz kayıtlar. Yenile'ye basınca bu cihaza inerler; sonra sinyal olmasa da açıp değiştirebilirsiniz. Değişiklikleriniz Giden kutusunda bekler."],
+        "inbox-waiting-why": ["A record whose changes are waiting in the Outbox opens again once they are sent or discarded.", "Değişiklikleri Giden kutusunda bekleyen kayıt, değişiklikler gönderilince ya da silinince yeniden açılabilir."],
         "compare-heading": ["Changed on the server since you downloaded it", "İndirdiğinizden beri sunucuda değişti"],
         "compare-mine": ["Keep mine", "Benimki kalsın"],
-        "compare-server": ["Use the server’s", "Sunucudakini kullan"],
+        "compare-server": ["Use the server’s", "Sunucudaki kalsın"],
         "compare-close": ["Close", "Kapat"],
         "answers-heading": ["No longer on the server", "Artık sunucuda yok"],
-        "answers-hint": ["The record was deleted on the server, or is no longer one the Inbox gives you, after you downloaded it. Your answers are kept on this device: copy them before you discard the record.", "Kayıt, siz indirdikten sonra sunucuda silindi ya da artık Gelen kutusunun size verdiği kayıtlardan değil. Cevaplarınız bu cihazda duruyor: kaydı silmeden önce kopyalayın."],
+        "answers-hint": ["The record was deleted on the server, or is no longer one the Inbox gives you, after you downloaded it. Your answers are kept on this device: copy them before you discard the record.", "Siz indirdikten sonra kayıt sunucuda silindi ya da artık Gelen kutunuza gelmiyor. Cevaplarınız bu cihazda duruyor; kaydı silmeden önce kopyalayın."],
         "answers-copy": ["Copy answers", "Cevapları kopyala"],
         "answers-close": ["Close", "Kapat"]
     });
@@ -382,27 +382,35 @@
         "Open": "Aç",
         "Your unsent changes to this record were reopened.": "Bu kayıtta gönderilmemiş değişiklikleriniz yeniden açıldı.",
         "Record opened from the Inbox.": "Kayıt Gelen kutusundan açıldı.",
-        "The server did not answer for every changed row.": "Sunucu değiştirilen her satır için cevap vermedi.",
+        "The server did not answer for every changed row.": "Sunucu, değiştirilen satırların hepsine cevap vermedi.",
         "Yours": "Sizinki",
         "differs": "farklı",
-        "Discard your changes to this record and keep the server’s version?": "Bu kayıttaki değişiklikleriniz silinsin ve sunucudaki sürüm kalsın mı?",
-        "Sending your version again…": "Sizin sürümünüz yeniden gönderiliyor…",
-        "Keeping the server’s version…": "Sunucudaki sürüm tutuluyor…",
-        "Your version was sent.": "Sizin sürümünüz gönderildi.",
-        "The server’s version was kept. Anything else you added was sent.": "Sunucudaki sürüm kaldı. Eklediğiniz diğer her şey gönderildi.",
+        "Drop your changes to these answers and keep the server’s?": "Bu cevaplardaki değişiklikleriniz bırakılsın ve sunucudaki kalsın mı?",
+        "Sending your version again…": "Sizinki yeniden gönderiliyor…",
+        "Keeping the server’s version…": "Sunucudaki korunuyor…",
+        "Your version was sent.": "Sizinki gönderildi.",
+        "The server’s version was kept. Anything else you added was sent.": "Sunucudaki kaldı. Eklediğiniz yeni satırlar ve resimler gönderildi.",
+        "The server’s version was kept.": "Sunucudaki kaldı.",
+        "Done": "Tamamlandı",
         "It was changed on the server again. Compare once more.": "Sunucuda yeniden değişti. Bir kez daha karşılaştırın.",
         "It is no longer on the server. Your answers are kept in the Outbox.": "Artık sunucuda yok. Cevaplarınız Giden kutusunda duruyor.",
         "The answers were copied.": "Cevaplar kopyalandı.",
-        "This browser would not copy them; they are selected for you to copy.": "Bu tarayıcı kopyalamadı; kopyalamanız için seçildiler.",
+        "This browser would not copy them; they are selected for you to copy.": "Bu tarayıcı kopyalayamadı; cevaplar sizin kopyalamanız için seçili.",
         "Changes to: ": "Değişiklik: ",
         "Changed on the server since you downloaded it. Compare the two and choose which to keep.": "İndirdiğinizden beri sunucuda değişti. İkisini karşılaştırıp hangisinin kalacağını seçin.",
-        "No longer on the server. Your answers are kept here: show them to copy them.": "Artık sunucuda yok. Cevaplarınız burada duruyor: kopyalamak için gösterin.",
+        "No longer on the server. Your answers are kept here: show them to copy them.": "Artık sunucuda yok. Cevaplarınız burada duruyor; kopyalamak için Cevapları göster'e basın.",
         "Open its form to compare.": "Karşılaştırmak için formunu açın.",
         "Discard this record? It is no longer on the server, and your answers cannot be recovered.": "Bu kayıt silinsin mi? Artık sunucuda yok ve cevaplarınız geri getirilemez.",
         "Your changes were sent.": "Değişiklikleriniz gönderildi.",
         "Not sent yet: the record was changed on the server since you downloaded it. Your changes are kept in the Outbox.": "Henüz gönderilmedi: kayıt siz indirdikten sonra sunucuda değişti. Değişiklikleriniz Giden kutusunda duruyor.",
-        "Not sent: the record is no longer on the server. Your answers are kept on this device, in the Outbox, to read and copy.": "Gönderilmedi: kayıt artık sunucuda yok. Cevaplarınız okumak ve kopyalamak için bu cihazda, Giden kutusunda duruyor.",
-        "The server refused the answers: ": "Sunucu cevapları kabul etmedi: "
+        "Not sent: the record is no longer on the server. Your answers are kept on this device, in the Outbox, to read and copy.": "Gönderilmedi: kayıt artık sunucuda yok. Cevaplarınız bu cihazda, Giden kutusunda duruyor; oradan okuyup kopyalayabilirsiniz.",
+        "The server refused the answers: ": "Sunucu cevapları kabul etmedi: ",
+        "differs: you changed it": "farklı: siz değiştirdiniz",
+        "differs: changed on the server, kept either way": "farklı: sunucuda değişti, her iki durumda da korunur",
+        "differs: changed by you and on the server": "farklı: hem sizde hem sunucuda değişti",
+        "Keep mine sends the answers you changed; answers changed only on the server stay as the server has them. Use the server’s drops your changes to these answers; new rows and pictures you added are still sent.":
+            "Benimki kalsın, sizin değiştirdiğiniz cevapları gönderir; yalnız sunucuda değişen cevaplar sunucudaki gibi kalır. Sunucudaki kalsın, bu cevaplardaki değişikliklerinizi bırakır; eklediğiniz yeni satırlar ve resimler yine gönderilir.",
+        "If this form is shared with your organization, sign in and open this link again.": "Form kuruluşunuzla paylaşıldıysa giriş yapın ve bu bağlantıyı yeniden açın."
     });
     function isTurkish() { return /\(tr\)|türkçe|turkish/i.test(lang || ''); }
     function t(s) { return isTurkish() && Object.prototype.hasOwnProperty.call(TR, s) ? TR[s] : s; }
@@ -2821,6 +2829,7 @@
                     if (geometry) { update.geometry = geometry; }
                     bucket.updates.push(update);
                     bucket.expected[inst.id] = existing.editDate;
+                    if (existing.base) { (bucket.base || (bucket.base = {}))[inst.id] = existing.base; }
                 }
             } else {
                 var add = { attributes: attributes };
@@ -3082,12 +3091,14 @@
         var records = (await dbAll('outbox')).sort(function (a, b) { return a.key - b.key; });
         $('outbox-count').textContent = String(records.length);
         var toggle = $('outbox-toggle');
-        toggle.setAttribute('aria-label', 'Outbox, ' + records.length + (records.length === 1 ? ' record waiting' : ' records waiting'));
+        toggle.setAttribute('aria-label', isTurkish() ? 'Giden kutusu, bekleyen ' + records.length + ' kayıt' : 'Outbox, ' + records.length + (records.length === 1 ? ' record waiting' : ' records waiting'));
         var list = $('outbox-list');
         list.textContent = '';
         if (!records.length) {
             list.appendChild(el('li', { class: 'state', text: t('Nothing is waiting to be sent.') }));
-            if (inboxOn() && inboxCache) { drawInbox(); }
+            // Not only when the Inbox was read already: a sent change empties inboxCache to have the record read again,
+            // and the guard left "Changed on the server" and a Compare button standing after it was resolved.
+            if (inboxOn()) { drawInbox(); }
             return;
         }
         var keep = document.activeElement && list.contains(document.activeElement) ? document.activeElement.getAttribute('data-focus') : null;
@@ -3147,7 +3158,7 @@
             list.appendChild(item);
         });
         if (keep) { var again = list.querySelector('[data-focus="' + cssEscape(keep) + '"]'); if (again) { again.focus(); } }
-        if (inboxOn() && inboxCache) { drawInbox(); }
+        if (inboxOn()) { drawInbox(); }
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -3529,7 +3540,10 @@
         inst.existing = {
             objectId: row.objectId, oidField: entry.oidFields && entry.oidFields[repeatName || ''] || 'objectid',
             editDate: row.editDate, locked: !!parent && repeatParameter(node, 'allowUpdates') !== true,
-            original: canonical(inst.values)
+            original: canonical(inst.values),
+            // The row as it was downloaded, so a conflict can say who changed each answer and Keep mine can leave the
+            // answers only the server changed as the server has them (UX review 2026-11-16).
+            base: { attributes: row.attributes || {}, geometry: row.geometry || null }
         };
         return inst;
     }
@@ -3551,6 +3565,8 @@
             }).join(', ');
         }
         if (q.type === 'date') { return String(v).slice(0, 10); }
+        // A geopoint is kept as "lat lon altitude accuracy"; read back to a person it is "lat, lon", as the comparison says it.
+        if (q.type === 'geopoint') { var at = String(v).trim().split(/\s+/); return at.length >= 2 ? at[0] + ', ' + at[1] : String(v); }
         if (q.type === 'dateTime') { var d = new Date(v); return isNaN(d.getTime()) ? String(v) : d.toLocaleString(); }
         return String(v);
     }
@@ -3584,7 +3600,11 @@
         return inboxLabels[key];
     }
 
-    function inboxWhen(ms) { return ms ? new Date(ms).toLocaleString() : ''; }
+    function inboxWhen(ms) {
+        if (!ms) { return ''; }
+        try { return new Date(ms).toLocaleString(isTurkish() ? 'tr-TR' : undefined, { dateStyle: 'medium', timeStyle: 'short' }); }
+        catch (e) { return new Date(ms).toLocaleString(); }
+    }
 
     // ----- The store
 
@@ -3668,7 +3688,8 @@
         inboxBusy = true;
         var status = $('inbox-status');
         var button = $('inbox-refresh');
-        button.disabled = true;
+        // aria-disabled, not disabled: a disabled button drops the focus it holds to the page, and the person who pressed
+        // Refresh was left on <body> twice in the 2026-11-16 review. inboxBusy already refuses a second press.
         button.setAttribute('aria-disabled', 'true');
         status.textContent = t('Downloading the records…');
         try {
@@ -3751,6 +3772,12 @@
             var said = isTurkish() ? entries.length + ' kayıt indirildi.' : (entries.length === 1 ? 'Downloaded 1 record.' : 'Downloaded ' + entries.length + ' records.');
             if (cut) { said += ' ' + (isTurkish() ? 'Gelen kutusunun sınırı ' + limit + ' kayıt; daha fazlası indirilmedi.' : 'The Inbox’s limit is ' + limit + ' records; more were not downloaded.'); }
             if (namesMissing) { said += ' ' + t('The names of their attachments could not be read.'); }
+            // "Downloaded 2" above a list that counts 3 needs the third explained: it is the person's, kept on purpose.
+            if (kept.length) {
+                said += ' ' + (isTurkish() ? 'Ayrıca ' + kept.length + ' kayıt bu cihazda tutuluyor: sunucuda artık yok ya da değişikliği gönderilmeyi bekliyor.'
+                    : (kept.length === 1 ? 'One more is kept on this device: it is no longer on the server, or its change is waiting.'
+                        : kept.length + ' more are kept on this device: they are no longer on the server, or their changes are waiting.'));
+            }
             status.textContent = said;
         } catch (e) {
             status.textContent = e.network ? t('You are offline. The records already on this device are shown.')
@@ -3758,7 +3785,6 @@
                 : t('The Inbox could not be refreshed: ') + (e.message || '');
         } finally {
             inboxBusy = false;
-            button.disabled = false;
             button.removeAttribute('aria-disabled');
             await drawInbox();
         }
@@ -3792,7 +3818,10 @@
         shown.forEach(function (e) {
             var label = inboxLabelOf(e).label;
             var waiting = edits[e.key];
-            var state = (isTurkish() ? 'Son değişiklik ' : 'Last changed ') + inboxWhen(e.editDate) + (e.editor ? (isTurkish() ? ', ' + e.editor : ' by ' + e.editor) : '') + '.';
+            // The member's own name read back to them as a login name ("by zz_ayse") is noise; it is "you".
+            var byMe = e.editor && cache.user && e.editor.toLowerCase() === String(cache.user).toLowerCase();
+            var editor = byMe ? (isTurkish() ? 'siz' : 'you') : e.editor;
+            var state = (isTurkish() ? 'Son değişiklik: ' : 'Last changed ') + inboxWhen(e.editDate) + (editor ? (isTurkish() ? ', ' + editor : ' by ' + editor) : '') + '.';
             var flag = '';
             if (e.gone || (waiting && waiting.status === 'gone')) { flag = t('No longer on the server.'); }
             else if (waiting && waiting.status === 'conflict') { flag = t('Changed on the server since you downloaded it.'); }
@@ -3811,7 +3840,9 @@
             } else {
                 // INFERRED: a record whose change still waits is not opened again; a second change would be sent against
                 // the same EditDate and refused once the first lands. The Outbox is where it is sent or discarded.
-                var open = el('button', { type: 'button', 'data-focus': 'open-' + e.globalId, text: t('Open'), 'aria-label': t('Open') + ': ' + label });
+                // Quiet: a column of identical filled buttons gave every row the same shout, and the Compare or
+                // Show answers of a record that needs the person was lost among them.
+                var open = el('button', { type: 'button', class: 'quiet', 'data-focus': 'open-' + e.globalId, text: t('Open'), 'aria-label': t('Open') + ': ' + label });
                 if (waiting) { open.disabled = true; open.setAttribute('aria-describedby', 'inbox-waiting-why'); }
                 open.addEventListener('click', function () { inboxOpen(e); });
                 actions.appendChild(open);
@@ -3827,7 +3858,7 @@
         if (!bar) { return; }
         bar.hidden = !editing || $('form').hidden;
         $('inbox-editing-text').textContent = editing
-            ? (isTurkish() ? 'Gelen kutusundaki bir kayıt değiştiriliyor: ' + editing.label + '. Gönder, değişikliklerinizi bu kayda gönderir.'
+            ? (isTurkish() ? 'Gelen kutusundan bir kaydı değiştiriyorsunuz: ' + editing.label + '. Gönder’e basınca değişiklikler bu kayda yazılır.'
                 : 'Changing a record from the Inbox: ' + editing.label + '. Submit sends your changes to it.')
             : '';
     }
@@ -3943,6 +3974,7 @@
                     layer: layer.url, repeat: layer.repeat || '', globalId: gidOf(u),
                     mine: u.attributes, mineGeometry: u.geometry || null,
                     server: f.attributes, serverGeometry: f.geometry || null,
+                    base: (layer.base || {})[gidOf(u)] || null,
                     serverEditDate: editDateOf(f.attributes), serverEditor: editorOf(f.attributes)
                 });
             });
@@ -4022,9 +4054,58 @@
         return shownAnswer(item.q, answerFromAttribute(item.q, attr(attributes, item.column)));
     }
 
+    // Who changed an answer that differs, read against the row as it was downloaded (c.base): 'mine', 'server', 'both',
+    // or 'differs' when the record predates the base being kept. 'same' when the two versions agree.
+    var CHANGED_BY = {
+        mine: 'differs: you changed it',
+        server: 'differs: changed on the server, kept either way',
+        both: 'differs: changed by you and on the server',
+        differs: 'differs'
+    };
+
+    function conflictRows(c) {
+        var out = [];
+        questionsOfLayer(c.repeat).forEach(function (item) {
+            var mine = comparedText(item, c.mine, c.mineGeometry);
+            var theirs = comparedText(item, c.server, c.serverGeometry);
+            if (!item.location && !Object.prototype.hasOwnProperty.call(c.mine, item.column) && !theirs) { return; }
+            var kind = 'same';
+            if (mine !== theirs) {
+                if (!c.base) { kind = 'differs'; }
+                else {
+                    var was = comparedText(item, c.base.attributes, c.base.geometry);
+                    var mineMoved = mine !== was, serverMoved = theirs !== was;
+                    kind = mineMoved && serverMoved ? 'both' : serverMoved ? 'server' : mineMoved ? 'mine' : 'differs';
+                }
+            }
+            out.push({ item: item, mine: mine, theirs: theirs, kind: kind });
+        });
+        return out;
+    }
+
+    /** Keep mine, answer by answer: what only the server changed is taken into the update, so sending it undoes nothing. */
+    function mergeServerOnly(c, layer) {
+        if (!c.base) { return; }
+        var update = (layer.updates || []).filter(function (u) { return normalGid(u.attributes.globalid) === normalGid(c.globalId); })[0];
+        if (!update) { return; }
+        conflictRows(c).forEach(function (row) {
+            if (row.kind !== 'server') { return; }
+            if (row.item.location) { if (c.serverGeometry) { update.geometry = c.serverGeometry; } return; }
+            var v = attr(c.server, row.item.column);
+            update.attributes[row.item.column] = v === undefined ? null : v;
+        });
+        // The version just resolved against is the one the next comparison, if there is one, is read from.
+        (layer.base || (layer.base = {}))[c.globalId] = { attributes: c.server, geometry: c.serverGeometry };
+    }
+
     function openCompare(record, opener) {
+        var again = !!compareRecord && !!compareReturn;   // opened once more after a second refusal: keep what it returns to
         compareRecord = record;
-        compareReturn = { focus: opener || null, formHidden: $('form').hidden };
+        compareReturn = again ? { focus: opener || compareReturn.focus, formHidden: compareReturn.formHidden, doneHidden: compareReturn.doneHidden }
+            : { focus: opener || null, formHidden: $('form').hidden, doneHidden: $('done').hidden };
+        // The "Saved on this device" box under the comparison read as a second, contradictory answer to the same send;
+        // it waits until the comparison is closed (UX review 2026-11-16).
+        $('done').hidden = true;
         var body = $('compare-body');
         body.textContent = '';
         var conflicts = record.conflicts || [];
@@ -4033,7 +4114,9 @@
             body.appendChild(el('p', { text: isTurkish()
                 ? who + inboxWhen(c.serverEditDate) + ' tarihinde sunucuda değiştirdi. Hangisinin kalacağını seçin.'
                 : who + inboxWhen(c.serverEditDate) + ' on the server. Choose which version to keep.' }));
-            var caption = c.repeat ? text((defs[c.repeat] || { node: {} }).node.labels, c.repeat) : (record.instanceName || (record.inbox && record.inbox.label) || record.title);
+            // A repeat row's table names its record too: "Bulgular" alone did not say which inspection it belonged to.
+            var recordName = record.instanceName || (record.inbox && record.inbox.label) || record.title;
+            var caption = c.repeat ? recordName + ' › ' + text((defs[c.repeat] || { node: {} }).node.labels, c.repeat) : recordName;
             var table = el('table', { class: 'compare-table', id: 'compare-table-' + i });
             table.appendChild(el('caption', { text: caption }));
             table.appendChild(el('thead', null, [el('tr', null, [
@@ -4041,22 +4124,24 @@
             ])]));
             var tbody = el('tbody');
             var differ = 0;
-            questionsOfLayer(c.repeat).forEach(function (item) {
-                var mine = comparedText(item, c.mine, c.mineGeometry);
-                var theirs = comparedText(item, c.server, c.serverGeometry);
-                if (!item.location && !Object.prototype.hasOwnProperty.call(c.mine, item.column) && !theirs) { return; }
-                var different = mine !== theirs;
+            conflictRows(c).forEach(function (row) {
+                var different = row.kind !== 'same';
                 if (different) { differ++; }
-                tbody.appendChild(el('tr', { class: different ? 'differs' : null, 'data-question': item.q.name }, [
-                    el('th', { scope: 'row' }, [el('span', { text: text(item.q.labels, item.q.name) }), different ? el('span', { class: 'differs-flag', text: ' — ' + t('differs') }) : null]),
-                    el('td', { 'data-label': t('Yours'), text: mine || '—' }),
-                    el('td', { 'data-label': t('On the server'), text: theirs || '—' })
+                tbody.appendChild(el('tr', { class: different ? 'differs' : null, 'data-question': row.item.q.name, 'data-changed': different ? row.kind : null }, [
+                    el('th', { scope: 'row' }, [el('span', { text: text(row.item.q.labels, row.item.q.name) }), different ? el('span', { class: 'differs-flag', text: ' — ' + t(CHANGED_BY[row.kind]) }) : null]),
+                    el('td', { 'data-label': t('Yours'), text: row.mine || '—' }),
+                    el('td', { 'data-label': t('On the server'), text: row.theirs || '—' })
                 ]));
             });
             table.appendChild(tbody);
             body.appendChild(el('div', { class: 'compare-scroll', role: 'region', tabindex: '0', 'aria-label': caption }, [table]));
             body.appendChild(el('p', { class: 'hint', text: isTurkish() ? differ + ' cevap farklı.' : (differ === 1 ? 'One answer differs.' : differ + ' answers differ.') }));
         });
+        // What each button does, said before the person chooses (UX review 2026-11-16): without it, Keep mine looked
+        // like "my whole record wins" and quietly undid the office's change to an answer the field worker never touched.
+        if (conflicts.some(function (c) { return !!c.base; })) {
+            body.appendChild(el('p', { class: 'compare-explain', text: t('Keep mine sends the answers you changed; answers changed only on the server stay as the server has them. Use the server’s drops your changes to these answers; new rows and pictures you added are still sent.') }));
+        }
         $('compare-actions').hidden = false;
         $('compare-close').hidden = true;
         $('compare-status').textContent = '';
@@ -4072,14 +4157,14 @@
     async function resolveCompare(keepMine) {
         var record = compareRecord;
         if (!record) { return; }
-        if (!keepMine && !window.confirm(t('Discard your changes to this record and keep the server’s version?'))) { return; }
+        if (!keepMine && !window.confirm(t('Drop your changes to these answers and keep the server’s?'))) { return; }
         var fresh = await dbGet('outbox', record.key).catch(function () { return null; });
         if (fresh) { record = fresh; }
         var p = record.progress;
         (record.conflicts || []).forEach(function (c) {
             var layer = record.layers.filter(function (l) { return l.url === c.layer; })[0];
             if (!layer) { return; }
-            if (keepMine) { layer.expected[c.globalId] = c.serverEditDate; } else { p.updated[c.globalId] = true; }
+            if (keepMine) { mergeServerOnly(c, layer); layer.expected[c.globalId] = c.serverEditDate; } else { p.updated[c.globalId] = true; }
         });
         record.conflicts = null;
         record.status = 'queued';
@@ -4089,13 +4174,23 @@
         var status = $('compare-status');
         status.textContent = t(keepMine ? 'Sending your version again…' : 'Keeping the server’s version…');
         var outcome = navigator.onLine === false ? 'offline' : await sendOne(record);
-        status.textContent = outcome === 'sent' ? t(keepMine ? 'Your version was sent.' : 'The server’s version was kept. Anything else you added was sent.')
+        // "Anything else you added was sent" only when there was something else: said after nothing was added, it claimed
+        // a send that did not happen (UX review 2026-11-16).
+        var addedMore = (record.layers || []).some(function (l) { return (l.adds || []).length > 0; }) || (record.attachments || []).length > 0;
+        var serverKept = addedMore ? 'The server’s version was kept. Anything else you added was sent.' : 'The server’s version was kept.';
+        status.textContent = outcome === 'sent' ? t(keepMine ? 'Your version was sent.' : serverKept)
             : outcome === 'conflict' ? t('It was changed on the server again. Compare once more.')
             : outcome === 'gone' ? t('It is no longer on the server. Your answers are kept in the Outbox.')
             : outcome === 'offline' ? t('Saved on this device. It will be sent when you are back online.')
             : outcome === 'sign-in' ? t('Saved on this device. Sign in, then send it from the Outbox.')
             : t('The server refused this record.') + ' ' + (record.message || '');
         await drawOutbox();
+        if (outcome === 'sent' && compareReturn && compareReturn.doneHidden === false) {
+            // The box this returns to said "not sent yet"; it now says what happened.
+            $('done').classList.remove('queued');
+            $('done-heading').textContent = keepMine ? STATIC_TEXT['done-heading'][isTurkish() ? 1 : 0] : t('Done');
+            $('done-text').textContent = t(keepMine ? 'Your changes were sent.' : serverKept);
+        }
         if (outcome === 'conflict') {
             var again = await dbGet('outbox', record.key).catch(function () { return null; });
             if (again) { var said = status.textContent; openCompare(again, compareReturn && compareReturn.focus); $('compare-status').textContent = said; return; }
@@ -4110,6 +4205,7 @@
         var back = compareReturn || {};
         compareReturn = null;
         if (!back.formHidden) { $('form').hidden = false; }
+        if (back.doneHidden === false) { $('done').hidden = false; }
         drawEditingBar();
         var target = back.focus && document.body.contains(back.focus) && !back.focus.closest('[hidden]') ? back.focus : null;
         if (!target) { target = !$('done').hidden ? $('new-form') : $('outbox-toggle'); }
@@ -4482,6 +4578,8 @@
         $('summary').hidden = true;
         var thanks = sent && form && form.thankYou ? form.thankYou : '';
         $('done-heading').textContent = queued ? t('Saved on this device') : STATIC_TEXT['done-heading'][isTurkish() ? 1 : 0];
+        // Kept, not sent, is not a success: it is not drawn in the success green (UX review 2026-11-16).
+        $('done').classList.toggle('queued', !!queued);
         $('done-text').textContent = thanks || t(message);
         // The draft this answer came from is gone (it was queued or sent): its "saved" line would now say the opposite.
         sayDraft('');
@@ -4699,6 +4797,12 @@
             $('loading').textContent = e.network
                 ? t('The form could not be loaded: you are offline and it has not been downloaded to this device.')
                 : 'The form could not be loaded: ' + e.message;
+            // Nobody signed in, and the form not found: it may be one shared with the organization, which this page has
+            // no way to sign in to — a dead end for the member the Inbox is for (UX review 2026-11-16).
+            if (!e.network && !me.name) {
+                $('loading').appendChild(document.createTextNode(' ' + t('If this form is shared with your organization, sign in and open this link again.') + ' '));
+                $('loading').appendChild(el('a', { href: '/studio/', target: '_blank', rel: 'noopener', text: t('Sign in') }));
+            }
             return;
         }
         await begin(loaded);
