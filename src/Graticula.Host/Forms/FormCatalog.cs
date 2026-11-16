@@ -17,7 +17,7 @@ public static class FormCatalog
     /// <summary>Question types the client fills in and the layer stores.</summary>
     public static readonly FrozenSet<string> InputTypes = Set(
         "integer", "decimal", "range", "text", "note", "geopoint", "geotrace", "geoshape", "date", "time", "dateTime",
-        "image", "audio", "video", "file", "acknowledge");
+        "image", "audio", "video", "file", "acknowledge", "barcode");
 
     /// <summary>Types with no screen: a value worked out or set.</summary>
     public static readonly FrozenSet<string> ValueTypes = Set("calculate", "hidden");
@@ -35,7 +35,6 @@ public static class FormCatalog
     public static readonly FrozenDictionary<string, string> RefusedTypes = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["rank"] = "ordering a list is not in the first version",
-        ["barcode"] = "Safari has no barcode reader, so the question could not be answered on an iPhone",
         ["background-audio"] = "recording in the background is not in the first version",
         ["xml-external"] = "external XML data is not in the first version",
         ["csv-external"] = "external CSV data through instance() is not in the first version; use pulldata() or select_one_from_file",
@@ -100,7 +99,7 @@ public static class FormCatalog
         ["signature"] = Set("image"),
         ["month-year"] = Set("date"),
         ["year"] = Set("date"),
-        ["minimal"] = Set("select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file", "begin group", "begin repeat"),
+        ["minimal"] = Set("select_one", "select_multiple", "select_one_from_file", "select_multiple_from_file", "begin group", "begin repeat", "barcode"),
         ["compact"] = Set("begin group", "begin repeat"),
         ["autocomplete"] = Set("select_one", "select_one_from_file"),
         ["spinner"] = Set("integer", "decimal"),
@@ -111,6 +110,7 @@ public static class FormCatalog
         ["draw"] = Set("image"),
         ["field-list"] = Set("begin group", "begin repeat"),
         ["table-list"] = Set("begin group"),
+        ["hidden-answer"] = Set("barcode"),
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
@@ -197,6 +197,12 @@ public static class FormCatalog
         ["esriFieldTypeDateOnly"] = "esriFieldTypeDate",
         ["esriFieldTypeGUID"] = "esriFieldTypeGUID",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The field types a <c>barcode</c> answer may be stored as (ADR-287 §5.22): text, or not stored. A scanned code is
+    /// text — an EAN or a UPC may begin with zeros a number would drop, and a QR code holds anything.
+    /// </summary>
+    public static readonly FrozenSet<string> BarcodeFieldTypes = Columns("esriFieldTypeString", "null");
 
     /// <summary><c>bind::esri:fieldType</c> values refused, with the reason.</summary>
     public static readonly FrozenDictionary<string, string> RefusedEsriFieldTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

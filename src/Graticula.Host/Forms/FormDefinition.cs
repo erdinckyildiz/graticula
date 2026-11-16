@@ -947,6 +947,12 @@ public sealed partial class FormDefinition
                     Refuse("survey", at, "bind::esri:fieldType", $"'{fieldType}' is not a field type this server can store.");
                 }
 
+                if (type == "barcode" && stored is not null && !FormCatalog.BarcodeFieldTypes.Contains(fieldType))
+                {
+                    // ADR-287 §5.22, INFERRED: Survey123's pages do not say; a code is text, and a number would drop its leading zeros.
+                    Refuse("survey", at, "bind::esri:fieldType", $"A barcode is stored as text (esriFieldTypeString) or not at all; '{fieldType}' would change a scanned code, such as the leading zeros of an EAN.");
+                }
+
                 if (FormCatalog.AttachmentTypes.Contains(type) || FormCatalog.LocationTypes.Contains(type))
                 {
                     Refuse("survey", at, "bind::esri:fieldType", $"A '{type}' question is stored as {(FormCatalog.LocationTypes.Contains(type) ? "the layer's geometry" : "an attachment")}, and its field type cannot be changed.");

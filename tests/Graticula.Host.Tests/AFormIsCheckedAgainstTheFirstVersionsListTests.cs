@@ -76,7 +76,7 @@ public sealed class AFormIsCheckedAgainstTheFirstVersionsListTests
 
     [Theory]
     [InlineData("rank renk", "ordering")]
-    [InlineData("barcode", "Safari")]
+    [InlineData("phonenumber", "phone number")]
     [InlineData("audit", "audit")]
     [InlineData("select_one_external renk", "external")]
     [InlineData("osm", "not a question type")]

@@ -781,7 +781,7 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
         {
             ["format"] = "xlsform/1",
             ["sheets"] = new JsonArray(Sheet("survey", ["type", "name", "label", "relevant"],
-                ["barcode", "kod", "Kod"],
+                ["audit", "kod", "Kod"],
                 ["text", "ad", "Ad", "pulldata('@layer', 'getValue', 'x', 'y')"])),
         };
 
@@ -790,7 +790,7 @@ public sealed class AFormIsPublishedAndFilledInTests : ArcGisClient
 
         Assert.True(status == HttpStatusCode.BadRequest, $"A refused form answered {(int)status}: {body}");
         JsonElement refusals = JsonDocument.Parse(body).RootElement.GetProperty("refusals");
-        Assert.Contains(refusals.EnumerateArray(), r => r.GetProperty("row").GetInt32() == 2 && r.GetProperty("message").GetString()!.Contains("Safari", StringComparison.Ordinal));
+        Assert.Contains(refusals.EnumerateArray(), r => r.GetProperty("row").GetInt32() == 2 && r.GetProperty("message").GetString()!.Contains("audit", StringComparison.Ordinal));
         Assert.Contains(refusals.EnumerateArray(), r => r.GetProperty("row").GetInt32() == 3 && r.GetProperty("message").GetString()!.Contains("@layer", StringComparison.Ordinal));
     }
 

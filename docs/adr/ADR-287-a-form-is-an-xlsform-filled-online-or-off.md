@@ -320,9 +320,9 @@ measurable question. The two device claims are, so they are conditions and not a
 
     | | Types |
     |---|---|
-    | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
+    | Supported | `integer`, `decimal`, `range`, `text`, `select_one`, `select_multiple`, `note`, `geopoint`, `geotrace`, `geoshape`, `date`, `time`, `dateTime`, `image`, `audio`, `video`, `file`, `calculate`, `hidden`, `acknowledge`, **`barcode` (since 2026-11-16, §5.22)**; `select_one_from_file` and `select_multiple_from_file` **from a CSV** uploaded with the form |
     | Supported metadata | `start`, `end`, `today`, `username` and `email` (from the signed-in member, empty for an anonymous form), `deviceid` (a random id kept by the installed client, not a hardware id) |
-    | Refused | `rank`, `barcode` (Safari has no barcode reader), `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` (`or_other` was on this list until 2026-11-15 and is supported: §5.19 (1)) |
+    | Refused | `rank`, ~~`barcode` (Safari has no barcode reader)~~ *(lifted 2026-11-16 by owner decision: the answer is always typeable and the camera scans where the browser can read a code, §5.22)*, `background-audio`, `xml-external`, `csv-external`, `select_one_external`, `select_multiple_external`, `*_from_file` from XML or GeoJSON, `phonenumber`, `audit` (`or_other` was on this list until 2026-11-15 and is supported: §5.19 (1)) |
 
     **Groups and repeats.** `begin group` / `end group` with `relevant`, nested to any depth. `begin repeat` /
     `end repeat` with `relevant`, `repeat_count` (a number or an expression) and a label. ~~A repeat inside a repeat
@@ -353,7 +353,7 @@ measurable question. The two device claims are, so they are conditions and not a
     several attachments), `signature` (on `image`), `month-year` and `year` (on `date`), `minimal`, `likert`, `rating`
     (on `range`), `hidden`, **and since 2026-11-15 (§5.19): `minimal` and `compact` on `begin group` and `begin repeat`
     (collapsed behind a button), `autocomplete` (on `select_one`), `spinner` (on `integer` and `decimal`) and
-    `week-number` (on `date`)**, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**). Drawn the default way: `horizontal`, `horizontal-compact`, `compact` (on a select), `quick`,
+    `week-number` (on `date`)**, and `draw` (on `image`; **built 2026-11-15, §5.20 (e)**), **and since 2026-11-16 (§5.22) `minimal` and ODK's `hidden-answer` on `barcode`**. Drawn the default way: `horizontal`, `horizontal-compact`, `compact` (on a select), `quick`,
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
     `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: `annotate`, `map` and
@@ -982,6 +982,103 @@ measurable question. The two device claims are, so they are conditions and not a
     `audio`, `bind::esri:warning`, `grid`, `pulldata("@javascript")` and a parameter on a question that takes none.
     The merge also set the shell cache to `graticula-forms-shell-v8` (the two branches had v6 and v7), and the page test
     that named a cache version now finds the shell cache by its prefix.
+
+22. **The `barcode` question — 2026-11-16, by owner decision (*"Yap"*, after it was proposed as the next step).** §5.10
+    refused `barcode` because *Safari has no barcode reader, so the question could not be answered on an iPhone*. That
+    reason was about one way of answering, not about the question: a barcode answer is text, and text can be typed on every
+    browser. So the refusal is lifted by making the box the answer everywhere and the camera an extra where the browser
+    can read a code, and the iPhone case is protected by the box rather than by refusing the form.
+    - **What Esri's public pages say, and what each settles.** *Barcodes*
+      (`https://doc.arcgis.com/en/survey123/create/main/barcodes.htm`, now served at
+      `https://doc.esri.com/en/arcgis-survey123/latest/create/main/barcodes.html`): *"Users select the barcode button to
+      scan a barcode with the device's camera. The value read from the barcode is displayed in the text box."*;
+      *"By setting the appearance column to minimal, a barcode question displays only the button to start the scanner. The
+      text box that contains the barcode value is not shown."*; the `barcodeType` parameter goes in **`body::esri:style`**,
+      and for the **web app** specifically: *"Barcode types cannot be manually selected in the Survey123 web app"*, *"The
+      web app doesn't support using an expression to set the barcodeType parameter"*, and *"all barcode types will be
+      accepted when barcodeType is set to all, 1d, or 2d."* The web designer's page
+      (`https://doc.esri.com/en/arcgis-survey123/latest/create/web-designer/textnumberdatetime.html`), which is the web
+      app's own question: *"The coded value can be manually entered if it is human readable"*, and the list of formats
+      *"cannot be limited by the survey author in the web designer or by the respondent in the web app."* *XLSForm
+      parameters* (`…/create/main/xlsformparameters.html`): `barcodeType` and `placeholderText` (both in
+      `body::esri:style`) are the only parameters that name barcode; `calculationMode` is **not** allowed on it. *Question
+      types overview* (`…/create/main/question-types-overview.html`): *"Scan a barcode or QR code."* **None of these pages
+      gives the field type or length a barcode question makes, or says which browsers the web app scans in.** ODK's
+      *Question types* (`https://docs.getodk.org/form-question-types/`, Barcode): *"Scans, decodes, and captures the
+      content of a barcode, using the device camera"*, with the appearances `front` (the front camera) and
+      `hidden-answer` (the value read is not shown, for long or encoded values).
+    - **The server.** `barcode` is an input type (`FormCatalog.InputTypes`) and off `RefusedTypes`. It makes a **text
+      field of 255** (`FormLayerPlan.DefaultTextLength`, the length every text field here gets, §5.9 (d)), and
+      `bind::esri:fieldLength` sets another length (1–10000) as it does for `text`. Appearances: **`minimal`** (Survey123's)
+      and **`hidden-answer`** (ODK's, the same meaning) are supported on `barcode`; `hidden` and the presentation appearances
+      behave as on any question; `front` is refused as unknown and `new-front`/`new-rear` stay refused (*choosing the camera
+      is not in the first version*); `multiline` is refused (*applies to file, image, text*). `body::esri:style` is accepted
+      with its existing notice (*changes only how questions look and is drawn the default way*), which for `barcodeType`
+      is true of the web app as Esri describes it and for `placeholderText` is true here. The `parameters` column is refused
+      (*'barcode' takes no parameters*), as is `body::esri:inputMask` (*belongs on a text question*) and `calculationMode`
+      (Survey123's list leaves `barcode` out). A calculation, a constraint, `required`, `default`, `read_only` and
+      `relevant` work as on `text`, and a barcode's answer reads as a string in another question's expression. The designer
+      offers **Barcode** on the Text shelf, and lists `minimal` and `hidden-answer` for it.
+    - **The client** (`fill.js`, `barcodeWidget`). The answer is **always a text box** (`autocomplete`, `autocapitalize`
+      and `spellcheck` off), labelled by the question, so a code is typed on an iPhone, on a desktop and on any browser.
+      The page asks once whether the browser has a reader: `BarcodeDetector` exists, `BarcodeDetector.getSupportedFormats()`
+      gives **at least one format**, and `navigator.mediaDevices.getUserMedia` exists (it does not on a page that is not
+      HTTPS). **Where it has one**, a **Scan** button (described by the question's label) opens the camera with
+      `facingMode: { ideal: 'environment' }` and no audio, shows the live preview (labelled *Camera preview*) with a **Cancel
+      scan** button, which takes focus, and asks the reader every 200 ms with every format the browser offers. The first
+      non-empty value read goes into the box, becomes the answer, is announced (*Code read.*) and focus goes to the box.
+      **The camera's tracks are stopped** on a value, on Cancel (focus back to Scan), on `pagehide` and on the page being
+      hidden (`visibilitychange`), when a redraw has removed the preview, when another barcode question starts scanning, when
+      the question becomes read-only, and on every error; only one camera is ever open. **Where it has none**, there is no
+      Scan button, and a line under the box says *This browser cannot scan codes. Type the code instead.*, which the box is
+      described by. **Failures are said in words** in the question's polite live region, and each says what to do: *Camera
+      permission was refused.*, *No camera was found.* (`NotFoundError`, `OverconstrainedError`), *The camera could not be
+      started.* (anything else, including the camera being in use), *The code could not be read.* (the reader failed),
+      each followed by *Type the code instead.* and focus on the box. A message survives a redraw of the question.
+      `minimal` and `hidden-answer` hide the box **only where there is a reader**; without one, and after the camera has
+      failed for that question, the box is shown, because it is then the only way to answer. Every string is in the Turkish
+      table. The preview is in `fill.css` (as wide as the question, at most half the screen high).
+    - **Offline.** Decoding is the browser's, on the device, and the camera needs no network, so scanning works with no
+      signal exactly as it does online; the answer is text and goes into the draft and the outbox as any text does. Nothing
+      is downloaded to scan. Where the browser has no reader, offline or not, the code is typed.
+    - **The headers.** The form pages' `Content-Security-Policy` (`SecurityHeaders.FormsPolicy`) was read and **left
+      unchanged**: a camera stream is given to the `<video>` as `srcObject`, which is not a URL fetch and so not governed
+      by `media-src`, and the reader is a browser API, not a script source. **This server sends no `Permissions-Policy`
+      header on any path** (searched across `src/`), so the camera keeps the browser default, which allows it for the page's
+      own origin, and the designer's same-origin preview frame inherits the same. A reverse proxy in front of the server
+      that adds `Permissions-Policy: camera=()` would remove the Scan button's camera; the client then says *The camera
+      could not be started* or *permission was refused*, and the box still works. `getUserMedia` needs a secure context,
+      which a deployment already is (HTTPS) and `localhost` is.
+    - **No decoding library.** None is carried, by the brief and by the build-vs-adopt policy. *Open point for the owner,
+      not decided here:* Safari on iPhone and iPad, Firefox, and Chrome on Windows and Linux have **no `BarcodeDetector`**
+      (MDN's compatibility table, as known to this session and not measured here, has it in Chrome and Edge on Android, ChromeOS and macOS only), so on those a person types the code. If the
+      owner wants scanning on an iPhone, the only route a web client has is a decoding library run in the page on camera
+      frames (for example ZXing's JavaScript port, Apache-2.0); that is a Tier 2 adoption under
+      [build-vs-adopt-policy.md](../build-vs-adopt-policy.md), behind our own port, and it is a separate decision with its
+      own size and licence record.
+    - **Tests.** Server: `AFormTakesABarcodeQuestionTests` (accepted and off the refused list; text field of 255 and of the
+      given length; stored as text or not at all, a numeric field type refused; `minimal` and `hidden-answer` accepted and
+      sent to the client, `hidden-answer` refused off a barcode; `barcodeType` accepted with a notice; `front`, `new-front`,
+      `parameters`, an input mask, `calculationMode` and `multiline` refused in words; another question reads it).
+      `AFormIsCheckedAgainstTheFirstVersionsListTests` and the conformance refusal test name another refused type in its
+      place. Client, in headless Chrome with the reader and the camera stubbed before the page's scripts run
+      (`FormFillBarcodeTests`): with no reader there is no Scan button, the hint is shown and describes the box, a `minimal`
+      question shows its box, and typed codes are sent; with a reader, Scan asks for the rear camera without audio and for
+      the reader's formats, the code read is in the box, announced, focused and sent, and the one camera track is stopped;
+      Cancel, `pagehide` and a refused camera each stop the camera and say so, and a refused camera shows a `minimal`
+      question's box; the no-reader hint is Turkish in a Turkish browser.
+    - **The corpus.** Measured with `AFormCorpusTests` on the same 110 workbooks (108 readable), against the last full report: **60 of the 108 import unedited (from 59), and 43 of the 61 Survey123-authored forms (from 42).** The one form this item unblocks is `esri-Samples_Barcode_Scanning.xlsx` (a plain barcode and a `minimal` one). `esri-Samples_001_Question_Types.xlsx` is still refused, now only for a `bind::esri:fieldLength` of `null` on another row, which is not this item's. The pyxform fixtures and the ODK Web Forms all-question-types workbook no longer name `barcode` or `hidden-answer` among their refusals and stay refused for their other reasons (`public_key`, audio in a label, `simserial`, `phonenumber` and others).
+    - **INFERRED, for the owner to confirm:** (1) the default length is **255**, the length every text field here gets,
+      because no Esri page states a barcode's field type or length; (2) a barcode is stored only as `esriFieldTypeString`
+      or not at all, and a numeric, date or GUID field type is refused, because a code with leading zeros (an EAN, a UPC)
+      would change; Survey123's pages do not say; (3) `minimal` and `hidden-answer` hide the box only where there is a
+      reader, and a failed camera shows it, where Survey123 hides it always (its field app always has a scanner); (4)
+      `barcodeType` is accepted and not enforced: every format the browser reads is read, which is what Esri says its web
+      app does for `all`, `1d` and `2d`, and a specific list is not narrowed — the page does not say what the web app does
+      with one; (5) the first value read is taken, with no confirmation step, as Survey123 puts *the value read* in the box
+      and the person can still edit it; (6) ODK's `front` is not built, because the brief asked for the rear camera, and is
+      refused as unknown rather than accepted and ignored.
+    - The service worker's shell cache is not changed here (`fill.js` and `fill.css` changed); the merge sets it.
 
 ## 6. Consequences
 

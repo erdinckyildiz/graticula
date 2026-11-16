@@ -193,6 +193,13 @@ button[aria-disabled="true"] { opacity: 0.55; cursor: progress; }
 }
 .signature.drawing canvas { height: 280px; border-style: solid; }
 
+/* The barcode scanner's live preview (ADR-287 §5.22): as wide as the question, never taller than half the screen. */
+.scanner { margin-top: 8px; }
+.scanner video {
+  display: block; width: 100%; max-height: 50vh; object-fit: cover;
+  background: #101826; border: 1px solid var(--control-edge); border-radius: 6px;
+}
+
 .repeat-instance {
   margin: 12px 0; padding: 4px 12px 12px;
   border: 1px solid var(--rule); background: var(--accent-soft); border-radius: 8px;
