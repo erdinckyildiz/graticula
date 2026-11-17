@@ -105,7 +105,7 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
    offers Word, and `fallback: "docx"`; nothing half-made is downloaded. Studio keeps the person's choice of PDF, says
    *"Not made as a PDF: <reason>"*, and offers a *Create as Word (.docx)* button that takes focus and reads the reason with
    it — after the ux-designer review of 2026-11-17, which refused the first build's silent switch back to Word.
-5. **INFERRED** ([Q-240](../open-questions.md)):
+5. ~~**INFERRED**~~ **Confirmed by the owner 2026-11-17** ([Q-240](../open-questions.md)):
    1. one minute per document;
    2. **at most 25 PDF documents per request** in separate mode — a merged report is one document and is not counted; more
       is refused with the choices (merged, fewer, Word);
@@ -130,7 +130,7 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
 
 1. **The two refused templates are reported upstream or worked around**, each with what OfficeIMO said, and measured
    again.
-2. **The owner confirms §5.5** through [Q-240](../open-questions.md).
+2. **The owner confirms §5.5** through [Q-240](../open-questions.md). **DISCHARGED 2026-11-17:** all three confirmed as written (*"Uygun"*).
 3. **Measured on the showcase after the image is built**, not in a container borrowed for the prototype: the thirteen
    templates again, and a 25-submission separate report with photographs — time and peak memory against §5.2's bounds.
 
