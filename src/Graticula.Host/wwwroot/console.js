@@ -36694,11 +36694,14 @@ async function drawDocForm(doc) {
   const box = $("docForm");
   const results = $("docFormResults");
   if (!box || !results) return;
-  if (doc.kind !== "form" || !doc.manages) {
-    // A reader who is not its owner opens the form; its state and its answers are its owner's (§5.11 (l)).
+  if (doc.kind !== "form") {
     box.hidden = true; box.innerHTML = "";
     results.hidden = true; results.innerHTML = "";
-    if (doc.kind !== "form") formHere = null;
+    formHere = null;
+    return;
+  }
+  if (!doc.manages) {
+    await drawDocFormForReader(doc);
     return;
   }
 
@@ -36727,6 +36730,66 @@ async function drawDocForm(doc) {
   formHere = { id: doc.id, doc, read, form: client?.form || null };
   drawFormState();
   drawFormResults();
+}
+
+/**
+ * The form's page for a member who may open it and does not manage it (owner decision 2026-11-17): no Form panel — its
+ * state, publishing, sharing and Inbox settings stay its owner's (§5.11 (l)) — and Results of the records they may read,
+ * with Reports. The publication comes from `form.json`, the document the fill client is already given; the records from
+ * the layer as the reader is allowed to query it, so nothing here is wider than what they could already ask for.
+ */
+async function drawDocFormForReader(doc) {
+  const box = $("docForm");
+  const results = $("docFormResults");
+  box.hidden = true; box.innerHTML = "";
+  if (formHere?.id !== doc.id) { results.hidden = true; results.innerHTML = ""; }
+  let client;
+  try {
+    client = await api(`/forms/${encodeURIComponent(doc.id)}/form.json`);
+  } catch (e) {
+    if (docOpen !== doc) return;
+    results.hidden = false;
+    results.innerHTML = `<h4 id="formResultsHead">Results</h4><p class="bad">The form could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
+    return;
+  }
+  if (docOpen !== doc) return;
+  formHere = { id: doc.id, doc, reader: true, read: { publication: client?.publication || null, sharing: doc.sharing }, form: client?.form || null };
+  drawFormResults();
+}
+
+/**
+ * Where a reader's results are read from — the same order the server reads a report's records in: the form's own top layer
+ * when they may query it, else its Inbox view, which the database filters to the records the Inbox gives them (ADR-300),
+ * else nowhere. `{ url, via: "layer" | "inbox" | null, offline }`; a request that never reached the server is not taken
+ * for a refusal.
+ */
+async function formReaderSource(top) {
+  const reads = async url => {
+    try {
+      await api(`${url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`);
+      return true;
+    } catch (e) {
+      if (e instanceof TypeError) throw e;
+      return false;
+    }
+  };
+  try {
+    if (top.url && await reads(top.url)) return { url: top.url, via: "layer" };
+    if (top.inboxUrl && await reads(top.inboxUrl)) return { url: top.inboxUrl, via: "inbox" };
+    return { url: null, via: null };
+  } catch {
+    return { url: null, via: null, offline: true };
+  }
+}
+
+/** Whether this reader may download the answers: the export endpoint's own rule (Extract on the layer), asked of it. */
+async function formReaderMayExport(service) {
+  try {
+    const said = await api(`/admin/services/${encodeURIComponent(service)}/data-exports?folder=hosted`);
+    return !!said?.mayExport;
+  } catch {
+    return false;
+  }
 }
 
 /** Set by the designer's Publish: the form's page opens what publishing does as soon as it is drawn. */
@@ -36956,7 +37019,8 @@ const FORM_NUMBER_TYPES = new Set(["integer", "decimal", "range"]);
 
 /**
  * Results (§5.7): how many answers, the latest twenty from the top layer, and a summary per question — counts per choice,
- * and the lowest, highest and average of a number. Read from the layer with the owner's token, as Data reads it.
+ * and the lowest, highest and average of a number. Read from the layer with the owner's token, as Data reads it; for a
+ * reader who does not manage the form, from what they may query — the layer, else the form's Inbox view (formReaderSource).
  */
 async function drawFormResults() {
   const f = formHere;
@@ -36967,12 +37031,36 @@ async function drawFormResults() {
   if (!box.innerHTML) box.innerHTML = `<h4>Results</h4><p class="hint">Reading the answers…</p>`;
   box.hidden = false;
 
+  // The owner reads the top layer itself; a reader, what they may read of it (owner decision 2026-11-17).
+  let url = top.url;
+  let sourceSays = "";
+  if (f.reader) {
+    if (!f.source || f.source.offline) {
+      f.source = await formReaderSource(top);
+      if (formHere !== f) return;
+      if (f.source.via === "layer" && pub.service) f.mayExport = await formReaderMayExport(pub.service);
+      if (formHere !== f) return;
+    }
+    if (!f.source.url) {
+      box.innerHTML = `<h4 id="formResultsHead">Results</h4><p id="formResultsSource" class="hint">${f.source.offline
+        ? "The answers could not be read: the server could not be reached. They are read from the server; open this page again when you are online."
+        : "This form's answers are not shared with you; its owner can share the results layer with you or turn on its Inbox."}</p>`;
+      return;
+    }
+    url = f.source.url;
+    sourceSays = f.source.via === "inbox"
+      ? "Your own submissions, through the form's Inbox: the records its filter gives you, not everyone's."
+      : "Every submission to this form: its owner shares the results layer with you.";
+  }
+  const owns = !f.reader;
+  const throughLayer = owns || f.source?.via === "layer";
+
   const columns = top.columns || {};
   const asked = formQuestions(f.form).filter(q => !q.repeat && columns[q.name] && !FORM_NOT_ANSWERS.has(q.type)
     && formLabel(q.labels, f.form, ""));
   const filter = f.filter || {};
   const where = formFilterWhere(filter, asked, columns);
-  const query = params => api(`${top.url}/query?${new URLSearchParams({ f: "json", where, ...params })}`);
+  const query = params => api(`${url}/query?${new URLSearchParams({ f: "json", where, ...params })}`);
   const summarised = asked.filter(q => FORM_CHOICE_TYPES.has(q.type) || FORM_NUMBER_TYPES.has(q.type));
   const index = String(top.url).slice(String(top.url).lastIndexOf("/") + 1);
   const dataPage = `${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(index)}`;
@@ -36983,7 +37071,7 @@ async function drawFormResults() {
   let stats;
   try {
     [all, count, latest, ...stats] = await Promise.all([
-      where === "1=1" ? null : api(`${top.url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`),
+      where === "1=1" ? null : api(`${url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`),
       query({ returnCountOnly: "true" }),
       query({ outFields: "*", returnGeometry: "false", orderByFields: "objectid DESC", resultRecordCount: "20" }),
       ...summarised.map(q => FORM_CHOICE_TYPES.has(q.type)
@@ -37048,11 +37136,12 @@ async function drawFormResults() {
   const reportSection = `<section id="formReports" class="formreports" aria-labelledby="formReportsHead"><h5 id="formReportsHead">Reports</h5><p class="hint">Reading the report templates…</p></section>`;
   box.innerHTML = `
     <h4 id="formResultsHead">Results</h4>
+    ${sourceSays ? `<p id="formResultsSource" class="hint">${h(sourceSays)}</p>` : ""}
     <p id="formResultCount"><b>${num(total)}</b> ${filtered ? `of ${num(everything)} ${everything === 1 ? "submission matches" : "submissions match"} the filter`
-      : total === 1 ? "submission" : "submissions"}${everything
+      : total === 1 ? "submission" : "submissions"}${everything && throughLayer
       ? ` · <a href="${dataPage}">Open all ${num(everything)} in Data</a>` : ""}</p>
     ${everything ? formFilterMarkup(filter, asked, f.form) : ""}
-    ${everything ? formExportMarkup(everything, filtered ? total : null) : ""}
+    ${everything && (owns || f.mayExport) ? formExportMarkup(everything, filtered ? total : null) : ""}
     ${total && drawn ? `<div id="formMap" class="formmap" role="region" aria-label="${h(`${num(Math.min(total, FORM_MAP_LIMIT))} submissions on a map`)}"
         aria-describedby="formMapHow"></div>
       <p class="hint" id="formMapHow">Choose a point to see its answers. Zoom with Ctrl and the wheel, or with two fingers on a
@@ -37072,12 +37161,12 @@ async function drawFormResults() {
       ${total > rows.length ? `<p class="hint">The latest ${num(rows.length)} of ${num(total)}.</p>` : ""}
       ${reportSection}
       ${summarised.length ? `<h5>By question</h5><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
-    ${others.length ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
+    ${others.length && throughLayer ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
       `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}
     ${total === 0 ? reportSection : ""}`;
   formFilterFollows(asked, f.form);
   formDrawReports(f, rows);
-  if (total && drawn) formDrawMap(top.url, where);
+  if (total && drawn) formDrawMap(url, where);
 }
 
 /** The most submissions the results map draws, the latest first. */
