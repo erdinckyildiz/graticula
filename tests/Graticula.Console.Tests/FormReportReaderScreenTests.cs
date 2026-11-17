@@ -177,8 +177,9 @@ public sealed class FormReportReaderScreenTests : ConsoleTest
             Assert.Contains("Saray", latest, StringComparison.Ordinal);
             Assert.DoesNotContain("Han", latest, StringComparison.Ordinal);
             Assert.StartsWith("2 submissions", (await Browser.EvaluateAsync<string>("document.getElementById('formResultCount').textContent") ?? string.Empty).Trim(), StringComparison.Ordinal);
-            Assert.StartsWith("Your own submissions, through the form's Inbox",
-                await Browser.EvaluateAsync<string>("document.getElementById('formResultsSource').textContent"), StringComparison.Ordinal);
+            // The Inbox's filter may pick a member's own submissions or assign them others': the sentence must be true of both.
+            Assert.Equal("Only the submissions this form's Inbox gives you, not everyone's. Its owner decides which those are.",
+                await Browser.EvaluateAsync<string>("document.getElementById('formResultsSource').textContent"));
 
             // The summary counts what they may read, not the form's three.
             Assert.Contains("2", await Browser.EvaluateAsync<string>(
@@ -211,6 +212,18 @@ public sealed class FormReportReaderScreenTests : ConsoleTest
 
             NothingWentWrong(await PageErrorsAsync());
 
+            // --- An Inbox whose filter gives this reader nothing: the form has answers, so the page must not say it has none.
+            (inboxed, inbox) = await AdminAsync(HttpMethod.Put, $"/admin/forms/{item}/inbox",
+                JsonSerializer.Serialize(new { enabled = true, filter = Column("atanan") + " = 'nobody_" + run + "'", limit = 1000 }));
+            Assert.True(inboxed == 200, $"Narrowing the Inbox answered {inboxed}: {inbox}");
+
+            await OpenAsync($"/studio/#/item/{item}", readerToken);
+            await WaitForAsync("!!document.getElementById('formResultsNone')", "An Inbox giving the reader nothing drew no empty state.");
+            Assert.Equal("The Inbox gives you no submissions yet. When one is meant for you, it appears here.",
+                await Browser.EvaluateAsync<string>("document.getElementById('formResultsNone').textContent"));
+            Assert.Equal("[]", await Browser.EvaluateAsync<string>($"JSON.stringify({ManagementControls})"));
+            NothingWentWrong(await PageErrorsAsync());
+
             // --- No Inbox and no access to the layer: the page says whose the answers are, and shows no empty table.
             (inboxed, inbox) = await AdminAsync(HttpMethod.Put, $"/admin/forms/{item}/inbox",
                 JsonSerializer.Serialize(new { enabled = false, filter = Column("atanan") + " = ${username}", limit = 1000 }));
@@ -219,7 +232,9 @@ public sealed class FormReportReaderScreenTests : ConsoleTest
             await OpenAsync($"/studio/#/item/{item}", readerToken);
             await WaitForAsync("(document.getElementById('formResultsSource')?.textContent || '').includes('not shared with you')",
                 "A reader who may read none of the answers was not told so.");
-            Assert.Equal("This form's answers are not shared with you; its owner can share the results layer with you or turn on its Inbox.",
+            // Said to the reader, with what they can do and whom to ask — not the owner's settings in the owner's words.
+            Assert.Equal("You cannot see this form's answers: they are not shared with you. To see them, ask its owner, "
+                + Environment.GetEnvironmentVariable(UserVariable) + ", to share its results with you.",
                 await Browser.EvaluateAsync<string>("document.getElementById('formResultsSource').textContent"));
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('formLatest') || !!document.getElementById('formReports')"),
                 "A reader who may read none of the answers is shown a table or Create report.");

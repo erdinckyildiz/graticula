@@ -37044,12 +37044,15 @@ async function drawFormResults() {
     if (!f.source.url) {
       box.innerHTML = `<h4 id="formResultsHead">Results</h4><p id="formResultsSource" class="hint">${f.source.offline
         ? "The answers could not be read: the server could not be reached. They are read from the server; open this page again when you are online."
-        : "This form's answers are not shared with you; its owner can share the results layer with you or turn on its Inbox."}</p>`;
+        : h(`You cannot see this form's answers: they are not shared with you. To see them, ask ${f.doc?.owner
+          ? `its owner, ${f.doc.owner},` : "its owner"} to share its results with you.`)}</p>`;
       return;
     }
     url = f.source.url;
     sourceSays = f.source.via === "inbox"
-      ? "Your own submissions, through the form's Inbox: the records its filter gives you, not everyone's."
+      // The Inbox's filter is the owner's: it may pick a member's own submissions or the ones assigned to them, so the
+      // sentence says whose choice it is rather than guessing which (UX review 2026-11-17).
+      ? "Only the submissions this form's Inbox gives you, not everyone's. Its owner decides which those are."
       : "Every submission to this form: its owner shares the results layer with you.";
   }
   const owns = !f.reader;
@@ -37147,7 +37150,10 @@ async function drawFormResults() {
       <p class="hint" id="formMapHow">Choose a point to see its answers. Zoom with Ctrl and the wheel, or with two fingers on a
         phone.${total > FORM_MAP_LIMIT ? ` The map shows the latest ${num(FORM_MAP_LIMIT)}.` : ""}</p>
       <div id="formMapCard" class="formmapcard" role="status" aria-live="polite"></div>` : ""}
-    ${total === 0 ? `<p class="hint">${filtered ? "No submission matches the filter." : "No answers yet. When someone sends the form, the latest appear here with a summary per question."}</p>` : `
+    ${total === 0 ? `<p class="hint" id="formResultsNone">${filtered ? "No submission matches the filter." : f.source?.via === "inbox"
+      // Through the Inbox, none here is not none sent: the form may have answers that are not this reader's.
+      ? "The Inbox gives you no submissions yet. When one is meant for you, it appears here."
+      : "No answers yet. When someone sends the form, the latest appear here with a summary per question."}</p>` : `
       <h5>Latest submissions</h5>
       <div class="widetable" tabindex="0" role="region" aria-label="Latest submissions"><table class="formresults" id="formLatest">
         <thead><tr>${formReportPickHead(rows)}<th scope="col">Sent</th>${asked.map(q => `<th scope="col"${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}>${

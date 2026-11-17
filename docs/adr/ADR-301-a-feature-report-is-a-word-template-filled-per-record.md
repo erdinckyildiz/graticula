@@ -251,8 +251,11 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
     reader the server would serve had no way to a report. Built in eeff8d39, with no server change: a reader's Results
     take the publication from `/forms/{id}/form.json` and read the records from the form's top layer when the reader
     can query it, else from its Inbox view, else none — in the order the report endpoint already reads them (§5.5) —
-    and one sentence under the heading says which (*Every submission to this form…*, *Your own submissions, through the
-    form's Inbox…*, or *This form's answers are not shared with you…*, with no table). The Form panel, publishing,
+    and one sentence under the heading says which (*Every submission to this form…*, *Only the submissions this form's
+    Inbox gives you…*, or *You cannot see this form's answers… ask its owner…*, with no table). The Inbox sentence
+    first said *Your own submissions*, which is false when the Inbox's filter assigns records rather than picking a
+    member's own; the UX review of 2026-11-17 replaced it, and made an Inbox that gives a reader nothing say so instead
+    of *No answers yet*. The Form panel, publishing,
     sharing, the designer and template Add/Remove stay the owner's. A reader who reads the layer itself gets the
     download only where the layer allows Extract, and never through the Inbox view, which refuses exports (ADR-300
     §5.4). Every other INFERRED point, (a) to (ab), is confirmed as written (*"Hepsi yazıldığı gibi"*).
