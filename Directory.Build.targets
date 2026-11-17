@@ -184,4 +184,44 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!--
+    <b>The report PDF engine, the fourth sibling — ADR-302.</b> A feature report (ADR-301) laid out as a PDF by OfficeIMO,
+    in this child rather than in the server, for the offline reader's reason: what it lays out is a document built from an
+    owner's template and submitters' photographs, and a layout that does not finish has to be a process the host can kill.
+    Opt in with <CopyReportPdf>true</CopyReportPdf>; it lands in `reportpdf/` beside the opting project, at build and at
+    publish. The other siblings' directories are excluded for the reason the overlay worker's note gives.
+  -->
+  <Target Name="CopyReportPdf"
+          AfterTargets="Build"
+          Condition="'$(CopyReportPdf)' == 'true'">
+    <ItemGroup>
+      <ReportPdfFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*;$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\offline\**\*;$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**
+eportpdf\**\*" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(ReportPdfFiles)"
+          DestinationFolder="$(OutDir)reportpdf\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="PublishReportPdf"
+          AfterTargets="Publish"
+          Condition="'$(CopyReportPdf)' == 'true'">
+    <ItemGroup>
+      <PublishedReportPdfFiles
+        Include="$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\*"
+        Exclude="$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\overlay\**\*;$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\importer\**\*;$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**\offline\**\*;$(MSBuildThisFileDirectory)src\Graticula.Report.Pdf\bin\$(Configuration)\$(TargetFramework)\**
+eportpdf\**\*" />
+    </ItemGroup>
+
+    <Error Condition="'@(PublishedReportPdfFiles)' == ''"
+           Text="The report PDF engine's build output is empty, so this publish would produce an image that refuses every PDF report. That is ADR-302 and D-235's shape." />
+
+    <Copy SourceFiles="@(PublishedReportPdfFiles)"
+          DestinationFolder="$(PublishDir)reportpdf\%(RecursiveDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

@@ -53,7 +53,13 @@ public static partial class FormEndpoints
     /// <summary>The most maps one report draws (INFERRED): a map for each of 100 records, and two more for each beside.</summary>
     public const int MaximumReportMaps = 300;
 
-    private static readonly string[] ReportFormats = ["docx"];
+    /// <summary>
+    /// The most PDF documents one request lays out — ADR-302 §5.5 (INFERRED). Each is a run of the engine, which took up to
+    /// 14 s for one public template on the showcase; a merged report is one document and is not counted here.
+    /// </summary>
+    public const int MaximumPdfDocuments = 25;
+
+    private const string PdfType = "application/pdf";
 
     private const string DocxType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
@@ -69,6 +75,10 @@ public static partial class FormEndpoints
     }
 
     /// <summary>A form the caller may open, signed in, with its publication; null when not.</summary>
+    /// <summary>The formats a report is written in here: Word always, PDF where the engine is installed (ADR-302).</summary>
+    private static string[] ReportFormats(HttpContext context) =>
+        context.RequestServices.GetService<IReportPdf>() is { Available: true } ? ["docx", "pdf"] : ["docx"];
+
     private static async Task<(Document? Document, JsonNode? Publication)> ReadableFormAsync(HttpContext context, string id, CancellationToken cancellation)
     {
         IDocumentStore documents = context.RequestServices.GetRequiredService<IDocumentStore>();
@@ -138,7 +148,8 @@ public static partial class FormEndpoints
             published = publication is not null,
             manages = LayerAccess.MayManage(document.Owner, context.Features.Get<RequestPrincipal>()!.Principal, context.Features.Get<RequestPrincipal>()!.Authorization),
             maximumRecords = MaximumReportRecords,
-            formats = ReportFormats,
+            formats = ReportFormats(context),
+            maximumPdfDocuments = MaximumPdfDocuments,
             notSupported = ReportTemplate.NotSupported,
             templates = page.Where(r => r.Path.StartsWith(ReportTemplatesPrefix, StringComparison.Ordinal))
                 .OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
@@ -277,7 +288,7 @@ public static partial class FormEndpoints
     /// <param name="Mode"><c>separate</c> (a document per record; several zipped) or <c>merged</c> (one document).</param>
     /// <param name="Name">The report's name, with placeholders for a separate report; empty for the default.</param>
     /// <param name="UtcOffsetMinutes">The asker's offset from UTC in minutes, east positive; dates are written in it.</param>
-    /// <param name="Format"><c>docx</c>; <c>pdf</c> is refused (ADR-301 §5.7).</param>
+    /// <param name="Format"><c>docx</c>, the default, or <c>pdf</c> where the PDF engine is installed (ADR-302).</param>
     public sealed record ReportRequest(string? Template, long[]? ObjectIds, string? Mode, string? Name, int? UtcOffsetMinutes, string? Format);
 
     private static async Task<IResult> ReportAsync(HttpContext context, string id, ReportRequest request, CancellationToken cancellation)
@@ -292,11 +303,18 @@ public static partial class FormEndpoints
             return Error(409, "The form is not published, so it has no records to report on.");
         }
 
-        if (request.Format is { Length: > 0 } format && !string.Equals(format, "docx", StringComparison.OrdinalIgnoreCase))
+        string format = (request.Format is { Length: > 0 } asked ? asked : "docx").ToLowerInvariant();
+
+        if (format is not ("docx" or "pdf"))
         {
-            return Error(400, string.Equals(format, "pdf", StringComparison.OrdinalIgnoreCase)
-                ? "A report is written as a Word document (.docx). PDF needs a page-layout engine this server does not have yet (ADR-301 §5.7, Q-237)."
-                : $"'{format}' is not a report format: a report is written as docx.");
+            return Error(400, $"'{request.Format}' is not a report format: a report is written as docx or pdf.");
+        }
+
+        IReportPdf? pdfEngine = format == "pdf" ? context.RequestServices.GetService<IReportPdf>() : null;
+
+        if (format == "pdf" && pdfEngine is not { Available: true })
+        {
+            return Error(400, "This server's PDF engine is not installed, so a report is written as a Word document (.docx) only (ADR-302).");
         }
 
         string mode = (request.Mode ?? "separate").ToLowerInvariant();
@@ -403,6 +421,12 @@ public static partial class FormEndpoints
                 mode = "merged";
             }
 
+            if (pdfEngine is not null && mode == "separate" && records!.Count > MaximumPdfDocuments)
+            {
+                return Error(400, $"A PDF report lays out at most {MaximumPdfDocuments} documents at once, and {records.Count} were asked "
+                    + "for, one per submission. Ask for one document for them all, choose fewer, or make them as Word documents (ADR-302).");
+            }
+
             // Maps and queries are fetched as the asker before the fill that writes them: fill, fetch what was missing, again.
             ReportPrefetch lookups = new();
             await PrefetchAsync(context, publication, schema, template, records!, mode == "merged", evaluator, lookups, reading!, cancellation).ConfigureAwait(false);
@@ -413,14 +437,19 @@ public static partial class FormEndpoints
             byte[] bytes;
             string fileName;
             string type;
+            string extension = "." + format;
+
+            // ADR-302: the Word document is the report; a PDF is that document laid out by the engine, one per file.
+            async Task<byte[]> Written(byte[] docx) =>
+                pdfEngine is null ? docx : await pdfEngine.ConvertAsync(docx, cancellation).ConfigureAwait(false);
 
             if (mode == "merged" || records!.Count == 1)
             {
-                bytes = template.Fill(records!, evaluator, lookups);
+                bytes = await Written(template.Fill(records!, evaluator, lookups)).ConfigureAwait(false);
                 fileName = (mode == "merged" ? baseName
                     : request.Name is { Length: > 0 } one ? ReportTemplate.Name(one, records![0], evaluator)
-                    : $"{baseName}_{records![0].ObjectId.ToString(CultureInfo.InvariantCulture)}") + ".docx";
-                type = DocxType;
+                    : $"{baseName}_{records![0].ObjectId.ToString(CultureInfo.InvariantCulture)}") + extension;
+                type = pdfEngine is null ? DocxType : PdfType;
             }
             else
             {
@@ -442,9 +471,10 @@ public static partial class FormEndpoints
                             unique = $"{each} ({n.ToString(CultureInfo.InvariantCulture)})";
                         }
 
-                        ZipArchiveEntry entry = zip.CreateEntry(unique + ".docx", CompressionLevel.NoCompression);
+                        byte[] written = await Written(template.Fill([record], evaluator, lookups)).ConfigureAwait(false);
+                        ZipArchiveEntry entry = zip.CreateEntry(unique + extension, CompressionLevel.NoCompression);
                         await using Stream stream = entry.Open();
-                        await stream.WriteAsync(template.Fill([record], evaluator, lookups), cancellation).ConfigureAwait(false);
+                        await stream.WriteAsync(written, cancellation).ConfigureAwait(false);
                     }
                 }
 
@@ -454,7 +484,7 @@ public static partial class FormEndpoints
             }
 
             await AdminEndpoints.AuditAsync(context, context.RequestServices.GetRequiredService<IAuditLog>(), "form.report", document.Id,
-                AdminEndpoints.Detail(new { template = templateName, records = ids.Length, mode, bytes = bytes.Length }), succeeded: true, cancellation)
+                AdminEndpoints.Detail(new { template = templateName, records = ids.Length, mode, format, bytes = bytes.Length }), succeeded: true, cancellation)
                 .ConfigureAwait(false);
 
             context.Response.Headers.CacheControl = "no-store";
@@ -471,6 +501,21 @@ public static partial class FormEndpoints
         catch (ReportTemplateException e)
         {
             return Error(400, $"The report was not made: {e.Message}");
+        }
+        catch (ReportPdfException e)
+        {
+            // The Word document could be made; only its layout failed, so the answer says to ask for that.
+            return Results.Json(new
+            {
+                error = new
+                {
+                    code = 422,
+                    message = $"{e.Message} It can be made as a Word document (.docx) instead.",
+                    details = Array.Empty<string>(),
+                },
+                reason = e.Message,
+                fallback = "docx",
+            }, statusCode: 422);
         }
         finally
         {

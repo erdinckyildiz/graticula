@@ -13,6 +13,7 @@
     <CopyOverlayWorker>true</CopyOverlayWorker>
     <CopyImportReader>true</CopyImportReader>
     <CopyOfflineReader>true</CopyOfflineReader>
+    <CopyReportPdf>true</CopyReportPdf>
     <RootNamespace>Graticula.Host</RootNamespace>
     <AssemblyName>Graticula.Host</AssemblyName>
     <UserSecretsId>gis-server-host</UserSecretsId>
@@ -68,6 +69,12 @@
       Graticula.Offline.Sqlite above, for writing offline copies from rows it holds; only the read is the child's.
     -->
     <ProjectReference Include="..\Graticula.Offline.Reader\Graticula.Offline.Reader.csproj" ReferenceOutputAssembly="false" Private="false" />
+
+    <!--
+      And a fourth, ADR-302: a feature report laid out as a PDF by OfficeIMO, in a child the host can stop, because what it
+      lays out is an owner's template with submitters' photographs in it. The Word report is still made here (ADR-301).
+    -->
+    <ProjectReference Include="..\Graticula.Report.Pdf\Graticula.Report.Pdf.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
 

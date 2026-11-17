@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2, and its own process — ADR-302, owner decision 2026-11-17 ("bence pdf'i de ekleyelim").
+
+    A feature report is a Word document this server fills from a template its form's owner uploaded (ADR-301); a PDF of it
+    needs a page-layout engine, which is OfficeIMO here. What the engine lays out is the owner's document with the
+    submitters' photographs in it, and on the showcase one report of thirteen measured took 14 s on arm64 (ADR-302 §4). So
+    it runs in this child for the reason Graticula.Offline.Reader and the import reader do (ADR-009 §2.2): a document the
+    engine cannot finish costs a process the host kills, not a thread of the server that nothing can stop.
+
+    <b>One library, one question per process</b>, as the offline reader: the host starts this executable once per report
+    document, sends two paths on stdin, and reads the PDF back from a file.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Graticula.Report.Pdf</RootNamespace>
+    <AssemblyName>Graticula.Report.Pdf</AssemblyName>
+
+    <!-- The other siblings' reasoning: server GC sizes itself to the machine, and this process is bounded from outside. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OfficeIMO.Word.Pdf" />
+  </ItemGroup>
+
+</Project>

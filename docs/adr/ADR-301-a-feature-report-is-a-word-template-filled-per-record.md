@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM` — the syntax is Survey123's public documentation and every part of it built is tested on documents written in the tests; thirteen public templates written by Survey123 users and by Esri were filled on a fixture and opened in Microsoft Word (§5.12), none in LibreOffice; every choice the public pages do not settle is this session's (§5.9–§5.12, [Q-237](../open-questions.md)) |
 | **Decided** | 2026-11-17, overnight, on the owner's instruction *"gece, gerçek formlarla ve henüz olmayan her şeyi tamamla. yavaştan survey123'yi de bitirelim"* — finish what is not built yet, and finish Survey123. [ADR-287](ADR-287-a-form-is-an-xlsform-filled-online-or-off.md) §5.9 (h), confirmed by the owner 2026-11-09, left the feature report to *"a later ADR"*; this is it. Nothing here was put to the owner: every choice the public pages leave open is **INFERRED** in §5.9 and listed as [Q-237](../open-questions.md). |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | §5.7 and §5.9 (p) by [ADR-302](ADR-302-a-feature-report-is-also-a-pdf-laid-out-by-officeimo.md), 2026-11-17 evening: a report is also a PDF |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -144,7 +144,7 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
 6. **Output.** One record: a `.docx`. Several: `separate` (default, as Survey123's API) — a `.docx` each in a ZIP — or
    `merged` — one document, each record's body after the last with a page break between, the section properties once at
    the end. `name` takes value placeholders for a separate report and none for a merged one (Survey123's rule).
-7. **PDF is not offered.** ADR-265's print service writes its own map page as one JPEG inside a PDF; it has no reader of
+7. **PDF is not offered.** *(Superseded 2026-11-17 evening by [ADR-302](ADR-302-a-feature-report-is-also-a-pdf-laid-out-by-officeimo.md): the owner asked for PDF the same day, and OfficeIMO lays the Word document out in a child process. Kept as written, because it is why the morning said no.)* ADR-265's print service writes its own map page as one JPEG inside a PDF; it has no reader of
    Word documents. A faithful `.docx` → PDF needs a layout engine — fonts and their metrics, line breaking, tables,
    pagination, headers and footers — which is a dependency decision (LibreOffice in a child process, as GDAL is kept;
    or a commercial converter) or a large Tier 1 build. Neither is taken overnight: the request answers `400` for `pdf`
@@ -179,7 +179,7 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
      otherwise it is refused, not guessed.~~ *Reversed the same night by §5.12: public templates write such sections, and
      they are spliced.*
    - (o) `checked` writes ☒ or ☐.
-   - (p) PDF is not offered (§5.7).
+   - (p) PDF is not offered (§5.7). *(Superseded by ADR-302.)*
    - (q) No library is adopted; the case for the Open XML SDK is in Q-237.
 
 10. **Maps — on ADR-265's renderer** (condition 4). A location placeholder not read with `getValue`, `$shape` and `$map`
@@ -245,7 +245,7 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
     - (ab) §5.12's readings of what public templates write, each of which Survey123's pages do not describe.
 
 14. **The owner's answers, 2026-11-17 morning** ([Q-237](../open-questions.md)). **No PDF: a report is a Word
-    document only** (*"Yalnız Word kalsın"*) — §5.7 stands as the decision rather than a gap, and a person who needs a
+    document only** (*"Yalnız Word kalsın"*) *(reversed the same evening — [ADR-302](ADR-302-a-feature-report-is-also-a-pdf-laid-out-by-officeimo.md))* — §5.7 stands as the decision rather than a gap, and a person who needs a
     PDF saves the document as one in Word. **A reader of a form sees its Results and makes reports** (*"Okuyucuya da
     Sonuçlar ve rapor"*), reversing what §5.8 had left — Studio showed Results only to whoever manages the form, so a
     reader the server would serve had no way to a report. Built in eeff8d39, with no server change: a reader's Results
@@ -300,7 +300,7 @@ the requests a report makes, not a port to a library.
    refused at upload with their reasons. **Not done: LibreOffice**, which is not on this machine and was not installed
    (the brief forbids installing software on it); the half of this condition it names stays open.
 2. **The owner confirms the INFERRED list** of §5.9, (a) to (q), through [Q-237](../open-questions.md). **DISCHARGED 2026-11-17:** every point confirmed, (p) as Word only and (ac) the other way (§5.14).
-3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down. **DISCHARGED 2026-11-17:** Word only, by owner decision (§5.14).
+3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down. **DISCHARGED 2026-11-17:** Word only, by owner decision (§5.14) — and decided again the same evening the other way: a converter behind a port, with its ADR, [ADR-302](ADR-302-a-feature-report-is-also-a-pdf-laid-out-by-officeimo.md).
 4. **Maps are drawn** for `${location | map}` and `$shape` on ADR-265's renderer, or the refusal stays and is recorded as
    the decision. **DISCHARGED 2026-11-17** — §5.10: drawn by `PrintEndpoints.DrawMapImageAsync`, ADR-265's `MAP_ONLY`
    drawing, as the asker, the records marked; measured on the fixture (§4). `rotate` and `mapFilters` stay refused, and a
