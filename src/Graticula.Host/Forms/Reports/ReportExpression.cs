@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace Graticula.Host.Forms.Reports;
@@ -35,14 +36,20 @@ internal enum ReportTagKind
     /// <summary><c>${if expression}</c>: a section kept when the expression is true.</summary>
     If,
 
-    /// <summary><c>${/}</c>: the end of the nearest open section.</summary>
+    /// <summary><c>${/}</c> or <c>$&lt;/&gt;</c>: the end of the nearest open section.</summary>
     Close,
+
+    /// <summary><c>$&lt;$summary&gt;</c>: a section written once for all the records a report is made of.</summary>
+    Summary,
 }
 
 /// <summary>One method after a pipe: <c>format:"DD/MM"</c>, <c>size:300:200</c>, <c>countSelected</c>.</summary>
 internal sealed record ReportMethod(string Name, IReadOnlyList<object?> Arguments)
 {
-    public string? Text(int i) => i < Arguments.Count ? Arguments[i] as string ?? Convert.ToString(Arguments[i], CultureInfo.InvariantCulture) : null;
+    public string? Text(int i) => i < Arguments.Count && Arguments[i] is not ReportNode ? Arguments[i] as string ?? Convert.ToString(Arguments[i], CultureInfo.InvariantCulture) : null;
+
+    /// <summary>An argument built of texts and answers (<c>"a='" + b + "'"</c>), or null when it is a plain one.</summary>
+    public ReportNode? Expression(int i) => i < Arguments.Count ? Arguments[i] as ReportNode : null;
 
     public double? Number(int i) => i < Arguments.Count
         ? Arguments[i] switch
@@ -68,6 +75,18 @@ internal sealed record ReportName(IReadOnlyList<string> Path) : ReportNode
 {
     public string Dotted => string.Join('.', Path);
 }
+
+/// <summary><c>$layers[0]</c> or <c>$layers["name"]</c>: a layer of the form's feature service, by position or name.</summary>
+internal sealed record ReportLayerRef(int? Index, string? Name) : ReportNode
+{
+    public string Written => Index is { } i ? $"$layers[{i.ToString(CultureInfo.InvariantCulture)}]" : $"$layers[\"{Name}\"]";
+}
+
+/// <summary>
+/// <c>(question | getValue:"size")</c> inside an expression, or <c>${if question | selected:"name"}</c>: a value as its
+/// methods give it. Not on Survey123's pages; written in public templates, Esri's among them (ADR-301 §5.12, INFERRED).
+/// </summary>
+internal sealed record ReportPiped(ReportNode Inner, IReadOnlyList<ReportMethod> Methods) : ReportNode;
 
 /// <summary><c>!x</c> or <c>-x</c>.</summary>
 internal sealed record ReportUnary(string Operator, ReportNode Operand) : ReportNode;
@@ -105,7 +124,7 @@ internal static class ReportExpression
 
         if (text.Contains("$summary", StringComparison.OrdinalIgnoreCase) || text.StartsWith('<'))
         {
-            throw new ReportSyntaxException("A summary section is not supported yet: a report here is made of records, one or many, and a summary across them is not computed.");
+            throw new ReportSyntaxException("A summary section is written $<$summary> where it opens and $</> where it closes, as Survey123's page writes it, not inside ${…}.");
         }
 
         ReportTagKind kind = ReportTagKind.Value;
@@ -132,15 +151,39 @@ internal static class ReportExpression
 
         if (kind == ReportTagKind.If && methods.Count > 0)
         {
-            throw new ReportSyntaxException($"An if takes a condition alone; '| {methods[0].Name}' after it is not read.");
+            // ${if question | selected:"name"}, as public templates write it: the condition is the value its methods give.
+            return new ReportTag(kind, inner, new ReportPiped(expression, methods), []);
         }
 
-        if (kind == ReportTagKind.Each && expression is not ReportName)
+        if (kind == ReportTagKind.Each && expression is not (ReportName or ReportLayerRef))
         {
-            throw new ReportSyntaxException("${#…} names a repeat, an image or file question, or $attachment — not an expression.");
+            throw new ReportSyntaxException("${#…} names a repeat, the form's layer, $layers[…], an image or file question, or $attachment — not an expression.");
         }
 
         return new ReportTag(kind, inner, expression, methods);
+    }
+
+    /// <summary>
+    /// Reads the text between <c>$&lt;</c> and <c>&gt;</c>: <c>$summary</c>, which opens a summary section, or <c>/</c>, which
+    /// closes it — Survey123's <i>Report queries</i> page writes a summary section <c>$&lt;$summary&gt; … $&lt;/&gt;</c>.
+    /// </summary>
+    /// <exception cref="ReportSyntaxException">Anything else.</exception>
+    public static ReportTag ParseAngle(string inner)
+    {
+        ArgumentNullException.ThrowIfNull(inner);
+        string text = Normalise(inner).Trim();
+
+        if (text == "/")
+        {
+            return new ReportTag(ReportTagKind.Close, inner, null, []);
+        }
+
+        if (string.Equals(text, "$summary", StringComparison.OrdinalIgnoreCase))
+        {
+            return new ReportTag(ReportTagKind.Summary, inner, null, []);
+        }
+
+        throw new ReportSyntaxException($"'$<{text}>' is not a tag a report reads: $<$summary> opens a summary section and $</> closes it.");
     }
 
     /// <summary>Word's typographic quotes, which its autocorrect puts in place of the ones typed, read as plain quotes.</summary>
@@ -155,6 +198,7 @@ internal static class ReportExpression
         List<string> parts = [];
         StringBuilder current = new();
         char quote = '\0';
+        int depth = 0;
 
         for (int i = 0; i < text.Length; i++)
         {
@@ -185,6 +229,16 @@ internal static class ReportExpression
             {
                 current.Append("||");
                 i++;
+            }
+            else if (c is '(' or ')')
+            {
+                // A pipe inside brackets belongs to a value there, (question | getValue:"size").
+                depth += c == '(' ? 1 : depth > 0 ? -1 : 0;
+                current.Append(c);
+            }
+            else if (c == '|' && depth > 0)
+            {
+                current.Append(c);
             }
             else if (c == '|')
             {
@@ -250,6 +304,7 @@ internal static class ReportExpression
 
                 if (rest[i] is '"' or '\'')
                 {
+                    int start = i;
                     char quote = rest[i];
                     StringBuilder value = new();
                     i++;
@@ -270,7 +325,24 @@ internal static class ReportExpression
                     }
 
                     i++;
-                    arguments.Add(value.ToString());
+                    int next = i;
+
+                    while (next < rest.Length && rest[next] == ' ')
+                    {
+                        next++;
+                    }
+
+                    if (next < rest.Length && rest[next] == '+')
+                    {
+                        // An argument built of texts and answers, as Survey123's where:"weather='"+cloudCover+"'".
+                        int end = ArgumentEnd(rest, start);
+                        arguments.Add(new Parser(rest[start..end]).ParseAll());
+                        i = end;
+                    }
+                    else
+                    {
+                        arguments.Add(value.ToString());
+                    }
                 }
                 else
                 {
@@ -309,6 +381,39 @@ internal static class ReportExpression
         return new ReportMethod(name, arguments);
     }
 
+    /// <summary>Where an argument that starts at <paramref name="start"/> ends: the next ':' outside quotes, or the end.</summary>
+    private static int ArgumentEnd(string rest, int start)
+    {
+        char quote = '\0';
+
+        for (int k = start; k < rest.Length; k++)
+        {
+            char c = rest[k];
+
+            if (quote != '\0')
+            {
+                if (c == '\\')
+                {
+                    k++;
+                }
+                else if (c == quote)
+                {
+                    quote = '\0';
+                }
+            }
+            else if (c is '"' or '\'')
+            {
+                quote = c;
+            }
+            else if (c == ':')
+            {
+                return k;
+            }
+        }
+
+        return rest.Length;
+    }
+
     private static bool IsName(string text)
     {
         foreach (char c in text)
@@ -340,6 +445,37 @@ internal static class ReportExpression
             }
 
             return node;
+        }
+
+        /// <summary>The bracket that closes the one at <paramref name="open"/>, outside quotes; null when none does.</summary>
+        private int? Closing(int open)
+        {
+            int depth = 0;
+            char quote = '\0';
+
+            for (int k = open; k < text.Length; k++)
+            {
+                char c = text[k];
+
+                if (quote != '\0')
+                {
+                    quote = c == quote ? '\0' : quote;
+                }
+                else if (c is '"' or '\'')
+                {
+                    quote = c;
+                }
+                else if (c == '(')
+                {
+                    depth++;
+                }
+                else if (c == ')' && --depth == 0)
+                {
+                    return k;
+                }
+            }
+
+            return null;
         }
 
         private void Skip()
@@ -494,6 +630,13 @@ internal static class ReportExpression
 
             if (c == '(')
             {
+                // (question | method:"…"): a value with its methods, read whole up to its bracket.
+                if (Closing(_at) is { } end && SplitPipes(text[(_at + 1)..end]) is { Count: > 1 } piped)
+                {
+                    _at = end + 1;
+                    return new ReportPiped(new Parser(piped[0]).ParseAll(), [.. piped.Skip(1).Select(ParseMethod)]);
+                }
+
                 _at++;
                 ReportNode inner = Or();
 
@@ -594,6 +737,31 @@ internal static class ReportExpression
                     }
 
                     break;
+                }
+
+                if (path.Count == 1 && string.Equals(path[0], "$layers", StringComparison.OrdinalIgnoreCase))
+                {
+                    Skip();
+
+                    if (_at >= text.Length || text[_at] != '[')
+                    {
+                        throw new ReportSyntaxException("$layers names a layer by its position or name in brackets: $layers[0] or $layers[\"name\"].");
+                    }
+
+                    _at++;
+                    ReportNode key = Primary();
+
+                    if (!Take("]"))
+                    {
+                        throw new ReportSyntaxException($"'{text}' opens a '[' it never closes.");
+                    }
+
+                    return key switch
+                    {
+                        ReportLiteral { Value: double n } when n >= 0 && n == Math.Floor(n) && n < 1000 => new ReportLayerRef((int)n, null),
+                        ReportLiteral { Value: string name } when name.Length > 0 => new ReportLayerRef(null, name),
+                        _ => throw new ReportSyntaxException("$layers[…] takes a layer's position, from 0, or its name in quotes."),
+                    };
                 }
 
                 if (path.Count == 1)

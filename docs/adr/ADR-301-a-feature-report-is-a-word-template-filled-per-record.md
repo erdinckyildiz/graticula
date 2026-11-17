@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — the syntax is Survey123's public documentation and every part of it built is tested on documents written in the tests; no template written by a Survey123 user has been filled, no output has been opened in Word, and every choice the public pages do not settle is this session's (§5.9, [Q-237](../open-questions.md)) |
+| **Confidence** | `MEDIUM` — the syntax is Survey123's public documentation and every part of it built is tested on documents written in the tests; thirteen public templates written by Survey123 users and by Esri were filled on a fixture and opened in Microsoft Word (§5.12), none in LibreOffice; every choice the public pages do not settle is this session's (§5.9–§5.12, [Q-237](../open-questions.md)) |
 | **Decided** | 2026-11-17, overnight, on the owner's instruction *"gece, gerçek formlarla ve henüz olmayan her şeyi tamamla. yavaştan survey123'yi de bitirelim"* — finish what is not built yet, and finish Survey123. [ADR-287](ADR-287-a-form-is-an-xlsform-filled-online-or-off.md) §5.9 (h), confirmed by the owner 2026-11-09, left the feature report to *"a later ADR"*; this is it. Nothing here was put to the owner: every choice the public pages leave open is **INFERRED** in §5.9 and listed as [Q-237](../open-questions.md). |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -62,8 +62,9 @@ product. Not chosen.
   done is meet a real customer's template (condition 1).
 - **No PDF.** Survey123 offers PDF beside Word, and many shops hand the PDF over. A faithful conversion needs a layout
   engine (§5.7); this ADR offers Word only and says so on the screen, rather than a PDF button that fails.
-- **No maps.** A location question is drawn as a map in Survey123's report by default; here it is refused at upload with
-  the two placeholders that write its coordinates. A template that relies on maps cannot be used yet.
+- **Maps of this server's layers only.** A location question is drawn as a map in Survey123's report by default; here it
+  is too (§5.10), but on what this server serves: a basemap from ArcGIS Online or OpenStreetMap is left out and the report
+  says so, as ADR-265 leaves it out of a print. *(Was "No maps" until §5.10 was built, 2026-11-17.)*
 - **Synchronous.** Survey123 queues a report as a job and takes 2,000 records; this answers at once and takes 100
   (§5.9 (e)). A large batch is several requests.
 
@@ -82,10 +83,17 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
 | `size:width:height:max_width:max_height` in pixels, 0 no restriction, `size` last; `rotate`; `getValue:"name"`, `"size"`, …; `${#$attachment}`; `attachmentsDefExp` | *Image and other attachment expressions* | …/analyze/featurereport-images.html |
 | A multiline answer prints as one block unless `appearance:"multiline"` | *Text expressions* | …/analyze/featurereport-text.html |
 | `${#repeat}…${/}`, nested repeats inside their parent's section, `repeat.field`, `${$feature \| getValue:"position"}` | *Repeat expressions* | …/analyze/featurereport-repeats.html |
-| `map`, `mapScale`, `$shape`, `drawingInfo` | *Map expressions* (not built, §6) | …/analyze/featurereport-map.html |
+| A location is drawn as a map by default; `map:"<web map id>"` (an empty id: the question's default basemap), `mapScale` (0 or none: fitted — one point at the question's scale, several at their extent), `rotate`, `mapExtent:xmin:ymin:xmax:ymax:wkid`, `size:w:h` (last), `mapFilters`, `drawingInfo:"currentLayer"` or a layer's URL (default: "a default symbol"), `$shape` (the record's geometry), `$map` (a map of no question), `where:"… !important"` to draw other records | *Map expressions* | …/analyze/featurereport-map.html |
+| A summary section is `$<$summary>` … `$</>`, written once for all the records chosen, at the start or the end of the report and "not … within the contents"; a map in it draws every record; `where`, `stats:"type,field,outName":"groupBy":"having"` (`;` between several), `orderByFields`, `resultRecordCount`, `outFields` with `returnDistinctValues`; the statistics avg, count, sum, stddev, min, max, var, range, first, last, median; a filter reads the records printed unless `!important`, and in an individual report the record itself; `$inputParams` | *Report queries* | …/analyze/featurereportqueries.html |
+| `$layers` "references any layer by name or ID in the same feature service as the survey layer", as in `${$layers["cities"] \| where:"1=1 !important" \| stats:"count,objectid"}`; `$shape` "prints the geometry … of the current feature on a map" | *Report expressions* | …/analyze/featurereport-expressions.html |
+| Public templates — thirteen of sixteen read here (§5.12) — also write sections whose ends share their paragraphs with text, `${if question \| selected:"name"}`, `(question \| getValue:"size")` inside arithmetic, a repeat as a condition, ArcGIS's editor-tracking names (`CreationDate`, `Creator`) and `map:" "` | the templates, public ArcGIS Online items of type *Microsoft Word*, read as data and not kept in the repository; `D:\temp\report-templates\2026-11-17\SOURCES.md` lists each with its address and outcome | §5.12 |
 | Records are chosen on the Data tab, then Report; Format Word or PDF; *Report name* takes placeholders, not for a merged report; several records as separate reports or one; the *Feature report* privilege | *Print survey results* | …/analyze/printsurveyresults.html |
 | A placeholder Word split over runs is read whole; Word's typographic quotes read as plain; labels, `getValue`, `checked`, `countSelected`, `selectedAt`, bullets; number formats; dates in the asker's offset; repeats as paragraphs and as table rows (and an empty one leaving a well-formed table); inline and block conditions; pictures sized, packaged with their relationships and content types; files iterated; headers filled; merged records with a page break; the report name | `AFeatureReportFillsAWordTemplateTests`, 34 tests | this repository |
-| Unsupported syntax is refused with part, paragraph and reason: a map, `$shape`, `$layers[0]`, an unknown method or name, a location without coordinates, a repeat's question outside its section, `size` on a choice, EXIF, `attachmentsDefExp`, `$image \| src`, `=` for `==`, a `%` number format, an unclosed section, a stray `${/}`, a section with text before its opening | same class | this repository |
+| Unsupported syntax is refused with part, paragraph and reason: a map's `rotate`, `mapFilters` or a `drawingInfo` address, a web map id that is not one, `$layers[…]` as a value, an unknown method or name, a repeat's question outside its section, `size` on a choice, EXIF, `attachmentsDefExp`, `$image \| src`, `$inputParams`, a statistic of text, an unknown statistic or field, `=` for `==`, a `%` number format, an unclosed section, a stray `${/}`; a summary section within the report, around one record's answer, `$feature` or `$attachment`, or sharing its paragraph with text | same class | this repository |
+| Maps: a location placeholder asks for a map of its size (400 × 300 with none) with the record's point; a web map id, a scale, an extent and `drawingInfo:"currentLayer"` are asked for as written; a record with no location draws no map; the mark drawn on a known extent is at its pixel | same class, map tests | this repository |
+| Summaries: written once before the records, their statistics asked of the chosen records, grouped rows written with their group's label, a repeat's query kept to its record's rows, `!important` and `$layers[…]`; a template of summaries alone writes no record | same class, summary tests | this repository |
+| What public templates write (§5.12): a section spliced between paragraphs that hold text (a condition met, not met, a repeat of two rows, one section closing where the next opens), `selected`, a file's size in brackets, a repeat as a condition, `Creator` and `CreationDate` | same class, §5.12 tests | this repository |
+| On the fixture, a form with a location, three records and three repeat rows each: the summary wrote *3 bina, toplam kat 17, ortalama 5.67, ortanca 5, açıklık 6, ilk Galata Kulesi*, the groups *Kırmızı: 14; Mavi: 3*, the repeat's sum 198 and each record's largest room, all through the layer's own query; the maps were PNGs of the asked size with the points marked (154 marked pixels on the summary's map of three points; the mark at the centre of each record's), `drawingInfo:"currentLayer"` drew the layer's own symbol, and a saved web map naming the form's layer drew it, as the asker. The fixture's default basemap is OpenStreetMap, at another address: it was left out and the report's `Graticula-Report-Notes` header said so. Word opened the document (4 pages, 7 pictures) and exported it to PDF | a script against the local fixture (`gisnight_report`), not kept | this session, 2026-11-17 |
 | The owner reports from the form's own layer (zipped and merged), a member reports their own record through the Inbox, the other's is "not there", a member cannot upload, a template with a map is refused at paragraph 2, PDF is refused in words, a removed template is gone | `AFormsInboxShowsEachMemberTheirOwnTests.A_feature_report_is_made_of_the_records_its_asker_may_read_from_a_template_checked_at_upload`, against a local server (`gisnight_report`) | this repository |
 | Studio: ticking a submission enables *Create report*, which downloads the `.docx`; a refused upload lists its placeholder by paragraph and takes focus to the list; every new control is labelled | `FormReportScreenTests`, headless Chrome against the same server | this repository |
 
@@ -118,11 +126,12 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
    pictures — photographs, signatures and annotated images are image questions' attachments — placed as inline drawings at
    `size:w:h:maxW:maxH` pixels (96 dpi) and `rotate`, the bytes added under `word/media/` with their relationship and
    content type. A file that is not a PNG, JPEG or GIF is written as its name.
-4. **What is refused, with its place and reason**, never dropped: maps (`| map`, `mapScale`, `drawingInfo`, `$shape`,
-   `$map`, a location placeholder with no `getValue`), summary sections and statistics (`$summary`, `$layers`, `| stats`,
-   `| where`), pictures fetched from an address or the form's media (`$image | src`), `attachmentsDefExp`, EXIF properties,
-   functions and indexes, any method or name the form does not have. The upload answer and the Studio screen carry one line
-   saying what is not supported (`ReportTemplate.NotSupported`).
+4. **What is refused, with its place and reason**, never dropped: a map's `rotate` (a map is drawn north up, as ADR-265
+   draws one), `mapFilters`, a `drawingInfo` address; `$inputParams`; pictures fetched from an address or the form's media
+   (`$image | src`), `attachmentsDefExp`, EXIF properties, a geometry's `getValue:"length"` or `"area"`, functions, any
+   method or name the form does not have. The upload answer and the Studio screen carry one line saying what is not
+   supported (`ReportTemplate.NotSupported`). *(Amended 2026-11-17: maps are drawn, §5.10, and summaries and queries
+   computed, §5.11; until then both were refused here.)*
 5. **Records are read as the asker, through the layer.** `POST /admin/forms/{id}/reports` takes
    `{template, objectIds, mode, name, utcOffsetMinutes, format}` from any signed-in member who may open the form. The
    rows come from the form's own layers when the asker may read them (`ServiceLookup.ReadableQuietlyAsync`, the layer's
@@ -166,11 +175,74 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
    - (k) The layer's own fields are names a template may use.
    - (l) A select_multiple with no method is its labels joined by commas.
    - (m) `appearance:"bullets"` is one paragraph of lines each starting "•", not a Word list.
-   - (n) A section over several paragraphs must open at the start of its paragraph and close at the end of its own;
-     otherwise it is refused, not guessed.
+   - (n) ~~A section over several paragraphs must open at the start of its paragraph and close at the end of its own;
+     otherwise it is refused, not guessed.~~ *Reversed the same night by §5.12: public templates write such sections, and
+     they are spliced.*
    - (o) `checked` writes ☒ or ☐.
    - (p) PDF is not offered (§5.7).
    - (q) No library is adopted; the case for the Open XML SDK is in Q-237.
+
+10. **Maps — on ADR-265's renderer** (condition 4). A location placeholder not read with `getValue`, `$shape` and `$map`
+    are drawn as a PNG and placed as an inline picture at `size:w:h` pixels (96 dpi). `PrintEndpoints.DrawMapImageAsync` is
+    the print service's own `MAP_ONLY` drawing — the layers resolved and drawn as the caller by `ResolveAsync` and the
+    renderer, the same code a print uses — with the records' geometries marked on top before the picture is encoded. The
+    layers are the web map's that `map:"id"` names, read from the web map store as the asker (absent and not shared are one
+    sentence, and the map is drawn on the default basemap instead); with no id, `map:""` or `map:" "`, the organisation's
+    default basemap as `portals/self` gives it to the asker (ADR-086, ADR-184). The extent is `mapExtent`, else the records'
+    geometries — one point at `mapScale` or 1:10,000, several fitted with a tenth around them — else the web map's own, else
+    the world. `drawingInfo:"currentLayer"` adds the records' own layer (the form's, or its Inbox view, whichever the asker
+    reads) to the map, kept to the records by a definition expression, and draws it with its symbols instead of the mark;
+    `where`, `orderByFields` and `resultRecordCount` choose the records a map draws through §5.11's query. In a summary
+    section a location draws every record chosen. **Nothing is fetched from another address** (ADR-265 §5.3): a basemap or a
+    web map layer there is left out, the map drawn with what this server serves, and the report says what was left out in
+    its `Graticula-Report-Notes` header, never failing; a map that cannot be drawn at all is written as nothing. The engine
+    stays synchronous and makes no request of its own: a fill asks `IReportLookups` for each map and query, and the
+    endpoint fills, fetches what was missing as the asker, and fills again, until nothing is missing (`ReportPrefetch`).
+    Bounds: at most 300 maps a report, each at most 2,000 pixels a side and the server's image maximum.
+11. **Summary sections and queries.** `$<$summary>` … `$</>` at the start or the end of the document is written once,
+    before or after the records, with the records chosen as its records; what stands between the summaries is written once
+    per record, and a template of summaries alone writes none. A template with a summary is one document for all the records
+    chosen, whatever `mode` asks. A layer — the form's by its name, a repeat by its name, or `$layers[n]` / `$layers["name"]`
+    in the order publishing gives the form's tables — takes `where` (texts and answers joined with `+`, and `!important`),
+    `stats`, `orderByFields`, `resultRecordCount`, `outFields` and `returnDistinctValues`: as a value
+    (`${survey | stats:"sum,qty"}`) the first statistic of the first row; as a section (`${#survey | stats:…:"group"}` …
+    `${/}`) once per row, its statistics' names and the fields grouped by readable inside, a grouped choice by its label; with
+    no statistics, once per record the query finds. **Each is asked of the layer's own query, as the asker** —
+    `FeatureServerQueryParameters` reads the parameters, `IFeatureSummaries.StatisticsAsync` answers `outStatistics` under the
+    layer's connection lease, rows are read by the source — kept to the records printed (the record in an individual
+    report, its rows for a repeat; the records chosen in a summary) unless `!important`. Question names in a clause are
+    written as the layer's columns before the layer's own where-clause reader reads it. `median` is the 0.5 continuous
+    percentile; `range` is max − min; `first` and `last` the first and last non-empty value in object id order.
+12. **What public templates write.** Sixteen public templates were read (§4, condition 1); what thirteen of them needed, and
+    Survey123's pages do not describe, is built:
+    - a section whose ends share their paragraphs with text — `Before ${if x}` … `${/} after`, or `${/} ${if y}` in one
+      paragraph — is **spliced**: each end's paragraph is cut there and the half before an end joins the paragraph written
+      after it, so a section written once is the template without its tags and one not written joins the text around it, as
+      the XML between two tags is;
+    - `${if question | selected:"name"}` is true when the choice is selected;
+    - `(question | getValue:"size")` inside an expression is the value its methods give, as in `${if (permit | getValue:"size")>0}`;
+    - a repeat in a condition is its number of rows, so `${if photos}` asks whether there are any;
+    - `CreationDate`, `Creator`, `EditDate` and `Editor`, ArcGIS's editor-tracking names, read the layer's own fields;
+    - `map:" "` is the default basemap.
+    Three were not filled: one is not a Survey123 template (its placeholders are `{{…}}`); one names `$file` outside a section
+    over files, and EXIF; one asks a geoshape's `getValue:"length":"feet":"geodesic"`. Each is refused at upload with its
+    paragraph and reason.
+13. **INFERRED**, added to (a)–(q) for [Q-237](../open-questions.md):
+    - (r) A map with no `size` is 400 × 300 pixels, Survey123's examples' size; at most 2,000 a side.
+    - (s) "The question's default basemap" is the organisation's default basemap, as `portals/self` gives it to the asker; the
+      form's own `graticula:basemap` setting is not read, because it names tiles from another address.
+    - (t) One point with no `mapScale` is drawn at 1:10,000 (Survey123 uses the question's scale); several are fitted with a
+      tenth of their extent around them, at least 100 m.
+    - (u) The mark is a red dot ringed in white (a line red, an area red at a quarter opacity), where Survey123 draws "a
+      default symbol".
+    - (v) `drawingInfo` takes `"currentLayer"` only; a layer's address is refused, as ADR-265 fetches nothing.
+    - (w) A record with no location writes no map.
+    - (x) A template with a summary section is one document, whatever `mode` asks.
+    - (y) `$layers[n]` counts the form's tables in the order publishing gives them: the form's layer, then its repeats.
+    - (z) A statistic with no output name is read as `type_field`; `first` and `last` are in object id order and not per
+      group; a query reads at most 1,000 rows.
+    - (aa) A summary section reads no record's answer outside a `${#layer}` section; a statistic over no rows writes nothing.
+    - (ab) §5.12's readings of what public templates write, each of which Survey123's pages do not describe.
 
 ## 6. Consequences
 
@@ -178,14 +250,15 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
 syntax; a template that would not fill is refused when it is uploaded, at its paragraph, not when a report is due; a member
 reports only on what they can read, by the same doors a query uses.
 
-**Negative.** Not built, each refused or said: **maps** in a report (the next step, on ADR-265's renderer: draw the
-record's geometry and its layer as a PNG at `size` and place it as a picture); **PDF** (§5.7); summary sections and
-statistics; `$image | src` (a fetch from an address is an SSRF door, ADR-265 §5.3's reasoning; the form's own media could
+**Negative.** Not built, each refused or said: a map's `rotate`, `mapFilters`, and layers at another address — a
+basemap from ArcGIS Online or OpenStreetMap is left out of a report's map, as of a print (ADR-265 §5.3); **PDF** (§5.7);
+`$inputParams`; a geometry's length and area; `$image | src` (a fetch from an address is an SSRF door, ADR-265 §5.3's reasoning; the form's own media could
 be read without one); `attachmentsDefExp`; EXIF; Survey123's 2,000-record queued jobs, and *Recent tasks*. A Word list
 (`w:numPr`) inside a repeat keeps numbering across rows as Word decides. Templates are checked against a schema, not
 rendered, at upload: a template Word opens and this engine reads may still look different from Survey123's output.
 
-**Ports created.** None: no Tier 2 dependency.
+**Ports created.** None: no Tier 2 dependency. `IReportLookups` is the engine's own seam between the synchronous fill and
+the requests a report makes, not a port to a library.
 
 - **State.** Item resources only (the templates). Reports are made in memory and handed over; nothing is kept.
 
@@ -200,10 +273,22 @@ rendered, at upload: a template Word opens and this engine reads may still look 
    document. Microsoft Word 16, driven hidden with alerts off, opened all three without a repair prompt, counted the
    pages (2 merged, 1 each), the pictures and the four table rows, and exported them to PDF; the text read back was the
    expected text. Not yet: Survey123 users' own templates, and LibreOffice, which this machine does not have.
+   **PARTLY DISCHARGED 2026-11-17 — Word, not LibreOffice.** Sixteen public templates (ArcGIS Online items of type *Microsoft
+   Word*, two of them published by the ArcGIS_Survey123 account and two by LocalGovTryItLive; `SOURCES.md` in
+   `D:\temp\report-templates\2026-11-17`, not in the repository) were each uploaded against a form built from its own
+   placeholders, three records filled with photographs, choices and repeat rows, and reported merged and separate. Thirteen
+   filled — a summary of grouped statistics with sixteen `where … !important` sums, a 1,538-placeholder inspection of 82
+   pages and 162 pictures, `checked` boxes, `selected` conditions, files' sizes in brackets, `$shape` and location maps,
+   bullets, multiline answers. Microsoft Word 16, hidden with alerts off, opened all twenty-five documents (thirteen merged,
+   twelve single) without a repair prompt and exported each to PDF. What they needed is §5.12; the three not filled are
+   refused at upload with their reasons. **Not done: LibreOffice**, which is not on this machine and was not installed
+   (the brief forbids installing software on it); the half of this condition it names stays open.
 2. **The owner confirms the INFERRED list** of §5.9, (a) to (q), through [Q-237](../open-questions.md).
 3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down.
 4. **Maps are drawn** for `${location | map}` and `$shape` on ADR-265's renderer, or the refusal stays and is recorded as
-   the decision.
+   the decision. **DISCHARGED 2026-11-17** — §5.10: drawn by `PrintEndpoints.DrawMapImageAsync`, ADR-265's `MAP_ONLY`
+   drawing, as the asker, the records marked; measured on the fixture (§4). `rotate` and `mapFilters` stay refused, and a
+   basemap at another address is left out and said, as ADR-265 §5.3 leaves it out of a print.
 5. **The cost is measured**: 100 records with a photograph each, through the Inbox, on the showcase — time, peak memory and
    size — against §5.9 (e)'s bounds, which are this session's guesses.
 
@@ -213,14 +298,15 @@ rendered, at upload: a template Word opens and this engine reads may still look 
 [ADR-264](ADR-264-an-app-or-a-link-is-an-item-and-an-item-keeps-resources.md) (item resources),
 [ADR-300](ADR-300-a-forms-inbox-is-a-view-each-reader-sees-their-own-rows-of.md) (the Inbox a member reads through),
 [ADR-113](ADR-113-a-hosted-layer-has-views.md) (views and their attachments),
-[ADR-265](ADR-265-the-server-prints-a-web-map.md) (read for PDF and maps; not used yet).
+[ADR-265](ADR-265-the-server-prints-a-web-map.md) (its renderer draws a report's maps, §5.10; read for PDF).
 
 **Depended on by:** —
 
 ## 9. Revisit triggers
 
 - A customer template measured failing in Word after filling (condition 1).
-- A shop that needs PDF, or maps in reports, to move its forms (conditions 3, 4).
+- A shop that needs PDF to move its forms (condition 3), or a map's `rotate` or another origin's basemap in a report.
+- A public template measured failing that §5.12 does not read.
 - A report request measured past ten seconds at 100 records, or refused `503` in normal use.
 
 ## 10. Dissent

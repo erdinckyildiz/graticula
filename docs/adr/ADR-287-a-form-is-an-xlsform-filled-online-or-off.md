@@ -291,7 +291,7 @@ measurable question. The two device claims are, so they are conditions and not a
      that no longer exists is refused by the server, and the record is kept on the device, marked, and shown to its
      author rather than lost or silently trimmed;
    - (g) Esri's Survey123 apps opening Graticula's forms is **not** a goal;
-   - (h) a report per record (Survey123's *feature report*) is a later ADR, built on the print service — *written 2026-11-17 as [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md), on an engine of its own; the print service gives it neither the document nor PDF (ADR-301 §1, §5.7)*
+   - (h) a report per record (Survey123's *feature report*) is a later ADR, built on the print service — *written 2026-11-17 as [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md), on an engine of its own; the print service gives it neither the document nor PDF, only its maps (ADR-301 §1, §5.7, §5.10)*
      ([ADR-265](ADR-265-the-server-prints-a-web-map.md)) and not on Word templates;
    - (i) the server checks what a database can check (types, lengths, domains, required fields that are not
      conditional) and does **not** re-evaluate the form's XPath logic. A second evaluator in C# would drift from the

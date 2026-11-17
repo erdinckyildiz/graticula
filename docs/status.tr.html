@@ -110,59 +110,59 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>46e5ad0f</code> · 2026-11-17 01:08</p>
+<p class="stamp">Şu commit’ten üretildi: <code>62f10961</code> · 2026-11-17 02:37</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">291</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">716/773</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">46 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">717/773</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">45 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">240 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">347 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">7012</div><div class="kpi-l">test</div><div class="kpi-n">752 kaynak dosya, 332,612 satır</div></div>
+<div class="kpi good"><div class="kpi-v">7040</div><div class="kpi-l">test</div><div class="kpi-n">755 kaynak dosya, 334,869 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-237</b> — [OWNER] The feature report&#x27;s INFERRED choices, and how PDF and maps are made, INFERRED 2026-11-17 (ADR-301 §5.9).</p><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">72 madde</span></div><p><b>46 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">71 madde</span></div><p><b>45 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">5</div></div>
-<div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:60%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-280 · A 3D object feature layer holds me</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:40%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-270 · Scenes to ArcGIS Enterprise&#x27;s leve</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-271 · The portal&#x27;s search answers `bbox`</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-275 · A scene may be embedded by the sit</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-276 · Editing in the scene: the first st</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-284 · Contributor and Mobile Worker, as </div><div class="bar-t"><div class="bar-f" style="width:20%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-280 · A 3D object feature layer holds me</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-270 · Scenes to ArcGIS Enterprise&#x27;s leve</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-271 · The portal&#x27;s search answers `bbox`</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-275 · A scene may be embedded by the sit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-276 · Editing in the scene: the first st</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-277 · A scene layer&#x27;s cache is rebuilt o</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-284 · Contributor and Mobile Worker, as </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -471,7 +471,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">290</td><td>A hosted layer&#x27;s attachments keep the GlobalID a device gave them, and their changes are recorded by the database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the mechanism is tested against PostgreSQL (§4), and Field Maps 26.2.2 was seen…</td><td class="num">6/6</td></tr>
 <tr><td class="id">299</td><td>ArcGIS Pro publishes a map image layer by reference to a registered database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">300</td><td>A form&#x27;s Inbox is a view, and each reader sees their own rows of it</td><td><span class="pill cond">ACCEPTED</span><div class="muted-t">every condition discharged by 2026-11-16 (§9); ACCEPTED WITH CONDITIONS until then</div></td><td class="muted-t">MEDIUM — the shape is the owner&#x27;s (Q-232 (a), 2026-11-09) and the mechanism is one this…</td><td class="num">4/4</td></tr>
-<tr><td class="id">301</td><td>A feature report is a Word template filled per record, by the server&#x27;s own engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the syntax is Survey123&#x27;s public documentation and every part of it built is…</td><td class="num">0/5</td></tr>
+<tr><td class="id">301</td><td>A feature report is a Word template filled per record, by the server&#x27;s own engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the syntax is Survey123&#x27;s public documentation and every part of it built is…</td><td class="num">1/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -629,19 +629,19 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2417</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:41.0%"></div></div><div class="bar-n">992</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:40.8%"></div></div><div class="bar-n">987</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.7%"></div></div><div class="bar-n">622</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:25.2%"></div></div><div class="bar-n">608</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:19.2%"></div></div><div class="bar-n">464</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:10.1%"></div></div><div class="bar-n">245</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2445</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:40.6%"></div></div><div class="bar-n">992</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:40.4%"></div></div><div class="bar-n">987</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">622</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:24.9%"></div></div><div class="bar-n">608</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:19.0%"></div></div><div class="bar-n">464</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:10.0%"></div></div><div class="bar-n">245</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:5.4%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:5.1%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.4%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.3%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.4%"></div></div><div class="bar-n">57</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.1%"></div></div><div class="bar-n">50</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">57</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Offline.Sqlite</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.2%"></div></div><div class="bar-n">29</div></div>
@@ -692,6 +692,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>62f10961</code><time>2026-11-17</time><span>ADR-301 condition 1: a report filled on the fixture opens in Word without a repair prompt (progress, not a discharge)</span></li>
+<li><code>49066664</code><time>2026-11-17</time><span>ADR-301: a feature report is a Word template filled per record; Q-237 lists its INFERRED choices, PDF and maps</span></li>
+<li><code>10d3bc3c</code><time>2026-11-17</time><span>Studio: tick submissions on a form&#x27;s results and create a feature report (ADR-301 §5.8)</span></li>
+<li><code>ba19cd90</code><time>2026-11-17</time><span>Forms: feature reports — Word templates filled per record by the server&#x27;s own engine (ADR-301)</span></li>
 <li><code>46e5ad0f</code><time>2026-11-17</time><span>README and the site page: the Inbox, barcode, annotate and search()/@layer are built; 45 of 61 Survey123 forms import unedited</span></li>
 <li><code>710d42c3</code><time>2026-11-17</time><span>Forms: ZXing merged, the barcode INFERRED list confirmed, shell cache v15 (ADR-287 sections 5.22, 5.25)</span></li>
 <li><code>90c79f21</code><time>2026-11-17</time><span>Merge branch &#x27;forms-zxing&#x27; into forms-compat3</span></li>
@@ -702,10 +706,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f03de7bc</code><time>2026-11-16</time><span>A form off the list is refused for pulldata(&quot;@javascript&quot;), now that @layer is built (ADR-287 §5.23)</span></li>
 <li><code>9d4542cd</code><time>2026-11-16</time><span>The search() appearances one form check holds are bounded by that check (architecture rule)</span></li>
 <li><code>e58f5cff</code><time>2026-11-16</time><span>Forms: shell cache v14 for barcode, search()/@layer and annotate together</span></li>
-<li><code>4cc0c376</code><time>2026-11-16</time><span>Merge branch &#x27;forms-annotate&#x27; into forms-compat3</span></li>
-<li><code>4e60ac37</code><time>2026-11-16</time><span>Merge branch &#x27;forms-barcode&#x27; into forms-compat3</span></li>
-<li><code>36dbcabf</code><time>2026-11-16</time><span>search() and pulldata(&quot;@layer&quot;): choices from a CSV or a layer of this server, and a calculation answered from a layer (ADR-287 §5.23)</span></li>
-<li><code>d6c0eb98</code><time>2026-11-16</time><span>A barcode question is accepted: always typeable, scanned where the browser has a reader (ADR-287 §5.22)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

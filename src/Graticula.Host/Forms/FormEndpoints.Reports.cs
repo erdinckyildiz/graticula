@@ -47,6 +47,12 @@ public static partial class FormEndpoints
     /// <summary>The most records one report request takes (INFERRED: Survey123 takes 2,000 in a job; this is answered at once).</summary>
     public const int MaximumReportRecords = 100;
 
+    /// <summary>The most rows one query of a report reads — a section with where or !important, or statistics' groups (INFERRED).</summary>
+    public const int MaximumReportRows = 1000;
+
+    /// <summary>The most maps one report draws (INFERRED): a map for each of 100 records, and two more for each beside.</summary>
+    public const int MaximumReportMaps = 300;
+
     private static readonly string[] ReportFormats = ["docx"];
 
     private const string DocxType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -384,12 +390,22 @@ public static partial class FormEndpoints
 
         try
         {
-            (List<ReportRecord>? records, IResult? refused) = await ReportRecordsAsync(context, publication, schema, template, ids, cancellation).ConfigureAwait(false);
+            (List<ReportRecord>? records, IResult? refused, ReportReading? reading) = await ReportRecordsAsync(context, publication, schema, template, ids, cancellation).ConfigureAwait(false);
 
             if (refused is not null)
             {
                 return refused;
             }
+
+            // A template with a summary section is one document for all the records chosen, as Survey123 makes it (INFERRED).
+            if (template.HasSummary)
+            {
+                mode = "merged";
+            }
+
+            // Maps and queries are fetched as the asker before the fill that writes them: fill, fetch what was missing, again.
+            ReportPrefetch lookups = new();
+            await PrefetchAsync(context, publication, schema, template, records!, mode == "merged", evaluator, lookups, reading!, cancellation).ConfigureAwait(false);
 
             string baseName = ReportTemplate.FileName(request.Name is { Length: > 0 } given && !given.Contains("${", StringComparison.Ordinal)
                 ? given
@@ -400,7 +416,7 @@ public static partial class FormEndpoints
 
             if (mode == "merged" || records!.Count == 1)
             {
-                bytes = template.Fill(records!, evaluator);
+                bytes = template.Fill(records!, evaluator, lookups);
                 fileName = (mode == "merged" ? baseName
                     : request.Name is { Length: > 0 } one ? ReportTemplate.Name(one, records![0], evaluator)
                     : $"{baseName}_{records![0].ObjectId.ToString(CultureInfo.InvariantCulture)}") + ".docx";
@@ -428,7 +444,7 @@ public static partial class FormEndpoints
 
                         ZipArchiveEntry entry = zip.CreateEntry(unique + ".docx", CompressionLevel.NoCompression);
                         await using Stream stream = entry.Open();
-                        await stream.WriteAsync(template.Fill([record], evaluator), cancellation).ConfigureAwait(false);
+                        await stream.WriteAsync(template.Fill([record], evaluator, lookups), cancellation).ConfigureAwait(false);
                     }
                 }
 
@@ -442,6 +458,14 @@ public static partial class FormEndpoints
                 .ConfigureAwait(false);
 
             context.Response.Headers.CacheControl = "no-store";
+
+            // What the report could not draw in full — a basemap at another address, a layer not shared — said rather than
+            // hidden: one sentence each, percent-encoded so a header carries them.
+            if (lookups.Notes.Count > 0)
+            {
+                context.Response.Headers[ReportNotesHeader] = Uri.EscapeDataString(string.Join(" ", lookups.Notes.Take(20)));
+            }
+
             return Results.File(bytes, type, fileName);
         }
         catch (ReportTemplateException e)
@@ -455,13 +479,13 @@ public static partial class FormEndpoints
     }
 
     /// <summary>A form's layer as the asker reads it: the form's own, or its Inbox's when only that is theirs to read.</summary>
-    private sealed record ReportLayer(JsonObject Published, PublishedLayer Layer, IFeatureSource Source, LayerDescription Described);
+    private sealed record ReportLayer(JsonObject Published, PublishedLayer Layer, IFeatureSource Source, LayerDescription Described, string Url);
 
     /// <summary>
     /// The chosen records with their repeats' rows and the attachments the template reads, read as the asker; or the
     /// refusal. Records the asker may not read are absent, and absent records are refused by number.
     /// </summary>
-    private static async Task<(List<ReportRecord>? Records, IResult? Refused)> ReportRecordsAsync(
+    private static async Task<(List<ReportRecord>? Records, IResult? Refused, ReportReading? Reading)> ReportRecordsAsync(
         HttpContext context, JsonObject publication, ReportSchema schema, ReportTemplate template, long[] ids, CancellationToken cancellation)
     {
         IServiceProvider services = context.RequestServices;
@@ -499,7 +523,7 @@ public static partial class FormEndpoints
                 }
 
                 (IFeatureSource source, LayerDescription described) = await contexts.GetAsync(one, cancellation).ConfigureAwait(false);
-                these[(string?)layer["repeat"] ?? string.Empty] = new ReportLayer(layer, one, source, described);
+                these[(string?)layer["repeat"] ?? string.Empty] = new ReportLayer(layer, one, source, described, url);
             }
 
             if (these.ContainsKey(string.Empty))
@@ -511,7 +535,7 @@ public static partial class FormEndpoints
 
         if (!layers.TryGetValue(string.Empty, out ReportLayer? top))
         {
-            return (null, Error(403, "You may not read this form's records, so no report can be made of them for you. Its owner can share its results with you, or turn on its Inbox."));
+            return (null, Error(403, "You may not read this form's records, so no report can be made of them for you. Its owner can share its results with you, or turn on its Inbox."), null);
         }
 
         IReadOnlySet<string> fileQuestions = template.FileQuestions(schema);
@@ -538,10 +562,25 @@ public static partial class FormEndpoints
 
         if (missing.Length > 0)
         {
-            return (null, Error(404, $"{(missing.Length == 1 ? "Record" : "Records")} {string.Join(", ", missing.Take(20))} of this form {(missing.Length == 1 ? "is" : "are")} not there for you to read."));
+            return (null, Error(404, $"{(missing.Length == 1 ? "Record" : "Records")} {string.Join(", ", missing.Take(20))} of this form {(missing.Length == 1 ? "is" : "are")} not there for you to read."), null);
         }
 
-        return ([.. ids.Select(i => byId[i])], null);
+        // What a query of the report reads its records by, as these were read: the same layers, the same files.
+        ReportReading reading = new(layers, async (string tableName, long[] wanted) =>
+        {
+            if (!layers.TryGetValue(tableName, out ReportLayer? layer))
+            {
+                return [];
+            }
+
+            FormTable table = tableName.Length == 0 ? schema.Root
+                : schema.Root.AllTables.FirstOrDefault(t => string.Equals(t.Name, tableName, StringComparison.OrdinalIgnoreCase)) ?? schema.Root;
+            List<ReportRecord> rows = await ReadRowsAsync(layer, table, identities: wanted, parents: null).ConfigureAwait(false);
+            Dictionary<long, ReportRecord> found = rows.ToDictionary(r => r.ObjectId);
+            return [.. wanted.Where(found.ContainsKey).Select(i => found[i])];
+        });
+
+        return ([.. ids.Select(i => byId[i])], null, reading);
 
         async Task<List<ReportRecord>> ReadRowsAsync(ReportLayer layer, FormTable table, long[]? identities, IReadOnlyList<(Guid Global, Dictionary<string, List<ReportRecord>> Into)>? parents)
         {
@@ -650,6 +689,7 @@ public static partial class FormEndpoints
                     ObjectId = objectId,
                     Values = values,
                     Point = feature.Geometry is Point p ? (p.X, p.Y) : feature.Geometry is { } g && g.Envelope is { } e && !e.IsEmpty ? ((e.MinX + e.MaxX) / 2, (e.MinY + e.MaxY) / 2) : null,
+                    Shape = feature.Geometry is { IsEmpty: false } shape ? shape : null,
                     Repeats = repeats.ToDictionary(r => r.Key, r => (IReadOnlyList<ReportRecord>)r.Value, StringComparer.OrdinalIgnoreCase),
                     Files = files,
                 });
@@ -704,6 +744,7 @@ public static partial class FormEndpoints
                 ObjectId = r.ObjectId,
                 Values = r.Values,
                 Point = r.Point,
+                Shape = r.Shape,
                 Files = r.Files,
                 Repeats = read[i].Repeats.ToDictionary(x => x.Key, x => (IReadOnlyList<ReportRecord>)x.Value, StringComparer.OrdinalIgnoreCase),
             })];

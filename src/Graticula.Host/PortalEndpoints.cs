@@ -580,7 +580,7 @@ internal static partial class PortalEndpoints
     /// worse than the OpenStreetMap they get instead. When none is left, the answer is OpenStreetMap —
     /// Q-110's default, spelled the way a web map spells it.
     /// </remarks>
-    private static async Task<object> DefaultBasemapAsync(
+    internal static async Task<object> DefaultBasemapAsync(
         HttpContext context, RequestPrincipal current, CancellationToken cancellation)
     {
         // ADR-184: the gallery's chosen default first, when this caller may draw it; then ADR-086's order.

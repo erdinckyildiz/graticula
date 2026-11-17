@@ -23,29 +23,25 @@ internal sealed record ReportImage(ReportFile File, double Width, double Height,
 /// form when it is uploaded (no record, so every refusal is found before anybody asks for a report), and to fill it.
 /// ADR-301 §5.2–§5.4.
 /// </summary>
-internal sealed class ReportEvaluator
+internal sealed partial class ReportEvaluator
 {
     /// <summary>The methods Survey123 documents that a report here does not do, each with the reason the refusal gives.</summary>
     public static readonly FrozenDictionary<string, string> RefusedMethods = new Dictionary<string, string>(StringComparer.Ordinal)
     {
-        ["map"] = "a map is not drawn in a report yet (ADR-301 §6); write the location's coordinates with getValue:\"x\" and getValue:\"y\"",
-        ["mapScale"] = "a map is not drawn in a report yet (ADR-301 §6)",
-        ["drawingInfo"] = "a map is not drawn in a report yet (ADR-301 §6)",
-        ["where"] = "a report here does not query layers of its own; it is made of the records chosen",
-        ["stats"] = "a report here does not compute statistics; a summary section is not supported yet",
         ["attachmentsDefExp"] = "attachments are not filtered by an expression here; ${#question} … ${/} takes one question's files",
         ["src"] = "a picture is not fetched from an address or from the form's media by a report (ADR-301 §5.4); a picture comes from the record's attachments",
+        ["mapFilters"] = "filters on a web map's own layers are not applied by a report here (ADR-301 §5.10); the map's layers are drawn as the web map keeps them",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>The keywords a report here does not read, each with the reason.</summary>
     public static readonly FrozenDictionary<string, string> RefusedKeywords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        ["$shape"] = "a record's geometry is drawn as a map, which a report here does not draw yet (ADR-301 §6)",
-        ["$map"] = "a map is not drawn in a report yet (ADR-301 §6)",
         ["$image"] = "a picture is not fetched from an address or from the form's media by a report (ADR-301 §5.4)",
-        ["$layers"] = "a report here does not query layers of its own; it is made of the records chosen",
-        ["$summary"] = "a summary section is not supported yet",
+        ["$summary"] = "a summary section is written $<$summary> … $</>, not as a name",
+        ["$inputParams"] = "a report here is not printed from Survey123's website, where those parameters are set (ADR-301 §5.11)",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex ItemId = new("^[0-9a-fA-F]{32}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static readonly FrozenSet<string> FileProperties = new[]
     {
@@ -69,6 +65,9 @@ internal sealed class ReportEvaluator
     }
 
     public ReportSchema Schema => _schema;
+
+    /// <summary>Where maps and queries are read when filling; null when checking.</summary>
+    public IReportLookups? Lookups { get; set; }
 
     // ------------------------------------------------------------------------------------------------------- names
 
@@ -95,7 +94,21 @@ internal sealed class ReportEvaluator
             {
                 case "$date":
                     return new ReportValue(ReportValueKind.Now, _now.ToOffset(_offset));
+                case "$shape":
+                    if (!_schema.Root.Questions.Any(q => FormCatalog.LocationTypes.Contains(q.Type)))
+                    {
+                        throw new ReportSyntaxException("$shape draws the record's geometry, and this form's layer has none: it has no location question.");
+                    }
+
+                    return new ReportValue(ReportValueKind.Shape, "$shape");
+                case "$map":
+                    return new ReportValue(ReportValueKind.Shape, "$map");
                 case "$feature":
+                    if (scope.Chain().FirstOrDefault(s => !s.InFiles) is { IsSummary: true })
+                    {
+                        throw new ReportSyntaxException("$feature is a record's position, and a summary section is written once for all the records: read it inside ${#" + _schema.TopName + "} … ${/}.");
+                    }
+
                     return new ReportValue(ReportValueKind.Feature, scope.Record?.ObjectId, Position: scope.Position);
                 case "$file":
                     ReportScope? files = scope.Chain().FirstOrDefault(s => s.InFiles)
@@ -103,9 +116,15 @@ internal sealed class ReportEvaluator
                     return new ReportValue(ReportValueKind.File, null, Files: files.File is { } f ? [f] : [], Position: files.Position);
                 case "$attachment":
                     ReportScope owner = scope.Chain().First(s => !s.InFiles);
+
+                    if (owner.IsSummary)
+                    {
+                        throw new ReportSyntaxException("$attachment is a record's files, and a summary section is written once for all the records: read them inside ${#" + _schema.TopName + "} … ${/}.");
+                    }
+
                     return new ReportValue(ReportValueKind.Files, null, Files: owner.Record?.Files ?? []);
                 default:
-                    throw new ReportSyntaxException($"{first} is not a keyword a report reads: the keywords are $date, $feature, $file and $attachment.");
+                    throw new ReportSyntaxException($"{first} is not a keyword a report reads: the keywords are $date, $feature, $file, $attachment, $shape, $map and $layers[…].");
             }
         }
 
@@ -131,8 +150,26 @@ internal sealed class ReportEvaluator
         else
         {
             field = first;
+
+            // A row of statistics or distinct values: its names first — the statistics' and the fields grouped by.
+            if (scope.Chain().Where(s => !s.InFiles).FirstOrDefault(s => s.RowNames is not null) is { } rows
+                && rows.RowNames!.Contains(field))
+            {
+                object? raw = rows.Row?.GetValueOrDefault(field)
+                    ?? rows.Row?.FirstOrDefault(kv => string.Equals(kv.Key, field, StringComparison.OrdinalIgnoreCase)).Value;
+                return ReportSchema.Question(rows.Table, field) is { } grouped && !FormCatalog.LocationTypes.Contains(grouped.Type) && !ReportSchema.IsFiles(grouped)
+                    ? new ReportValue(ReportValueKind.Question, raw, grouped)
+                    : ReportSchema.LayerFields.Contains(field) ? new ReportValue(ReportValueKind.Field, raw, Field: field)
+                    : ReportValue.Of(raw);
+            }
+
             at = scope.Chain().Where(s => !s.InFiles).FirstOrDefault(s => ReportSchema.Question(s.Table, field) is not null)
                 ?? scope.Chain().First(s => !s.InFiles);
+        }
+
+        if (at.RowNames is not null && (ReportSchema.Question(at.Table, field) is not null || ReportSchema.LayerFields.Contains(field)))
+        {
+            throw new ReportSyntaxException($"'{field}' is not among what this section's rows hold: {string.Join(", ", at.RowNames.Order(StringComparer.OrdinalIgnoreCase))}.");
         }
 
         if (ReportSchema.Question(at.Table, field) is { } question)
@@ -140,6 +177,11 @@ internal sealed class ReportEvaluator
             if (FormCatalog.LocationTypes.Contains(question.Type))
             {
                 return new ReportValue(ReportValueKind.Question, at.Record?.Point, question);
+            }
+
+            if (at.IsSummary)
+            {
+                throw new ReportSyntaxException($"'{question.Name}' is one record's answer, and a summary section is written once for all the records: read it inside ${{#{_schema.TopName}}} … ${{/}}, or summarise it, as ${{{_schema.TopName} | stats:\"sum,{question.Name}\"}}.");
             }
 
             if (ReportSchema.IsFiles(question))
@@ -154,14 +196,23 @@ internal sealed class ReportEvaluator
             return new ReportValue(ReportValueKind.Question, at.Record?.Values.GetValueOrDefault(question.Name), question);
         }
 
+        field = LayerFieldOf(field);
+
         if (ReportSchema.LayerFields.Contains(field))
         {
+            if (at.IsSummary)
+            {
+                throw new ReportSyntaxException($"'{field}' is one record's field, and a summary section is written once for all the records: read it inside ${{#{_schema.TopName}}} … ${{/}}.");
+            }
+
             return new ReportValue(ReportValueKind.Field, at.Record?.Values.GetValueOrDefault(field), Field: field);
         }
 
-        if (ReportSchema.Repeat(at.Table, field) is not null)
+        if (ReportSchema.Repeat(at.Table, field) is { } repeat)
         {
-            throw new ReportSyntaxException($"'{field}' is a repeat: its rows are written between ${{#{field}}} and ${{/}}, with its questions' placeholders between them.");
+            // In an expression — ${if photos} — a repeat is how many rows it has, so a condition asks whether it has any
+            // (INFERRED from public templates; as a value it is a layer, refused or summarised by TableOf's callers).
+            return ReportValue.Of(at.Record is { } owner ? (double)(owner.Repeats.GetValueOrDefault(repeat.Name)?.Count ?? 0) : null);
         }
 
         throw new ReportSyntaxException(at.Table.Name.Length == 0 && path.Count == 1
@@ -178,6 +229,10 @@ internal sealed class ReportEvaluator
                 return ReportValue.Of(literal.Value);
             case ReportName name:
                 return Resolve(name, scope);
+            case ReportPiped piped:
+                return Piped(piped, scope);
+            case ReportLayerRef layer:
+                throw new ReportSyntaxException($"{layer.Written} is a layer: it is summarised with | stats, or its rows written between ${{#{layer.Written}}} and ${{/}}.");
             case ReportUnary unary:
                 ReportValue operand = Evaluate(unary.Operand, scope);
                 return unary.Operator == "!"
@@ -186,12 +241,12 @@ internal sealed class ReportEvaluator
             case ReportBinary binary:
                 ReportValue left = Evaluate(binary.Left, scope);
 
-                if (binary.Operator == "&&" && scope.Record is not null && !ReportValue.Truthy(Comparable(left)))
+                if (binary.Operator == "&&" && scope.Filling && !ReportValue.Truthy(Comparable(left)))
                 {
                     return ReportValue.Of(false);
                 }
 
-                if (binary.Operator == "||" && scope.Record is not null && ReportValue.Truthy(Comparable(left)))
+                if (binary.Operator == "||" && scope.Filling && ReportValue.Truthy(Comparable(left)))
                 {
                     return ReportValue.Of(true);
                 }
@@ -256,18 +311,30 @@ internal sealed class ReportEvaluator
     /// <summary>Checks a value placeholder's names and methods against the form; throws the refusal.</summary>
     public void Check(ReportTag tag, ReportScope scope)
     {
+        if (TableOf(tag.Expression, scope) is { } table)
+        {
+            if (!tag.Methods.Any(m => m.Name == "stats"))
+            {
+                throw new ReportSyntaxException($"'{TableWritten(tag.Expression!)}' is a layer: as a value it is summarised with | stats, as ${{{TableWritten(tag.Expression!)} | stats:\"count,objectid\"}}; its rows are written between ${{#{TableWritten(tag.Expression!)}}} and ${{/}}.");
+            }
+
+            CheckQuery(table, tag.Methods, scope, ReportQueries.QueryMethods, numberMethods: true);
+            return;
+        }
+
         ReportValue value = Evaluate(tag.Expression!, scope);
+
+        if (IsMap(value, tag))
+        {
+            CheckMap(tag, value, scope);
+            return;
+        }
 
         if (tag.Methods.Count == 0)
         {
             if (value.Kind == ReportValueKind.Feature)
             {
                 throw new ReportSyntaxException("$feature is written with getValue: ${$feature | getValue:\"position\"}.");
-            }
-
-            if (value.Question is { } q && FormCatalog.LocationTypes.Contains(q.Type))
-            {
-                throw new ReportSyntaxException($"'{q.Name}' is a location, which Survey123 draws as a map, and a report here does not draw maps yet (ADR-301 §6). Write ${{{q.Name} | getValue:\"x\"}} and ${{{q.Name} | getValue:\"y\"}} for its coordinates.");
             }
         }
 
@@ -347,7 +414,7 @@ internal sealed class ReportEvaluator
             case "size":
                 if (!files)
                 {
-                    return location ? "'| size' on a location sizes a map, which a report here does not draw yet (ADR-301 §6)."
+                    return location ? "'| size' on a location sizes its map, and getValue writes its coordinates as text: write one or the other."
                         : "'| size' is for a picture: an image question, $file or $attachment.";
                 }
 
@@ -357,7 +424,7 @@ internal sealed class ReportEvaluator
                 return !files ? "'| rotate' is for a picture."
                     : method.Number(0) is { } r && r >= 0 && r <= 360 ? null : "'| rotate' takes degrees from 0 to 360.";
             default:
-                return $"'| {method.Name}' is not a method a report reads. The methods are getValue, format, round, toFixed, useGrouping, utcOffset, locale, appearance, checked, countSelected, selectedAt, size and rotate.";
+                return $"'| {method.Name}' is not a method a report reads. The methods are getValue, format, round, toFixed, useGrouping, utcOffset, locale, appearance, checked, countSelected, selectedAt, size and rotate; a location or $shape also takes map, mapScale, mapExtent and drawingInfo, and a layer where, stats, orderByFields, resultRecordCount, outFields and returnDistinctValues.";
         }
     }
 
@@ -366,7 +433,28 @@ internal sealed class ReportEvaluator
     /// <summary>What a value placeholder writes for a record.</summary>
     public ReportOutput Write(ReportTag tag, ReportScope scope)
     {
-        ReportValue value = Evaluate(tag.Expression!, scope);
+        ReportValue value;
+
+        if (TableOf(tag.Expression, scope) is { } table)
+        {
+            // ${layer | stats:"…"}: its first statistic, written as a number is.
+            if (StatisticValue(table, tag, scope) is not { } statistic)
+            {
+                return new ReportText(string.Empty);
+            }
+
+            value = statistic;
+        }
+        else
+        {
+            value = Evaluate(tag.Expression!, scope);
+
+            if (IsMap(value, tag))
+            {
+                return WriteMap(tag, value, scope);
+            }
+        }
+
         CultureInfo? culture = null;
         TimeSpan? offset = null;
         bool raw = false;

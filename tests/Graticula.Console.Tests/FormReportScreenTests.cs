@@ -135,8 +135,8 @@ public sealed class FormReportScreenTests : ConsoleTest
                 "Create report did not download a Word document.");
             Assert.Contains(await WritesAsync(), w => w.StartsWith($"POST /admin/forms/{item}/reports", StringComparison.Ordinal) && w.EndsWith("(sent)", StringComparison.Ordinal));
 
-            // A template with a map is refused, its paragraph listed, focus on the list.
-            string bad = Convert.ToBase64String(Template("Bina: ${ad}", "Yer: ${konum | map:\"\"}"));
+            // A template with a rotated map is refused, its paragraph listed, focus on the list.
+            string bad = Convert.ToBase64String(Template("Bina: ${ad}", "Yer: ${konum | rotate:90}"));
             await Browser.EvaluateAsync<bool>($$"""
                 (() => {
                   const bytes = Uint8Array.from(atob('{{bad}}'), c => c.charCodeAt(0));

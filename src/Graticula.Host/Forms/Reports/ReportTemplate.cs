@@ -73,13 +73,17 @@ internal sealed class ReportTemplate
 
     /// <summary>What the engine does not do, said with every template it checks (ADR-301 §6).</summary>
     public const string NotSupported =
-        "Not supported yet: maps ($shape, | map, a location drawn as a map), summary sections and statistics ($layers, | stats), " +
+        "Not supported yet: a map's rotate and mapFilters, a drawingInfo at an address, and layers of a web map at another address " +
+        "(a map draws this server's own layers; a basemap from elsewhere is left out and the report says so); $inputParams; " +
         "pictures from an address or the form's media ($image | src), filtering attachments (attachmentsDefExp), EXIF " +
         "(getValue:\"x\" on a photograph) and PDF output. A template that uses any of them is refused with the place it is used.";
 
     internal static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     internal static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     internal static readonly XNamespace G = "urn:graticula:report";
+
+    /// <summary>Marks the half of a paragraph a splice cut off before a section's end, joined to the paragraph after it.</summary>
+    private static readonly XName Join = G + "join";
     private static readonly XNamespace Wp = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
     private static readonly XNamespace A = "http://schemas.openxmlformats.org/drawingml/2006/main";
     private static readonly XNamespace Pic = "http://schemas.openxmlformats.org/drawingml/2006/picture";
@@ -259,7 +263,7 @@ internal sealed class ReportTemplate
         {
             foreach (XElement text in OwnTexts(paragraph).ToList())
             {
-                if (!text.Value.Contains("${", StringComparison.Ordinal))
+                if (!HoldsTag(text.Value))
                 {
                     continue;
                 }
@@ -274,14 +278,14 @@ internal sealed class ReportTemplate
 
                     try
                     {
-                        tags[id] = ReportExpression.Parse(written[2..^1]);
+                        tags[id] = written[1] == '<' ? ReportExpression.ParseAngle(written[2..^1]) : ReportExpression.Parse(written[2..^1]);
                     }
                     catch (ReportSyntaxException e)
                     {
                         tags[id] = null;
                         _syntax.Add(place with { Message = e.Message });
                         string inner = ReportExpression.Normalise(written[2..^1]).Trim();
-                        marker.SetAttributeValue("kind", inner.StartsWith('/') ? "close" : inner.StartsWith('#') || inner.StartsWith("if ", StringComparison.Ordinal) ? "open" : "value");
+                        marker.SetAttributeValue("kind", inner.StartsWith('/') ? "close" : inner.StartsWith('#') || inner.StartsWith("if ", StringComparison.Ordinal) || written[1] == '<' ? "open" : "value");
                         continue;
                     }
 
@@ -324,7 +328,7 @@ internal sealed class ReportTemplate
 
         foreach ((XElement o, XElement c) in pairs.OrderBy(p => (int)p.Open.Attribute("id")!))
         {
-            if (Lift(o, c) is { } problem)
+            if (Lift(o, c, tags[(int)o.Attribute("id")!]?.Kind == ReportTagKind.Summary) is { } problem)
             {
                 _syntax.Add(places[(int)o.Attribute("id")!] with { Message = problem });
 
@@ -335,8 +339,75 @@ internal sealed class ReportTemplate
         }
 
         List<Node> tree = Compile([.. root.Nodes()], tags, places);
+        PlaceSummaries(name, tree);
         return new Part { Name = name, Prepared = document, Tree = tree, Tags = tags };
     }
+
+    private static bool IsSummary(Node node) => node is SectionNode { Tag.Kind: ReportTagKind.Summary };
+
+    /// <summary>
+    /// Survey123's page: summary sections stand at the start and the end of a report, never within its contents — so each
+    /// is a section of the document's body itself, with only summary sections before it or only summary sections after it.
+    /// </summary>
+    private void PlaceSummaries(string name, List<Node> tree)
+    {
+        List<Node>? body = tree.OfType<ElementNode>().FirstOrDefault(n => n.Shell.Name == W + "body")?.Children;
+        List<Node> content = body is null ? [] : [.. body.Where(n => !(n is StaticNode { Content: XElement e } && e.Name == W + "sectPr"))];
+
+        foreach (SectionNode summary in Sections(tree).Where(IsSummary))
+        {
+            int at = content.IndexOf(summary);
+            bool placed = name == DocumentPart && at >= 0
+                && (content.Take(at).All(n => IsSummary(n) || IsBlank(n)) || content.Skip(at + 1).All(n => IsSummary(n) || IsBlank(n)));
+
+            if (!placed)
+            {
+                _syntax.Add(summary.Place with
+                {
+                    Message = name != DocumentPart
+                        ? "A summary section is written in the document's body, not in a header or a footer."
+                        : "A summary section stands at the start or the end of the document, with its $<$summary> and $</> at the start of their own paragraphs and nothing of a record's around it: Survey123's page says it cannot be placed within the contents of a report.",
+                });
+            }
+        }
+
+        static IEnumerable<SectionNode> Sections(IEnumerable<Node> nodes)
+        {
+            foreach (Node node in nodes)
+            {
+                switch (node)
+                {
+                    case SectionNode s:
+                        yield return s;
+
+                        foreach (SectionNode inner in Sections(s.Body))
+                        {
+                            yield return inner;
+                        }
+
+                        break;
+                    case ElementNode e:
+                        foreach (SectionNode inner in Sections(e.Children))
+                        {
+                            yield return inner;
+                        }
+
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+    }
+
+    /// <summary>Whether a node of the body writes nothing a reader would see: an empty paragraph.</summary>
+    private static bool IsBlank(Node node) =>
+        node is StaticNode { Content: XElement e } ? !HasContent(e) : node is StaticNode;
+
+    /// <summary>Whether the template has a summary section, which makes one document of all the records chosen.</summary>
+    public bool HasSummary => _parts.TryGetValue(DocumentPart, out Part? document)
+        && document.Tree.OfType<ElementNode>().FirstOrDefault(n => n.Shell.Name == W + "body") is { } body
+        && body.Children.Any(IsSummary);
 
     private static string Excerpt(XElement paragraph)
     {
@@ -371,7 +442,7 @@ internal sealed class ReportTemplate
 
         string text = all.ToString();
 
-        if (!text.Contains("${", StringComparison.Ordinal))
+        if (!HoldsTag(text))
         {
             return;
         }
@@ -409,13 +480,51 @@ internal sealed class ReportTemplate
         }
     }
 
+    /// <summary>Where the next <c>${</c>, <c>$&lt;$summary&gt;</c> or <c>$&lt;/&gt;</c> starts, or -1.</summary>
+    private static int NextTag(string text, int from)
+    {
+        int brace = text.IndexOf("${", from, StringComparison.Ordinal);
+        int angle = from;
+
+        while ((angle = text.IndexOf("$<", angle, StringComparison.Ordinal)) >= 0 && !IsAngleTag(text, angle))
+        {
+            angle += 2;
+        }
+
+        return brace < 0 ? angle : angle < 0 ? brace : Math.Min(brace, angle);
+    }
+
+    /// <summary>Whether a <c>$&lt;</c> opens one of the two angle tags, not a dollar sign before a less-than in the text.</summary>
+    private static bool IsAngleTag(string text, int at) =>
+        string.CompareOrdinal(text, at, "$</>", 0, 4) == 0
+        || (at + 3 < text.Length && text[at + 2] == '$' && text.IndexOf('>', at) is var end && end > 0
+            && text[(at + 3)..end].Trim().All(char.IsLetter) && end - at < 24);
+
+    /// <summary>Whether a text holds a placeholder or a summary tag.</summary>
+    private static bool HoldsTag(string text) => NextTag(text, 0) >= 0;
+
     /// <summary>Each <c>${…}</c> in a text, start and end (exclusive), reading past a <c>}</c> inside quotes.</summary>
     private static IEnumerable<(int Start, int End)> Placeholders(string text)
     {
         int i = 0;
 
-        while ((i = text.IndexOf("${", i, StringComparison.Ordinal)) >= 0)
+        while ((i = NextTag(text, i)) >= 0)
         {
+            // $<$summary> and $</>, Survey123's summary tags: to the next '>'.
+            if (text[i + 1] == '<')
+            {
+                int close = text.IndexOf('>', i + 2);
+
+                if (close < 0)
+                {
+                    yield break;
+                }
+
+                yield return (i, close + 1);
+                i = close + 1;
+                continue;
+            }
+
             char quote = '\0';
             int j = i + 2;
 
@@ -546,41 +655,43 @@ internal sealed class ReportTemplate
         || ((e.Name == W + "tab" || e.Name == W + "sym") && e.Parent?.Name == W + "r") || e.Name.Namespace == G;
 
     /// <summary>Lifts a section to the level it repeats at; the reason it cannot be, or null.</summary>
-    private static string? Lift(XElement open, XElement close)
+    private static string? Lift(XElement open, XElement close, bool summary)
     {
         int id = (int)open.Attribute("id")!;
         XElement opening = new(G + "open", new XAttribute("id", id));
         XElement closing = new(G + "close", new XAttribute("id", id));
-        XElement? po = open.Ancestors(W + "p").FirstOrDefault();
-        XElement? pc = close.Ancestors(W + "p").FirstOrDefault();
 
-        if (po is null || pc is null)
+        // Both ends side by side — in one paragraph, or in a part of one that an outer section was spliced into.
+        if (open.Parent is not null && open.Parent == close.Parent && open.Parent.Name != W + "body")
         {
-            return "The placeholder is not inside a paragraph.";
-        }
-
-        if (po == pc)
-        {
-            if (open.Parent != close.Parent)
-            {
-                return "The section opens and closes at different depths of one paragraph — one end inside a hyperlink or a field and the other not. Put both ends at the same place.";
-            }
-
             open.ReplaceWith(opening);
             close.ReplaceWith(closing);
             return null;
         }
 
+        XElement? po = open.Ancestors(W + "p").FirstOrDefault();
+        XElement? pc = close.Ancestors(W + "p").FirstOrDefault();
+
+        if (po is null || pc is null)
+        {
+            return "The placeholder is not inside a paragraph, or it is inside a part of a paragraph a section around it already splits: put this section's ends in paragraphs of their own.";
+        }
+
+        if (po == pc)
+        {
+            return "The section opens and closes at different depths of one paragraph — one end inside a hyperlink or a field and the other not. Put both ends at the same place.";
+        }
+
         if (po.Parent == pc.Parent)
         {
-            if (po.Descendants().TakeWhile(e => e != open).Any(IsContent))
-            {
-                return "A section over several paragraphs starts at the start of its paragraph: move what is before this placeholder to a paragraph above it.";
-            }
+            bool before = po.Descendants().TakeWhile(e => e != open).Any(IsContent);
+            bool after = pc.Descendants().SkipWhile(e => e != close).Skip(1).Where(e => !e.Ancestors().Contains(close)).Any(IsContent);
 
-            if (pc.Descendants().SkipWhile(e => e != close).Skip(1).Where(e => !e.Ancestors().Contains(close)).Any(IsContent))
+            if (before || after)
             {
-                return "A section over several paragraphs ends at the end of its paragraph: move what is after its ${/} to a paragraph below it.";
+                return summary
+                    ? "A summary section's $<$summary> and $</> stand in paragraphs of their own."
+                    : Splice(id, open, close, po, pc);
             }
 
             po.AddBeforeSelf(opening);
@@ -621,6 +732,105 @@ internal sealed class ReportTemplate
         }
 
         return "A section's ${#…} or ${if …} and its ${/} are in one paragraph, in paragraphs side by side, or in rows of one table; these are not. Move the ${/} beside its section.";
+    }
+
+    /// <summary>
+    /// A section over paragraphs whose ends share their paragraphs with text — <c>Before ${if x}</c> … <c>${/} after</c>,
+    /// as public templates write them — is spliced as the XML between its ends: its first paragraph's runs after the
+    /// opening join the paragraph before them, its last paragraph's runs before the closing begin the paragraph after.
+    /// Written once, the document is the template without its tags; not at all, the text before the opening and after the
+    /// closing make one paragraph. ADR-301 §5.12 (INFERRED: the reading that keeps Word's XML whole, which these templates
+    /// need; Survey123's pages say nothing of it).
+    /// </summary>
+    /// <returns>The refusal, or null.</returns>
+    private static string? Splice(int id, XElement open, XElement close, XElement po, XElement pc)
+    {
+        if (open.Parent != po || close.Parent != pc)
+        {
+            return "The section's ends are inside a hyperlink or a field of their paragraphs: put them in the paragraphs' own text.";
+        }
+
+        static XElement Shell(XElement paragraph, bool join) =>
+            new(W + "p", paragraph.Attributes(), join ? new XAttribute(Join, "1") : null,
+                paragraph.Element(W + "pPr") is { } properties ? new XElement(properties) : null);
+
+        static XElement Holding(XElement shell, IEnumerable<XNode> nodes)
+        {
+            foreach (XNode node in nodes.ToList())
+            {
+                node.Remove();
+                shell.Add(node);
+            }
+
+            return shell;
+        }
+
+        // Before ${#…} | ${#…} | the rest of its paragraph … the start of the last paragraph | ${/} | after ${/}: each end's
+        // paragraph is cut in two at it, and the half before an end joins the paragraph written after it (Join).
+        XElement head = Holding(Shell(po, join: true), open.NodesBeforeSelf().Where(n => n is not XElement { Name.LocalName: "pPr" }));
+        XElement first = Holding(Shell(po, join: false), open.NodesAfterSelf());
+        XElement last = Holding(Shell(pc, join: true), close.NodesBeforeSelf().Where(n => n is not XElement { Name.LocalName: "pPr" }));
+        XElement tail = Holding(Shell(pc, join: false), close.NodesAfterSelf());
+
+        po.ReplaceWith(head, new XElement(G + "open", new XAttribute("id", id)), first);
+        pc.ReplaceWith(last, new XElement(G + "close", new XAttribute("id", id)), tail);
+        return null;
+    }
+
+    /// <summary>
+    /// Joins each paragraph a splice marked to the paragraph written after it: its properties and runs, then the next
+    /// one's runs. A marked paragraph with none after it is left as it is.
+    /// </summary>
+    private static void JoinParagraphs(XElement root)
+    {
+        foreach (XElement container in root.DescendantsAndSelf().Where(e => e.Elements(W + "p").Any(p => p.Attribute(Join) is not null)).ToList())
+        {
+            XElement? carried = null;
+
+            foreach (XElement child in container.Elements().ToList())
+            {
+                if (child.Name != W + "p")
+                {
+                    if (carried is not null)
+                    {
+                        child.AddBeforeSelf(carried);
+                        carried = null;
+                    }
+
+                    continue;
+                }
+
+                bool joins = child.Attribute(Join) is not null;
+
+                if (carried is null)
+                {
+                    if (joins)
+                    {
+                        child.Attribute(Join)!.Remove();
+                        carried = new XElement(child);
+                        child.Remove();
+                    }
+
+                    continue;
+                }
+
+                carried.Add(child.Nodes().Where(n => n is not XElement { Name.LocalName: "pPr" }).ToList());
+
+                if (joins)
+                {
+                    child.Remove();
+                    continue;
+                }
+
+                child.ReplaceWith(carried);
+                carried = null;
+            }
+
+            if (carried is not null)
+            {
+                container.Add(carried);
+            }
+        }
     }
 
     /// <summary>Compiles sibling nodes into static content, elements to fill, values and sections.</summary>
@@ -721,7 +931,8 @@ internal sealed class ReportTemplate
 
                     try
                     {
-                        inner = SectionScope(tag, scope, evaluator, null, 0, null);
+                        inner = evaluator.CheckSection(tag, scope);
+                        ReadsAllFiles |= tag.Expression is ReportName { Path: [var only] } && string.Equals(only, "$attachment", StringComparison.OrdinalIgnoreCase);
                     }
                     catch (ReportSyntaxException ex)
                     {
@@ -743,53 +954,10 @@ internal sealed class ReportTemplate
     {
         ReportName n => [n.Path[0]],
         ReportUnary u => Names(u.Operand),
+        ReportPiped p => Names(p.Inner),
         ReportBinary b => Names(b.Left).Concat(Names(b.Right)),
         _ => [],
     };
-
-    /// <summary>
-    /// The scope a section's body is read in: for <c>${if}</c> the same one, its condition checked; for <c>${#repeat}</c>
-    /// a row of the repeat; for <c>${#question}</c> or <c>${#$attachment}</c> a file.
-    /// </summary>
-    private ReportScope SectionScope(ReportTag tag, ReportScope scope, ReportEvaluator evaluator, ReportRecord? row, int position, ReportFile? file)
-    {
-        if (tag.Kind == ReportTagKind.If)
-        {
-            evaluator.Evaluate(tag.Expression!, scope);
-            return scope;
-        }
-
-        if (tag.Methods.Count > 0)
-        {
-            ReportMethod m = tag.Methods[0];
-            throw new ReportSyntaxException(ReportEvaluator.RefusedMethods.TryGetValue(m.Name, out string? why)
-                ? $"'| {m.Name}' is not supported: {why}."
-                : $"A section takes no method; '| {m.Name}' is not read.");
-        }
-
-        ReportName name = (ReportName)tag.Expression!;
-        string first = name.Path[0];
-
-        if (name.Path.Count == 1 && !first.StartsWith('$') && ReportSchema.Repeat(scope.Table, first) is { } repeat)
-        {
-            return new ReportScope(scope, repeat, repeat.Name, row, position, null, false);
-        }
-
-        if (name.Path.Count == 1 && !first.StartsWith('$') && scope.Table.AllTables.Skip(1).FirstOrDefault(t => string.Equals(t.Name, first, StringComparison.OrdinalIgnoreCase)) is { } deeper)
-        {
-            throw new ReportSyntaxException($"'{deeper.Name}' is a repeat inside another repeat: write its section inside the section of the repeat that holds it.");
-        }
-
-        ReportValue value = evaluator.Resolve(name, scope);
-
-        if (value.Kind == ReportValueKind.Files)
-        {
-            ReadsAllFiles |= value.Question is null;
-            return new ReportScope(scope, scope.Table, scope.Name, scope.Record, position, file, true);
-        }
-
-        throw new ReportSyntaxException($"${{#{name.Dotted}}} repeats over a repeat, an image or file question, or $attachment; '{name.Dotted}' is none of them.");
-    }
 
     /// <summary>The questions whose files the template reads, so only their attachments' bytes are fetched.</summary>
     public IReadOnlySet<string> FileQuestions(ReportSchema schema)
@@ -839,7 +1007,7 @@ internal sealed class ReportTemplate
     /// a page break between them, headers and footers filled with the first (ADR-301 §5.6, INFERRED).
     /// </summary>
     /// <exception cref="ReportTemplateException">The pictures exceed <see cref="MaximumPictureBytes"/>.</exception>
-    public byte[] Fill(IReadOnlyList<ReportRecord> records, ReportEvaluator evaluator)
+    public byte[] Fill(IReadOnlyList<ReportRecord> records, ReportEvaluator evaluator, IReportLookups? lookups = null)
     {
         ArgumentNullException.ThrowIfNull(records);
         ArgumentNullException.ThrowIfNull(evaluator);
@@ -849,7 +1017,11 @@ internal sealed class ReportTemplate
             throw new ArgumentException("A report is made of at least one record.", nameof(records));
         }
 
+        // What the template reads beside the records — maps, queries — comes from the lookups; with none, nothing is fetched
+        // and those placeholders write nothing.
+        evaluator.Lookups = lookups ?? new ReportPrefetch();
         Writing writing = new();
+        ReportScope summary = new(null, evaluator.Schema.Root, evaluator.Schema.TopName, null, 1, null, false) { Inputs = records };
         Dictionary<string, byte[]> written = new(StringComparer.Ordinal);
         ReportScope Top(ReportRecord record, int position) =>
             new(null, evaluator.Schema.Root, evaluator.Schema.TopName, record, position, null, false);
@@ -873,14 +1045,48 @@ internal sealed class ReportTemplate
                     content.Remove(sections);
                 }
 
-                for (int i = 0; i < records.Count; i++)
+                // Summary sections at the start and the end are written once, for all the records (Survey123's page);
+                // what is between them is written once per record. A template of summaries alone writes no record.
+                int lead = 0;
+
+                for (int k = 0; k < content.Count && (IsSummary(content[k]) || IsBlank(content[k])); k++)
+                {
+                    lead = IsSummary(content[k]) ? k + 1 : lead;
+                }
+
+                int trail = content.Count;
+
+                for (int k = content.Count - 1; k >= lead && (IsSummary(content[k]) || IsBlank(content[k])); k--)
+                {
+                    trail = IsSummary(content[k]) ? k : trail;
+                }
+
+                List<Node> perRecord = content.GetRange(lead, trail - lead);
+                bool writesRecords = !HasSummary || perRecord.Any(n => !IsBlank(n));
+
+                foreach (SectionNode leading in content.Take(lead).OfType<SectionNode>())
+                {
+                    body.Add(Render(leading.Body, summary, evaluator, writing, part.Name));
+                }
+
+                for (int i = 0; writesRecords && i < records.Count; i++)
                 {
                     if (i > 0)
                     {
                         body.Add(new XElement(W + "p", new XElement(W + "r", new XElement(W + "br", new XAttribute(W + "type", "page")))));
                     }
 
-                    body.Add(Render(content, Top(records[i], i + 1), evaluator, writing, part.Name));
+                    body.Add(Render(perRecord, Top(records[i], i + 1), evaluator, writing, part.Name));
+                }
+
+                foreach (SectionNode trailing in content.Skip(trail).OfType<SectionNode>())
+                {
+                    body.Add(Render(trailing.Body, summary, evaluator, writing, part.Name));
+                }
+
+                if (!body.Elements().Any())
+                {
+                    body.Add(new XElement(W + "p"));
                 }
 
                 if (sections is StaticNode s)
@@ -900,6 +1106,7 @@ internal sealed class ReportTemplate
                 output.Add(Render(part.Tree, Top(records[0], 1), evaluator, writing, part.Name));
             }
 
+            JoinParagraphs(output);
             XDocument document = new(part.Prepared.Declaration, output);
             written[part.Name] = Save(document);
         }
@@ -972,7 +1179,7 @@ internal sealed class ReportTemplate
         return output.ToArray();
     }
 
-    private IEnumerable<XNode> Render(List<Node> nodes, ReportScope scope, ReportEvaluator evaluator, Writing writing, string part)
+    private static IEnumerable<XNode> Render(List<Node> nodes, ReportScope scope, ReportEvaluator evaluator, Writing writing, string part)
     {
         foreach (Node node in nodes)
         {
@@ -1005,7 +1212,7 @@ internal sealed class ReportTemplate
 
                     break;
                 case SectionNode { Tag: { } tag } section:
-                    foreach (ReportScope inner in Iterations(tag, scope, evaluator))
+                    foreach (ReportScope inner in evaluator.Sections(tag, scope))
                     {
                         foreach (XNode child in Render(section.Body, inner, evaluator, writing, part))
                         {
@@ -1019,46 +1226,6 @@ internal sealed class ReportTemplate
             }
         }
     }
-
-    private IEnumerable<ReportScope> Iterations(ReportTag tag, ReportScope scope, ReportEvaluator evaluator)
-    {
-        if (tag.Kind == ReportTagKind.If)
-        {
-            if (ReportValue.Truthy(ComparableValue(evaluator.Evaluate(tag.Expression!, scope))))
-            {
-                yield return scope;
-            }
-
-            yield break;
-        }
-
-        ReportName name = (ReportName)tag.Expression!;
-
-        if (name.Path.Count == 1 && !name.Path[0].StartsWith('$') && ReportSchema.Repeat(scope.Table, name.Path[0]) is { } repeat)
-        {
-            IReadOnlyList<ReportRecord> rows = scope.Record?.Repeats.GetValueOrDefault(repeat.Name) ?? [];
-
-            for (int i = 0; i < rows.Count; i++)
-            {
-                yield return SectionScope(tag, scope, evaluator, rows[i], i + 1, null);
-            }
-
-            yield break;
-        }
-
-        ReportValue files = evaluator.Resolve(name, scope);
-
-        for (int i = 0; i < (files.Files?.Count ?? 0); i++)
-        {
-            yield return SectionScope(tag, scope, evaluator, null, i + 1, files.Files![i]);
-        }
-    }
-
-    private static object? ComparableValue(ReportValue value) => value.Kind switch
-    {
-        ReportValueKind.Files or ReportValueKind.File => value.Files is { Count: > 0 },
-        _ => value.Raw,
-    };
 
     private static XElement RunText(XElement? properties, string text) =>
         new(W + "r", properties is null ? null : new XElement(properties), new XElement(W + "t", new XAttribute(XNamespace.Xml + "space", "preserve"), text));

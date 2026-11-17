@@ -94,8 +94,8 @@ public sealed partial class AFormsInboxShowsEachMemberTheirOwnTests
 
             // Refused at upload, with the paragraph and the reason, and nothing kept.
             (HttpStatusCode refused, string refusedBody) = await UploadTemplateAsync(root, f.Admin, f.Item, "bad.docx",
-                ReportTemplate("Name: ${ad}", "Where: ${konum | map:\"\"}", "${nosuch}"));
-            Assert.True(refused == HttpStatusCode.BadRequest, $"A template with a map was answered {(int)refused}: {Head(refusedBody)}");
+                ReportTemplate("Name: ${ad}", "Where: ${konum | rotate:90}", "${nosuch}"));
+            Assert.True(refused == HttpStatusCode.BadRequest, $"A template with a rotated map was answered {(int)refused}: {Head(refusedBody)}");
             JsonElement issues = JsonDocument.Parse(refusedBody).RootElement.GetProperty("issues");
             Assert.Equal(2, issues.GetArrayLength());
             Assert.Equal(2, issues[0].GetProperty("paragraph").GetInt32());

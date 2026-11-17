@@ -27,6 +27,12 @@ internal sealed class ReportRecord
     /// <summary>Its point, longitude and latitude, when the table has a location and the row has one.</summary>
     public (double X, double Y)? Point { get; init; }
 
+    /// <summary>Its geometry in EPSG:4326 (longitude, latitude), as its layer keeps it: what a map of it draws.</summary>
+    public Graticula.Geometries.Geometry? Shape { get; init; }
+
+    /// <summary>The geometry a map draws: its shape, else its point.</summary>
+    public Graticula.Geometries.Geometry? Drawn => Shape ?? (Point is { } p ? new Graticula.Geometries.Point(p.X, p.Y) : null);
+
     /// <summary>Each repeat's rows that belong to this record, by repeat name.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<ReportRecord>> Repeats { get; init; } =
         new Dictionary<string, IReadOnlyList<ReportRecord>>(StringComparer.OrdinalIgnoreCase);
@@ -143,6 +149,24 @@ internal sealed class ReportScope
     /// <summary>Whether this scope is a section over files, where <c>$file</c> may be named.</summary>
     public bool InFiles { get; }
 
+    /// <summary>
+    /// For a summary section (<c>$&lt;$summary&gt;</c>), the records the report is made of; empty when checking, null for any
+    /// other scope.
+    /// </summary>
+    public IReadOnlyList<ReportRecord>? Inputs { get; init; }
+
+    /// <summary>A row of statistics or of distinct values that a section repeats over, when filling.</summary>
+    public IReadOnlyDictionary<string, object?>? Row { get; init; }
+
+    /// <summary>The names such a row holds — the statistics' output names and the fields grouped by — known when checking.</summary>
+    public IReadOnlySet<string>? RowNames { get; init; }
+
+    /// <summary>Whether this is a summary section's scope.</summary>
+    public bool IsSummary => Inputs is not null;
+
+    /// <summary>Whether a record is being written, rather than the template checked.</summary>
+    public bool Filling => Chain().Any(s => s.Record is not null || s.Inputs is { Count: > 0 } || s.Row is not null);
+
     public IEnumerable<ReportScope> Chain()
     {
         for (ReportScope? s = this; s is not null; s = s.Parent)
@@ -162,6 +186,12 @@ internal enum ReportValueKind
     File,
     Feature,
     Now,
+
+    /// <summary>A record's geometry, <c>$shape</c>, or a map of no question, <c>$map</c>: drawn as a map.</summary>
+    Shape,
+
+    /// <summary>A layer or table of the form — its name, a repeat's, or <c>$layers[…]</c> — summarised with <c>| stats</c>.</summary>
+    Layer,
 }
 
 /// <summary>A value as a placeholder's expression gives it, with what it came from.</summary>
