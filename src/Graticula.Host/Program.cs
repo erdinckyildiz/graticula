@@ -470,6 +470,10 @@ public static class Program
         builder.Services.AddSingleton(_ => new OfflineUploadReader(OfflineUploadReader.ExecutableBesideThisOne()));
         builder.Services.AddSingleton<Graticula.Api.ArcGis.Offline.IOfflineDeltaReader>(
             services => services.GetRequiredService<OfflineUploadReader>());
+
+        // ADR-302: a feature report laid out as a PDF in a child process, Graticula.Report.Pdf, never here.
+        builder.Services.AddSingleton<Graticula.Host.Forms.Reports.IReportPdf>(
+            _ => new Graticula.Host.Forms.Reports.ReportPdfConverter(Graticula.Host.Forms.Reports.ReportPdfConverter.ExecutableBesideThisOne()));
         builder.Services.AddSingleton<IOfflineSyncStore>(services =>
             new PostgresOfflineSyncStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton(services => new ReplicaJobs(
@@ -2278,6 +2282,15 @@ public static class Program
                     "The offline reader",
                     OfflineUploadReader.ExecutableBesideThisOne(),
                     "read what ArcGIS Field Maps or Pro uploads to synchronizeReplica; taking a copy offline is unaffected");
+            }
+
+            if (!app.Services.GetRequiredService<Graticula.Host.Forms.Reports.IReportPdf>().Available)
+            {
+                Log.SiblingMissing(
+                    logger,
+                    "The report PDF engine",
+                    Graticula.Host.Forms.Reports.ReportPdfConverter.ExecutableBesideThisOne(),
+                    "make a feature report as a PDF; the Word report is unaffected");
             }
         }
 

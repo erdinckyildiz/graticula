@@ -76,7 +76,8 @@ internal sealed class ReportTemplate
         "Not supported yet: a map's rotate and mapFilters, a drawingInfo at an address, and layers of a web map at another address " +
         "(a map draws this server's own layers; a basemap from elsewhere is left out and the report says so); $inputParams; " +
         "pictures from an address or the form's media ($image | src), filtering attachments (attachmentsDefExp), EXIF " +
-        "(getValue:\"x\" on a photograph) and PDF output. A template that uses any of them is refused with the place it is used.";
+        "(getValue:\"x\" on a photograph). A template that uses any of them is refused with the place it is used. A PDF is the " +
+        "Word document laid out by this server (ADR-302): floating pictures and text boxes may sit elsewhere than Word puts them.";
 
     internal static readonly XNamespace W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
     internal static readonly XNamespace R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";

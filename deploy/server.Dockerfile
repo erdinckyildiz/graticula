@@ -178,7 +178,8 @@ RUN set -eu; \
 # read there, never in the server, so an image without it refuses every offline sync that carries edits.
 RUN test -f /app/overlay/Graticula.Overlay.Worker.dll \
  && test -f /app/importer/Graticula.Import.Reader.dll \
- && test -f /app/offline/Graticula.Offline.Reader.dll
+ && test -f /app/offline/Graticula.Offline.Reader.dll \
+ && test -f /app/reportpdf/Graticula.Report.Pdf.dll
 
 # <b>The reader's GDAL, one architecture per image — ADR-254.</b> Moved out of /app so the runtime stage
 # copies only its own architecture's, as it does DuckDB's extensions; the directories are named the way
@@ -231,6 +232,17 @@ RUN test -f /app/Oracle.ManagedDataAccess.dll \
  && cp "${oracle}info.txt" /app/NOTICE-Oracle.ManagedDataAccess.txt \
  && test -s /app/LICENSE-Oracle.ManagedDataAccess.txt \
  && test -s /app/NOTICE-Oracle.ManagedDataAccess.txt
+
+# <b>OfficeIMO's third-party notices travel with the report PDF engine — ADR-302.</b> OfficeIMO.Core incorporates a VP8
+# encoder under Apache-2.0 and a transform under WebM's BSD-3-Clause, and hyphenation patterns under their own terms; the
+# package carries their notices and licence files, read here out of the restored package as Oracle's are. Its MIT text,
+# which the packages state only as an expression, is in `deploy/` and copied in the runtime stage.
+RUN test -f /app/reportpdf/Graticula.Report.Pdf.dll \
+ && officeimo="$(ls -d /root/.nuget/packages/officeimo.core/*/ | head -n 1)" \
+ && cp "${officeimo}THIRD-PARTY-NOTICES.md" /app/reportpdf/THIRD-PARTY-NOTICES-OfficeIMO.md \
+ && cp -r "${officeimo}Licenses" /app/reportpdf/Licenses-OfficeIMO \
+ && test -s /app/reportpdf/THIRD-PARTY-NOTICES-OfficeIMO.md \
+ && test -s /app/reportpdf/Licenses-OfficeIMO/CodeGlyphX-LICENSE.txt
 
 # <b>Skia's and HarfBuzz's native libraries for the two architectures too, and for the same
 # reason — ADR-100.</b> Adding the shaper is what made this visible: a portable publish copies
@@ -364,6 +376,18 @@ RUN apt-get update && apt-get install --yes --no-install-recommends python3 pyth
 # refuses to initialise without the one HOME names -- *Can't find the home directory at '/home/gisserver'*,
 # measured in this image -- which DuckDB's own home_directory setting does not change. It keeps a small
 # .duckdb folder there; nothing in it is state, so it is not on the volume.
+# <b>Fonts for a feature report laid out as a PDF — ADR-302 §5.3.</b> The engine embeds the family a Word template names, or an
+# installed substitute for a missing Office one, so these are the families whose letters are as wide as Office's: Liberation
+# for Arial, Times New Roman and Courier New, Carlito for Calibri, Caladea for Cambria — a line breaks where Word breaks it —
+# and DejaVu for the symbols a template's tick boxes are (☒, ☐). Without them the engine falls back to the PDF standard
+# fonts, which cannot write ☒, and five of thirteen public templates were refused (measured on this image, 2026-11-17). All
+# four are OFL-1.1 or permissive; their licences arrive with the packages, under /usr/share/doc.
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+        fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
+ && test -n "$(find /usr/share/fonts -name 'Carlito-Regular.ttf')" \
+ && test -n "$(find /usr/share/fonts -name 'LiberationSans-Regular.ttf')"
+
 RUN groupadd --gid 64198 gisserver \
  && useradd --uid 64198 --gid 64198 --create-home --home-dir /home/gisserver --shell /usr/sbin/nologin gisserver \
  && mkdir -p /var/lib/graticula \
@@ -429,6 +453,13 @@ RUN test -f /app/Microsoft.Data.SqlClient.dll && test -s /app/LICENSE-Microsoft.
 COPY deploy/LICENSE-Microsoft.Data.Sqlite.txt deploy/LICENSE-SQLitePCLRaw.txt ./
 RUN test -f /app/Microsoft.Data.Sqlite.dll && test -s /app/LICENSE-Microsoft.Data.Sqlite.txt \
  && test -f /app/SQLitePCLRaw.core.dll && test -s /app/LICENSE-SQLitePCLRaw.txt
+
+# <b>The report PDF engine's two MIT notices — ADR-302.</b> OfficeIMO and DocumentFormat.OpenXml state their licence only as an SPDX
+# expression; the texts are in the repository and travel beside the engine in `reportpdf/`, with OfficeIMO's own third-party notices.
+COPY deploy/LICENSE-OfficeIMO.txt deploy/LICENSE-DocumentFormat.OpenXml.txt ./reportpdf/
+RUN test -f /app/reportpdf/OfficeIMO.Word.Pdf.dll && test -s /app/reportpdf/LICENSE-OfficeIMO.txt \
+ && test -f /app/reportpdf/DocumentFormat.OpenXml.dll && test -s /app/reportpdf/LICENSE-DocumentFormat.OpenXml.txt \
+ && test -s /app/reportpdf/THIRD-PARTY-NOTICES-OfficeIMO.md
 
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.

@@ -404,9 +404,10 @@ jobs:
       # whatever they find.</b> A developer machine has real data; CI has none,
       # and these suites fail loudly rather than skip. The generated corpus is a
       # weaker check than the local one and tools/ci-corpus.sql says so in full.
+      # The four font packages are the image's (ADR-302 §5.3), for Host.Tests' feature report laid out as a PDF.
       - name: seed the geometry corpus
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core
           PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
             -f tools/ci-corpus.sql
 
@@ -612,10 +613,11 @@ jobs:
       # it was told to put them in, and against a brand-new database it fails
       # with Postgres's own "no schema has been selected to create in" — D-36.
       # libldap2, for ADR-089's directory sign-in: the server's LDAP client is OpenLDAP's on Linux, and the
-      # conformance suite runs a directory for it to talk to.
+      # conformance suite runs a directory for it to talk to. The four font packages are the image's (ADR-302 §5.3): a
+      # feature report laid out as a PDF needs them, and the suite asks for one.
       - name: create the platform schema
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client libldap2
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client libldap2 fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core
           PGPASSWORD=gis psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1             -c 'create schema if not exists gisserver;'
 
       - name: migrate

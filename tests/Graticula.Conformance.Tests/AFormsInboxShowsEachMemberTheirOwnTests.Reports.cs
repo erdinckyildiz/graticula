@@ -149,10 +149,17 @@ public sealed partial class AFormsInboxShowsEachMemberTheirOwnTests
             Assert.True(other.Status == HttpStatusCode.NotFound && !otherBody.Contains(f.B.Name, StringComparison.Ordinal),
                 $"A asked for B's record and was answered {(int)other.Status}: {Head(otherBody)}");
 
-            // PDF is refused in words, not offered and failed.
+            // ADR-302: a PDF is the same report laid out by the server's engine, named .pdf; the list offers it.
+            Assert.Contains("\"pdf\"", listBody, StringComparison.Ordinal);
             var pdf = await ReportAsync(root, f.Admin, f.Item, new { template = "inspection.docx", objectIds = new[] { f.A.ObjectId }, format = "pdf" });
-            Assert.Equal(HttpStatusCode.BadRequest, pdf.Status);
-            Assert.Contains("PDF", Encoding.UTF8.GetString(pdf.Body), StringComparison.Ordinal);
+            Assert.True(pdf.Status == HttpStatusCode.OK, $"A PDF report answered {(int)pdf.Status}: {Head(Encoding.UTF8.GetString(pdf.Body))}");
+            Assert.EndsWith(".pdf", pdf.FileName, StringComparison.Ordinal);
+            Assert.StartsWith("%PDF-", Encoding.ASCII.GetString(pdf.Body, 0, Math.Min(5, pdf.Body.Length)), StringComparison.Ordinal);
+
+            // A format that is neither is refused in words.
+            var odt = await ReportAsync(root, f.Admin, f.Item, new { template = "inspection.docx", objectIds = new[] { f.A.ObjectId }, format = "odt" });
+            Assert.Equal(HttpStatusCode.BadRequest, odt.Status);
+            Assert.Contains("docx or pdf", Encoding.UTF8.GetString(odt.Body), StringComparison.Ordinal);
 
             // Removed by the owner; then there is nothing to report with.
             (HttpStatusCode removed, _) = await RequestAsync(HttpMethod.Delete, $"{root}/admin/forms/{f.Item}/reports/templates/inspection.docx", f.Admin, null);

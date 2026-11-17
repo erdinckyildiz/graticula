@@ -37719,22 +37719,31 @@ async function formDrawReports(f, rows) {
   const templates = f.reportTemplates;
   const manages = !!listed.manages;
   const kept = f.reportChoice && templates.some(t => t.name === f.reportChoice) ? f.reportChoice : templates[0]?.name;
+  // ADR-302: PDF is offered only where the server says its engine is installed; Word is always there.
+  const formats = (listed.formats || ["docx"]).filter(x => x === "docx" || x === "pdf");
+  const format = formats.includes(f.reportFormat) ? f.reportFormat : "docx";
   // <b>Make first, manage second</b>, as Survey123's report panel orders them: the template, how several arrive, the file's
   // name and Create report stand together under the table; the list of templates and Add a template follow under their own
   // heading, because adding one is done once and making a report is done every day.
   box.innerHTML = `<h5 id="formReportsHead">Reports</h5>
-    <p class="hint">A Word document for each chosen submission, filled from a template — Survey123's feature report.</p>
+    <p class="hint">A Word document${formats.includes("pdf") ? " or a PDF" : ""} for each chosen submission, filled from a template — Survey123's feature report.</p>
     ${templates.length ? `<div class="formreportmake">
         <div class="formfilterrow"><label for="formReportTemplate">Template</label>
           <select id="formReportTemplate">${templates.map(t => `<option value="${h(t.name)}"${t.name === kept ? " selected" : ""}>${h(t.name)}</option>`).join("")}</select></div>
         <div class="formfilterrow" id="formReportModeRow" hidden><label for="formReportMode">Several submissions as</label>
           <select id="formReportMode"><option value="separate">One document each, in a ZIP file</option>
             <option value="merged">One document, a page break between them</option></select></div>
+        ${formats.length > 1 ? `<div class="formfilterrow"><label for="formReportFormat">Format</label>
+          <select id="formReportFormat" aria-describedby="formReportFormatHint">
+            <option value="docx"${format === "docx" ? " selected" : ""}>Word document (.docx)</option>
+            <option value="pdf"${format === "pdf" ? " selected" : ""}>PDF</option></select>
+          <p class="hint" id="formReportFormatHint">A PDF is the Word document laid out by this server. A template it cannot lay out
+            is said so, and the Word document can still be made.</p></div>` : ""}
         <div class="formfilterrow"><label for="formReportName">File name</label>
           <input type="text" id="formReportName" aria-describedby="formReportNameHint" autocomplete="off">
           <p class="hint" id="formReportNameHint">Left empty, a report is named after the form and the submission's number. For one
             document each it may hold values, as in Inspection \${objectid}.</p></div>
-        <p class="hint">Written as Word (.docx). PDF is not offered yet. At most ${num(listed.maximumRecords || 100)} submissions at once.</p>
+        <p class="hint">${formats.includes("pdf") ? "" : "Written as Word (.docx). "}At most ${num(listed.maximumRecords || 100)} submissions at once.</p>
         <div class="formreportgo"><button type="button" class="primary" id="formReportGo" aria-describedby="formReportPicked">Create report</button>
           <p class="hint" id="formReportPicked" role="status" aria-live="polite"></p></div>
       </div>`
@@ -37855,7 +37864,9 @@ async function formReportCreate(button) {
   }
   const ids = [...f.reportPick];
   const template = $("formReportTemplate")?.value;
+  const format = $("formReportFormat")?.value || "docx";
   f.reportChoice = template;
+  f.reportFormat = format;
   const says = (text, bad = false) => { $("formReportSays").textContent = text; $("formReportSays").classList.toggle("bad-inline", bad); };
   formReportIssuesShown(null);
   formReportNotesShown("");
@@ -37870,18 +37881,24 @@ async function formReportCreate(button) {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
       body: JSON.stringify({ template, objectIds: ids, mode: ids.length > 1 ? ($("formReportMode")?.value || "separate") : "separate",
-        name: $("formReportName")?.value.trim() || "", utcOffsetMinutes: -new Date().getTimezoneOffset(), format: "docx" }),
+        name: $("formReportName")?.value.trim() || "", utcOffsetMinutes: -new Date().getTimezoneOffset(), format }),
     });
     if (!answer.ok) {
       const said = await answer.json().catch(() => null);
       if (said?.issues?.length) formReportIssuesShown(said.issues, "The template no longer fits the form:");
+      // ADR-302: the Word document could be made and only its layout failed — Word is chosen, and the sentence says so.
+      if (said?.fallback === "docx" && $("formReportFormat")) {
+        $("formReportFormat").value = "docx";
+        f.reportFormat = "docx";
+        throw new Error(`${said.error?.message || "the PDF could not be laid out."} Word is chosen now: choose Create report again to get it.`);
+      }
       throw new Error(said?.error?.message || `the server could not make the report (error ${answer.status}).`);
     }
     const blob = await answer.blob();
     const disposition = answer.headers.get("Content-Disposition") || "";
     const name = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] || /filename="?([^";]+)"?/i.exec(disposition)?.[1];
     const address = URL.createObjectURL(blob);
-    const link = Object.assign(document.createElement("a"), { href: address, download: name ? decodeURIComponent(name) : "report.docx" });
+    const link = Object.assign(document.createElement("a"), { href: address, download: name ? decodeURIComponent(name) : `report.${format}` });
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -37903,6 +37920,11 @@ async function formReportCreate(button) {
     }
   }
 }
+
+// The report's format is kept across a redraw — an upload or a removal draws the section again — as the template is.
+document.addEventListener("change", event => {
+  if (event.target instanceof HTMLSelectElement && event.target.id === "formReportFormat" && formHere) formHere.reportFormat = event.target.value;
+});
 
 document.addEventListener("click", async event => {
   const t = event.target instanceof Element ? event.target.closest("#formReportGo, #formReportUpload, [data-form-report-remove]") : null;

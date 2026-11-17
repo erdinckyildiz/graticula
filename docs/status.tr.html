@@ -110,29 +110,30 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>eeff8d39</code> · 2026-11-17 09:24</p>
+<p class="stamp">Şu commit’ten üretildi: <code>f51d428d</code> · 2026-11-17 09:52</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">291</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">720/773</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">42 canlı · 11 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">243 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">292</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">720/776</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">45 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">243 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">347 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">7144</div><div class="kpi-l">test</div><div class="kpi-n">755 kaynak dosya, 335,570 satır</div></div>
+<div class="kpi good"><div class="kpi-v">7153</div><div class="kpi-l">test</div><div class="kpi-n">757 kaynak dosya, 335,913 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-240</b> — [OWNER] A PDF report&#x27;s three INFERRED bounds, INFERRED 2026-11-17 (ADR-302 §5.5).</p><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">68 madde</span></div><p><b>42 ADR conditions</b> outstanding across 32 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">71 madde</span></div><p><b>45 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-274 · A scene layer package above the do</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
@@ -472,11 +473,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">299</td><td>ArcGIS Pro publishes a map image layer by reference to a registered database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">300</td><td>A form&#x27;s Inbox is a view, and each reader sees their own rows of it</td><td><span class="pill cond">ACCEPTED</span><div class="muted-t">every condition discharged by 2026-11-16 (§9); ACCEPTED WITH CONDITIONS until then</div></td><td class="muted-t">MEDIUM — the shape is the owner&#x27;s (Q-232 (a), 2026-11-09) and the mechanism is one this…</td><td class="num">4/4</td></tr>
 <tr><td class="id">301</td><td>A feature report is a Word template filled per record, by the server&#x27;s own engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the syntax is Survey123&#x27;s public documentation and every part of it built is…</td><td class="num">3/5</td></tr>
+<tr><td class="id">302</td><td>A feature report is also a PDF, laid out by OfficeIMO in a child process</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — thirteen public Survey123 templates, filled and laid out on Windows and on the…</td><td class="num">0/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-228</span><span class="owner">Owner</span></div><p>Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-240</span><span class="owner">Owner</span></div><p>[OWNER] A PDF report&#x27;s three INFERRED bounds, INFERRED 2026-11-17 (ADR-302 §5.5).</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -628,23 +631,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2526</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:39.3%"></div></div><div class="bar-n">992</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:39.1%"></div></div><div class="bar-n">987</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.5%"></div></div><div class="bar-n">645</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:24.1%"></div></div><div class="bar-n">608</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.4%"></div></div><div class="bar-n">464</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2535</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:39.1%"></div></div><div class="bar-n">992</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:38.9%"></div></div><div class="bar-n">987</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">645</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">608</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.3%"></div></div><div class="bar-n">464</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:9.7%"></div></div><div class="bar-n">245</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:5.2%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:4.9%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">57</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.2%"></div></div><div class="bar-n">57</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Offline.Sqlite</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.1%"></div></div><div class="bar-n">29</div></div>
-<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.0%"></div></div><div class="bar-n">24</div></div>
+<div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:0.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>grapy ve arcpy</h2>
 <p class="sub">arcpy 3.7 her modülde herkese açık bir ad listesi sunar; grapy’nin bunlardan kaçını kurduğu. tools/grapy_surface.py grapy’nin kaynağından sayar; grapy’nin reddettiği ad sayılmaz.</p><div class="bars">
@@ -691,20 +694,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>eeff8d39</code><time>2026-11-17</time><span>A reader of a form sees its Results and makes reports of the records they may read (owner decision 2026-11-17)</span></li>
-<li><code>5032a620</code><time>2026-11-17</time><span>A reader&#x27;s memory guard looks often at first, so a child past its ceiling is caught even when it finishes inside one poll</span></li>
-<li><code>fad89695</code><time>2026-11-17</time><span>Q-237 (ac): a reader may make a report on the server but Studio gives them no way to it (UX review, ADR-301)</span></li>
-<li><code>e085103c</code><time>2026-11-17</time><span>Feature reports: Create report under the table, the count announced, what a report left out shown (ADR-301 section 5.8)</span></li>
-<li><code>88651286</code><time>2026-11-17</time><span>Forms: shell cache v16 for the night&#x27;s client (ADR-287 sections 5.26-5.28, ADR-301)</span></li>
-<li><code>6a2a5ef0</code><time>2026-11-17</time><span>Merge branch &#x27;forms-report&#x27; into forms-night</span></li>
-<li><code>9a3e5093</code><time>2026-11-17</time><span>Feature reports draw maps, write summary sections and read what public templates write (ADR-301 §5.10-§5.12)</span></li>
-<li><code>1373d127</code><time>2026-11-17</time><span>ADR-287 section 5.28: what the UX review of the night&#x27;s client changed</span></li>
-<li><code>ca099132</code><time>2026-11-17</time><span>Forms: the UX review of section 5.26 and 5.27&#x27;s client (ADR-287)</span></li>
-<li><code>62174a0c</code><time>2026-11-17</time><span>ADR-287: the sections written before @layer and @javascript were built point to where they were</span></li>
-<li><code>ccfc6e8b</code><time>2026-11-17</time><span>Merge branch &#x27;forms-evaljs&#x27; into forms-night</span></li>
-<li><code>6dabc55b</code><time>2026-11-17</time><span>Forms: pulldata(&quot;@javascript&quot;) in a sandbox, and the evaluator&#x27;s answers checked against ODK&#x27;s (ADR-287 section 5.27, condition 4)</span></li>
-<li><code>62f10961</code><time>2026-11-17</time><span>ADR-301 condition 1: a report filled on the fixture opens in Word without a repair prompt (progress, not a discharge)</span></li>
-<li><code>49066664</code><time>2026-11-17</time><span>ADR-301: a feature report is a Word template filled per record; Q-237 lists its INFERRED choices, PDF and maps</span></li>
+<li><code>f51d428d</code><time>2026-11-17</time><span>Forms: feature reports, the question types real forms still needed, and scripts in a sandbox (ADR-301, ADR-287 sections 5.26-5.29)</span></li>
+<li><code>bd7a0958</code><time>2026-11-17</time><span>Forms: the Inbox, barcode, search() and pulldata(&quot;@layer&quot;), and annotate (ADR-300, ADR-287 sections 5.22-5.25)</span></li>
+<li><code>79d90218</code><time>2026-11-16</time><span>A view&#x27;s attachments answer only for the rows it shows, and only where it offers Query (ADR-113)</span></li>
+<li><code>fe24dd41</code><time>2026-11-16</time><span>Forms: the work Survey123 does, in Graticula&#x27;s own browser client (ADR-287)</span></li>
+<li><code>f9b1b49a</code><time>2026-11-15</time><span>D-425 is Pro&#x27;s, not this server&#x27;s: a control with Esri&#x27;s sample sync service and Esri&#x27;s basemap stops the same way (ADR-288 condition 4)</span></li>
+<li><code>55ae5329</code><time>2026-11-15</time><span>Linux builds with the .NET 10 SDK too, and global.json pins it everywhere</span></li>
+<li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
+<li><code>c1a637ee</code><time>2026-11-15</time><span>Offline editing for hosted layers: Field Maps and Pro take Graticula maps offline and sync both ways, preplanned map areas, attachments that keep their GlobalID; Pro publishes by reference from its Share pane (ADR-288, ADR-290, ADR-299)</span></li>
+<li><code>70c68f2d</code><time>2026-11-12</time><span>grapy against ArcGIS Pro 3.7: the module-by-module sweep, and the owner&#x27;s four answers (ADR-289)</span></li>
+<li><code>df8d84a4</code><time>2026-11-10</time><span>README and the Pages front page say geocoding exists through an optional Photon (ADR-258)</span></li>
+<li><code>9875ba4e</code><time>2026-11-09</time><span>CI no longer runs the console suite, by owner decision, and says so (D-398)</span></li>
+<li><code>79fb60a2</code><time>2026-11-09</time><span>GitHub Pages lists Scene services among the service types, and Studio authors web scenes as well as web maps</span></li>
+<li><code>04b88635</code><time>2026-11-09</time><span>ArcGIS Pro shares scene layer packages and web scenes with Graticula, and Scene services are complete (ADR-269)</span></li>
+<li><code>ac5553e4</code><time>2026-11-08</time><span>grapy: every built name has a test of its own, and the pass&#x27;s four defects are fixed (D-397)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

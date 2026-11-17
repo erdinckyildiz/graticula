@@ -7,6 +7,7 @@
     <CopyImportReader>true</CopyImportReader>
     <!-- OfflineUploadReaderTests runs the real offline reader, for the overlay worker's reason. -->
     <CopyOfflineReader>true</CopyOfflineReader>
+    <CopyReportPdf>true</CopyReportPdf>
     <RootNamespace>Graticula.Host.Tests</RootNamespace>
   </PropertyGroup>
 

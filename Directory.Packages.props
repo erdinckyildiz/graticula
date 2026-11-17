@@ -136,6 +136,13 @@
     <PackageVersion Include="SkiaSharp.HarfBuzz" Version="3.119.2" />
     <PackageVersion Include="HarfBuzzSharp.NativeAssets.Linux" Version="8.3.1.3" />
   </ItemGroup>
+  <ItemGroup Label="Documents — Tier 2, and in a separate process">
+    <!-- ADR-302: a feature report laid out as a PDF. OfficeIMO is MIT; 3.5.3 (2026-10-31) is pinned rather than the newest,
+         which was ten days old when this was chosen. Referenced by Graticula.Report.Pdf, a child process, and by nothing
+         else, for the reason the geometry and formats groups give. PDFsharp/MigraDoc were the first choice and were
+         relicensed AGPL-3.0 from 6.5.0 (2026-10-14), which nothing linked here may be (ADR-047 §4). -->
+    <PackageVersion Include="OfficeIMO.Word.Pdf" Version="3.5.3" />
+  </ItemGroup>
   <ItemGroup Label="Testing">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />
