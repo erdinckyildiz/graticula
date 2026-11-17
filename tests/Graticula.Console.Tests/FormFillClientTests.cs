@@ -190,6 +190,9 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
         /// <summary>The form's Inbox, when it has one (ADR-300): what the Inbox view holds, per table.</summary>
         public InboxData? Inbox { get; init; }
 
+        /// <summary>What the server says of the form's scripts (ADR-287 §5.27): <c>allowed</c>, <c>refused</c> or <c>none</c>.</summary>
+        public string Scripts { get; init; } = "none";
+
         /// <summary>A text, a number and a photo.</summary>
         public static Form Basic() => new()
         {
@@ -282,6 +285,7 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
                 ["id"] = id,
                 ["title"] = "Deneme",
                 ["form"] = form,
+                ["scripts"] = Scripts,
                 ["publication"] = new JsonObject
                 {
                     ["featureServer"] = "/fs",
@@ -732,7 +736,9 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
 
                 if (method == "GET" && TryStatic(path, out string? file, out string? type))
                 {
-                    Send(context, 200, type!, File.ReadAllBytes(file!));
+                    // The script sandbox is kept by the browser's own cache, as the server sends it (ADR-287 §5.27).
+                    Send(context, 200, type!, File.ReadAllBytes(file!),
+                        path.EndsWith("/script-sandbox.html", StringComparison.Ordinal) ? "public, max-age=31536000, immutable" : "no-cache");
                     return;
                 }
 
@@ -1047,11 +1053,11 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             Send(context, 200, "application/json", Encoding.UTF8.GetBytes(answer.ToJsonString()));
         }
 
-        private static void Send(HttpListenerContext context, int status, string type, byte[] body)
+        private static void Send(HttpListenerContext context, int status, string type, byte[] body, string cache = "no-cache")
         {
             context.Response.StatusCode = status;
             context.Response.ContentType = type;
-            context.Response.Headers["Cache-Control"] = "no-cache";
+            context.Response.Headers["Cache-Control"] = cache;
             context.Response.ContentLength64 = body.Length;
             context.Response.OutputStream.Write(body);
             context.Response.Close();
@@ -1077,7 +1083,7 @@ public sealed class FormFillClientTests : IClassFixture<FormFillClientTests.Site
             string? found = name switch
             {
                 "ol.js" or "ol.css" => Path.Combine(FormsFolder(), "..", name),
-                "fill.html" or "fill.js" or "fill.css" or "xlsform-eval.js" or "barcode-reader.js" or "zxing.min.js" or "sw.js" or "manifest.webmanifest" or "icon.svg" => Path.Combine(FormsFolder(), name),
+                "fill.html" or "fill.js" or "fill.css" or "xlsform-eval.js" or "barcode-reader.js" or "zxing.min.js" or "sw.js" or "manifest.webmanifest" or "icon.svg" or "script-sandbox.html" => Path.Combine(FormsFolder(), name),
                 _ => null,
             };
 

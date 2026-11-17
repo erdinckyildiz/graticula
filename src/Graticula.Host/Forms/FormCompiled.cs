@@ -33,6 +33,7 @@ public static class FormCompiled
             ["basemap"] = definition.Settings.Basemap,
             ["thankYou"] = definition.Settings.ThankYou,
             ["redirect"] = definition.Settings.Redirect,
+            ["grid"] = definition.Settings.Grid,
             ["root"] = Table(definition.Root),
             ["choices"] = new JsonObject([.. definition.ChoiceLists.Select(list => KeyValuePair.Create(list.Key, (JsonNode?)new JsonArray(
                 [.. list.Value.Select(c => (JsonNode)new JsonObject
@@ -40,6 +41,7 @@ public static class FormCompiled
                     ["name"] = c.Name,
                     ["labels"] = Texts(c.Labels),
                     ["images"] = Texts(c.Images),
+                    ["audio"] = c.Audio.Count > 0 ? Texts(c.Audio) : null,
                     ["filters"] = Texts(c.Filters),
                     ["auto"] = c.Automatic ? true : null,
                 })])))]),
@@ -101,6 +103,10 @@ public static class FormCompiled
         ["accept"] = q.Accept,
         ["calculationMode"] = q.CalculationMode,
         ["inputMask"] = q.InputMask,
+        ["warning"] = q.Warning,
+        ["warningMessages"] = q.WarningMessages.Count > 0 ? Texts(q.WarningMessages) : null,
+        ["audio"] = q.Audio.Count > 0 ? Texts(q.Audio) : null,
+        ["maxDuration"] = q.MaxDuration,
         ["search"] = q.Search is { } s ? new JsonObject
         {
             ["table"] = s.Table,

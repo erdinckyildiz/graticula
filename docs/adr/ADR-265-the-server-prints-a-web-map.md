@@ -160,7 +160,7 @@ reference is read as metres for the frame (the printed scale bar is still measur
 [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md) (the refusal it reuses),
 [ADR-222](ADR-222-geoprocessing-is-built-in-analysis-tools.md) (the GP resource shapes it shares).
 
-**Depended on by:** —
+**Depended on by:** [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md) §5.10 — a feature report's maps are this service's `MAP_ONLY` drawing (`PrintEndpoints.DrawMapImageAsync`), as the asker, with nothing fetched from another address.
 
 ## 9. Revisit triggers
 

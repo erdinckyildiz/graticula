@@ -487,6 +487,12 @@ internal sealed class GeodatabaseReader
         {
             _loop = Task.Run(async () =>
             {
+                // <b>Often at first, then at the poll.</b> A child that does its work inside one poll was looked at
+                // once, as it started and before its runtime had loaded, and then never again: on a fast machine a
+                // reader past its ceiling answered before the guard's second look (CI, 2026-11-17, 235 ms against a
+                // 250 ms poll). The first looks come 10, 20, 40, 80 and 160 ms apart, which costs five reads of /proc.
+                TimeSpan next = TimeSpan.FromMilliseconds(10);
+
                 while (!_stop.IsCancellationRequested)
                 {
                     try
@@ -517,7 +523,8 @@ internal sealed class GeodatabaseReader
                             return;
                         }
 
-                        await Task.Delay(poll, _stop.Token).ConfigureAwait(false);
+                        await Task.Delay(next < poll ? next : poll, _stop.Token).ConfigureAwait(false);
+                        next = next < poll ? next + next : poll;
                     }
                     catch (OperationCanceledException)
                     {

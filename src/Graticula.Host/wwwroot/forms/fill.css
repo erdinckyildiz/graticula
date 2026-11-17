@@ -394,3 +394,37 @@ button.quiet.guidance-toggle { margin: 0 0 4px; min-height: 44px; padding: 8px 0
 .answers-list { margin: 8px 0 0; }
 .answers-list dt { font-weight: 600; margin-top: 8px; overflow-wrap: anywhere; }
 .answers-list dd { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ADR-287 §5.26: the distress scale, a warning that lets the answer go, recordings, and a grid of a group's questions. */
+/* The scale reads as one run, never a grid with 10 left alone on a line: 0-5 over 6-10 on a phone, one row of eleven
+   where each tile still gets 44 px. The number is the answer; the green-to-red bar under it only repeats it, so its
+   colours are kept at 3:1 or more against both surfaces (measured) and are the same in both themes. The radio is the
+   rating's: hidden, still focused and checked from the keyboard; the tile shows focus by an outline and the choice by
+   a fill, so the two never look alike. */
+:root { --distress-a: #2e8b57; --distress-b: #7a9a1a; --distress-c: #b08800; --distress-d: #d06a00; --distress-e: #c0392b; }
+.distress { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 640px) { .distress { grid-template-columns: repeat(11, minmax(0, 1fr)); } }
+.distress .choice { position: relative; min-width: 0; min-height: 48px; justify-content: center; padding: 4px 0;
+  border: 1px solid var(--control-edge); border-bottom-width: 6px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+.distress .choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.distress .choice:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+.distress .choice.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.distress-0, .distress-1 { border-bottom-color: var(--distress-a) !important; }
+.distress-2, .distress-3 { border-bottom-color: var(--distress-b) !important; }
+.distress-4, .distress-5 { border-bottom-color: var(--distress-c) !important; }
+.distress-6, .distress-7 { border-bottom-color: var(--distress-d) !important; }
+.distress-8, .distress-9, .distress-10 { border-bottom-color: var(--distress-e) !important; }
+.question .warning { color: var(--warn); background: var(--warn-soft); font-size: 14px; margin: 6px 0 0; padding: 4px 8px; border-radius: 4px; }
+.question .warning strong { font-weight: 700; }
+.question .warning:empty { display: none; }
+.recorder { margin-top: 8px; }
+.recorder .recording-clock { font-variant-numeric: tabular-nums; }
+.sound audio, .choice-sound audio { width: 100%; max-width: 360px; height: 40px; }
+.choice-sound { margin: 0 0 6px 34px; }
+.grid-group { display: grid; column-gap: 16px; align-items: stretch; }
+.grid-group > * { min-width: 0; }
+.grid-fixed > .question[hidden] { display: block; visibility: hidden; }
+@media (max-width: 480px) {
+  .grid-group { grid-template-columns: minmax(0, 1fr) !important; }
+  .grid-group > * { grid-column: auto !important; }
+}

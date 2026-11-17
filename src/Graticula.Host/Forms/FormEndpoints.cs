@@ -69,6 +69,7 @@ public static partial class FormEndpoints
         app.MapPut("/admin/forms/{id}/sharing", ShareAsync);
         app.MapGet("/forms/{id}/form.json", ClientAsync);
         MapInbox(app);
+        MapReports(app);
         app.MapGet("/forms/{id:regex(^[0-9a-fA-F]{{32}}$)}", PageAsync);
         app.MapGet("/forms/preview", (HttpContext context, CancellationToken cancellation) => PageAsync(context, "preview", cancellation));
 
@@ -309,6 +310,11 @@ public static partial class FormEndpoints
         if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
         {
             return Refusal(missing, check.Notices, "The form was not published.");
+        }
+
+        if (await ScriptProblemsAsync(context, document, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } scripts)
+        {
+            return Refusal(scripts, check.Notices, "The form was not published.");
         }
 
         if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
@@ -633,7 +639,62 @@ public static partial class FormEndpoints
         HashSet<string> paths = new(page.Select(r => r.Path), StringComparer.Ordinal);
 
         return [.. named.Where(n => !paths.Contains("media/" + n.Name) && !paths.Contains(n.Name)).Select(n => new FormIssue(n.Sheet, n.Row, n.Column,
-            $"The picture '{n.Name}' is not among this form's files. Add it to the item's files as media/{n.Name}."))];
+            $"The {(n.Column.StartsWith("media::audio", StringComparison.Ordinal) ? "recording" : "picture")} '{n.Name}' is not among this form's files. Add it to the item's files as media/{n.Name}."))];
+    }
+
+    /// <summary>
+    /// What stops a form's scripts going out (ADR-287 §5.27): a form shared with everyone carries none, since Survey123
+    /// documents that its JavaScript functions are not supported for public surveys and that they run only for members of
+    /// the form author's organisation; and every script the form names is among the item's files — at
+    /// <c>scripts/name</c>, the folder Survey123 keeps them in, or at <c>name</c> — and no larger than
+    /// <see cref="FormCatalog.MaximumScriptBytes"/>, so the page never meets a call it cannot run.
+    /// </summary>
+    private static async Task<List<FormIssue>> ScriptProblemsAsync(HttpContext context, Document document, FormDefinition definition, CancellationToken cancellation)
+    {
+        if (definition.Scripts.Count == 0)
+        {
+            return [];
+        }
+
+        if (document.Sharing == SharingScope.Public)
+        {
+            (string sheet, int row, string column, string file) = definition.Scripts[0];
+            return [new FormIssue(sheet, row, column, $"This form is shared with everyone, and a form shared with everyone runs no script: '{file}' would run for anyone who opens it. "
+                + "Share the form with your organization or with groups, or take pulldata(\"@javascript\") out.")];
+        }
+
+        IItemResourceStore resources = context.RequestServices.GetRequiredService<IItemResourceStore>();
+        (IReadOnlyList<ItemResource> page, _) = await resources.ListAsync(Guid.Parse(document.Id), 0, 10_000, cancellation).ConfigureAwait(false);
+        Dictionary<string, ItemResource> byPath = page.GroupBy(r => r.Path, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        List<FormIssue> issues = [];
+
+        foreach ((string sheet, int row, string column, string file) in definition.Scripts.DistinctBy(s => s.File))
+        {
+            ItemResource? found = byPath.GetValueOrDefault(FormCatalog.ScriptFolder + file) ?? byPath.GetValueOrDefault(file);
+
+            if (found is null)
+            {
+                issues.Add(new FormIssue(sheet, row, column, $"The script '{file}' is not among this form's files. Add it to the item's files as {FormCatalog.ScriptFolder}{file}."));
+            }
+            else if (found.Size > FormCatalog.MaximumScriptBytes)
+            {
+                issues.Add(new FormIssue(sheet, row, column, $"The script '{file}' is {found.Size / 1024} KB, and a form's script is at most {FormCatalog.MaximumScriptBytes / 1024} KB."));
+            }
+        }
+
+        return issues;
+    }
+
+    /// <summary>The first script the form's draft or its published model names, or null when neither runs one (§5.27).</summary>
+    private static async Task<string?> RunsScriptsAsync(HttpContext context, Document document, FormModel draft, CancellationToken cancellation)
+    {
+        if (FormDefinition.Check(draft).Definition is { Scripts: [var first, ..] })
+        {
+            return first.File;
+        }
+
+        return await PublishedModelAsync(context, document.Id, cancellation).ConfigureAwait(false) is { } published
+            && FormDefinition.Check(published).Definition is { Scripts: [var named, ..] } ? named.File : null;
     }
 
     private static async Task<FormModel?> PublishedModelAsync(HttpContext context, string id, CancellationToken cancellation)
@@ -697,6 +758,11 @@ public static partial class FormEndpoints
         if (await MissingPicturesAsync(context, document.Id, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } missing)
         {
             return Refusal(missing, check.Notices, "The form was not published again.");
+        }
+
+        if (await ScriptProblemsAsync(context, document, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } scripts)
+        {
+            return Refusal(scripts, check.Notices, "The form was not published again.");
         }
 
         if (await QueriedLayerProblemsAsync(context, check.Definition!, cancellation).ConfigureAwait(false) is { Count: > 0 } unqueryable)
@@ -967,9 +1033,16 @@ public static partial class FormEndpoints
             return Results.Empty;
         }
 
-        if (await ManagedFormAsync(context, id, "share", cancellation).ConfigureAwait(false) is not ({ } document, _))
+        if (await ManagedFormAsync(context, id, "share", cancellation).ConfigureAwait(false) is not ({ } document, { } draft))
         {
             return Missing(id);
+        }
+
+        // ADR-287 §5.27: a form that runs a script is never shared with everyone — neither the draft nor what was published.
+        if (scope == SharingScope.Public && await RunsScriptsAsync(context, document, draft, cancellation).ConfigureAwait(false) is { } script)
+        {
+            return Error(409, $"A form that runs a script is not shared with everyone, and this one runs '{script}' (pulldata(\"@javascript\")). "
+                + "Share it with your organization or with groups, or take the script out and publish again. Its sharing was not changed.");
         }
 
         IServiceProvider services = context.RequestServices;
@@ -1246,7 +1319,12 @@ public static partial class FormEndpoints
             WithoutInbox(publication);
         }
 
-        return Results.Json(new { id = document.Id, title = document.Title, form = FormCompiled.Json(check.Definition), publication });
+        // ADR-287 §5.27: whether the page may run the form's scripts. Never for a form shared with everyone, nor for a caller
+        // who is not signed in — publishing and sharing refuse both already; this is the last word, given with the form.
+        string scripts = check.Definition.Scripts.Count == 0 ? "none"
+            : document.Sharing == SharingScope.Public || current.Principal.IsAnonymous ? "refused" : "allowed";
+
+        return Results.Json(new { id = document.Id, title = document.Title, form = FormCompiled.Json(check.Definition), publication, scripts });
     }
 
     // ---------------------------------------------------------------------------------------------------------- helpers

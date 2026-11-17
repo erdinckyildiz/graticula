@@ -30,6 +30,9 @@
     layer(request)     pulldata("@layer", …) (ADR-287 section 5.23): { operation, property, url, location, where }. The
                        page answers from what it has already fetched and '' until then; the query is the page's, and so
                        is running the calculation again when the answer arrives.
+    javascript(request) pulldata("@javascript", file, function, …) (ADR-287 section 5.27): { file, fn, args }. args are
+                       the arguments' values as a script is given them (scriptArgument below). The page answers from what
+                       its sandbox already returned and '' until then, as layer() does; running the script is the page's.
     now()              a Date standing for the present moment; new Date() when absent. For tests.
     timezoneOffset     the device's offset from UTC in minutes (Turkey: 180); the browser's when absent.
     random()           a number in [0, 1); Math.random when absent. For tests.
@@ -52,7 +55,7 @@
         // String
         'string': [0, 1], 'concat': [0, MANY], 'join': [1, MANY], 'substr': [2, 3], 'substring-before': [2, 2],
         'substring-after': [2, 2], 'translate': [3, 3], 'string-length': [1, 1], 'normalize-space': [0, 1],
-        'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [2, 6], 'property': [1, 1],
+        'contains': [2, 2], 'starts-with': [2, 2], 'ends-with': [2, 2], 'uuid': [0, 1], 'pulldata': [2, MANY], 'property': [1, 1],
         'substring': [2, 3],
         // Boolean
         'if': [3, 3], 'coalesce': [2, 2], 'once': [1, 1], 'true': [0, 0], 'false': [0, 0], 'boolean': [1, 1],
@@ -101,8 +104,8 @@
         'portalInfo': 'the whole portal description is a JSON object, which no question in a form can hold',
         'token': 'an access token is a credential, and a form\'s answers are stored and shown',
         'submissionUrl': 'the address answers go to here is a view made for the form when it is shared, not the layer itself, so a query written with it would read the view; write the address of the layer in the call (§5.23)',
-        'locale': 'Survey123 offers it only to pulldata("@javascript"), which is refused',
-        'localeInfo': 'Survey123 offers it only to pulldata("@javascript"), which is refused'
+        'locale': 'Survey123 offers it to pulldata("@javascript") scripts, and a script here is given only the values the form passes it (section 5.27); pass pulldata("@property", \'language\') to the script instead',
+        'localeInfo': 'Survey123 offers it to pulldata("@javascript") scripts as an object no question can hold, and a script here is given only the values the form passes it (section 5.27); pass pulldata("@property", \'language\') to the script instead'
     };
     var ODK_PROPERTIES = { 'deviceid': 'deviceId', 'username': 'username', 'email': 'email' };
     var REFUSED_ODK_PROPERTIES = {
@@ -128,7 +131,6 @@
     };
     var REFUSED_PULLDATA_SOURCES = {
         '@json': 'reading a JSON answer is not in the first version',
-        '@javascript': 'running a script a form carries is not in the first version',
         '@exif': 'reading the metadata of a photo is not in the first version'
     };
     var CALCULATION_MODES = ['auto', 'manual', 'always', 'whenEmpty'];
@@ -474,6 +476,14 @@
                     else if (args.length < LAYER_OPERATIONS[operation][0] || args.length > LAYER_OPERATIONS[operation][1]) {
                         fail('pulldata("@layer", "' + operation + '") takes ' + (LAYER_OPERATIONS[operation][0] - 2) + ' to ' + (LAYER_OPERATIONS[operation][1] - 2) + ' arguments after the operation, not ' + (args.length - 2), t.at);
                     }
+                } else if (source === '@javascript') {
+                    if (args.length < 3 || args[1].type !== 'str' || args[2].type !== 'str') {
+                        fail('pulldata("@javascript") names its script file and its function in quotes: pulldata("@javascript", "file.js", "functionName", …)', t.at);
+                    } else if (!/^[^\/\\:\s]+\.js$/i.test(args[1].value) || args[1].value.indexOf('..') >= 0) {
+                        fail('\'' + args[1].value + '\' is not a script file a form can carry: a .js file, named alone', t.at);
+                    } else if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(args[2].value)) {
+                        fail('\'' + args[2].value + '\' is not the name of a JavaScript function', t.at);
+                    }
                 } else if (source.charAt(0) === '@') {
                     fail('pulldata("' + source + '") is not supported: ' + (hasKey(REFUSED_PULLDATA_SOURCES, source)
                         ? REFUSED_PULLDATA_SOURCES[source] : 'it is not a source Survey123 documents'), t.at);
@@ -536,6 +546,22 @@
     }
 
     function nodeValue(node) { return node.value === null || node.value === undefined ? '' : String(node.value); }
+
+    // pulldata("@javascript") (ADR-287 section 5.27): a value as a form's script is given it. Survey123's page says an
+    // empty value arrives as undefined or null and that a question across a repeat arrives as an array of its values;
+    // the rest it does not say. INFERRED: an empty answer is null; an answer is its text, as the form holds it (a script
+    // reads a number with Number(), as Survey123's own examples do); a number or a boolean the expression worked out is
+    // that number or boolean; a date is its text. Only plain values cross into the sandbox.
+    function scriptArgument(v) {
+        if (typeof v === 'boolean') { return v; }
+        if (typeof v === 'number') { return isFinite(v) ? v : numberToString(v); }
+        if (isNodeSet(v)) {
+            if (v.nodes.length > 1) { return v.nodes.map(function (n) { var t = nodeValue(n); return t === '' ? null : t; }); }
+            v = v.nodes.length ? nodeValue(v.nodes[0]) : '';
+        }
+        var text = stringValue(v);
+        return text === '' ? null : text;
+    }
 
     // XPath 1.0's Number production, and — the ODK extension on number() — a date or dateTime string becomes days
     // since 1970-01-01. The extension is applied wherever a string becomes a number, not only in number(): that is
@@ -682,14 +708,15 @@
                 case 'a': return shortName('day', f, language);
                 case '%': return '%';
                 default:
-                    if (withTime) {
-                        switch (token) {
-                            case 'H': return pad(f.H, 2);
-                            case 'h': return String(f.H);
-                            case 'M': return pad(f.M, 2);
-                            case 'S': return pad(f.S, 2);
-                            case '3': return pad(f.ms, 3);
-                        }
+                    // The time specifiers are format-date-time's, and format-date gives them too: JavaRosa's own vector
+                    // formats '%H:%M:%S' with format-date (condition 4, section 5.27), and a form that writes them there
+                    // means the time, not the letters. A date alone has its hours at 0.
+                    switch (token) {
+                        case 'H': return pad(f.H, 2);
+                        case 'h': return String(f.H);
+                        case 'M': return pad(f.M, 2);
+                        case 'S': return pad(f.S, 2);
+                        case '3': return pad(f.ms, 3);
                     }
                     return all;
             }
@@ -1053,12 +1080,19 @@
     // inside-out Fisher–Yates shuffle. A decimal seed is truncated; a seed that is not a number is hashed (SHA-256 of
     // its UTF-8) and the first eight bytes, read as a signed big-endian 64-bit integer, are the seed. BigInt carries
     // that integer, because a 64-bit seed does not fit a double.
+    //
+    // <b>Two readings ODK's own vectors settle (condition 4, ADR-287 section 5.27).</b> JavaRosa's RandomizeTypesTest
+    // shuffles a..h with the seeds 1234, '1234', 'foo', 'somestring', a geopoint's text, '' and 0, and gives the order
+    // for each. Two of them were missed here: (1) the 64-bit integer a text seed hashes to is a number, so it is held as
+    // a double — rounded to 53 bits — before it is truncated, and every text seed's order depends on that rounding; and
+    // (2) an empty seed is 0, not the hash of an empty text (the vector for '' is the vector for 0).
     function parkMiller(seedValue) {
         var seed;
-        var n = numberValue(seedValue);
+        var text = stringValue(seedValue);
+        var n = text.trim() === '' ? 0 : numberValue(seedValue);
         if (isNaN(n)) {
-            var digest = sha256(new TextEncoder().encode(stringValue(seedValue)));
-            seed = BigInt.asIntN(64, BigInt('0x' + hex(digest.subarray(0, 8))));
+            var digest = sha256(new TextEncoder().encode(text));
+            seed = BigInt(Number(BigInt.asIntN(64, BigInt('0x' + hex(digest.subarray(0, 8))))));
         } else {
             seed = BigInt(Math.trunc(n));
         }
@@ -1087,10 +1121,11 @@
     // <b>The Earth is a sphere whose equator is 40,075,000 m round.</b> The specification says both area() and
     // distance() "take into account the circumference of the Earth around the Equator" and ignore altitude, and that
     // distance() uses the spherical law of cosines; it gives neither the figure nor area()'s method. INFERRED: the
-    // circumference is the equatorial one to five significant figures (R = 40,075,000 / 2π ≈ 6,378,134.9 m), and
-    // area() is the spherical polygon area of Chamberlain and Duquette ("Some algorithms for polygons on a sphere",
-    // JPL, 2007): A = |Σ (λ₂ − λ₁)(2 + sin φ₁ + sin φ₂)| · R² / 2 — a sphere's area to match a sphere's distance, so
-    // that a square's sides and its area agree with each other. Neither is geodesic on the WGS84 ellipsoid; the
+    // circumference is the equatorial one to five significant figures (R = 40,075,000 / 2π ≈ 6,378,134.3 m), and
+    // area() is the area of the spherical polygon whose edges are great circles (its spherical excess times R²) — a
+    // sphere's area to match a sphere's distance, so that a shape's sides and its area agree with each other. Until
+    // 2026-11-17 it was Chamberlain and Duquette's sum, whose edges follow parallels; ODK's own vector told the two
+    // apart (polygonArea below, ADR-287 section 5.27). Neither is geodesic on the WGS84 ellipsoid; the
     // difference is up to about half a percent, and matching what the specification describes is what condition 4
     // asks for.
     // ---------------------------------------------------------------------------------------------------------------
@@ -1134,15 +1169,27 @@
         return RADIUS * Math.acos(Math.max(-1, Math.min(1, cosine)));
     }
 
+    // <b>The polygon's edges are great circles, since 2026-11-17 (condition 4, ADR-287 section 5.27).</b> The first
+    // version summed Chamberlain and Duquette's (λ₂ − λ₁)(2 + sin φ₁ + sin φ₂), which is exact for edges along parallels
+    // and not for great circles, the edges distance() measures. ODK's own vector (JavaRosa's GeoAreaTest: five points
+    // near 38.25°N 21.76°E, 151452 m² ± 0.5) is met by the great-circle area and missed by the other by 1.4 m². The area
+    // is the spherical excess of the fan of triangles from the first point, each by Van Oosterom and Strackee's formula
+    // tan(E/2) = a·(b×c) / (1 + a·b + b·c + c·a), signed so that a concave polygon's triangles cancel where they overlap.
     function polygonArea(points) {
         if (points.length < 3) { return 0; }
-        var sum = 0;
-        for (var i = 0; i < points.length; i++) {
-            var a = points[i];
-            var b = points[(i + 1) % points.length];
-            sum += rad(b.lon - a.lon) * (2 + Math.sin(rad(a.lat)) + Math.sin(rad(b.lat)));
+        function unit(p) {
+            var la = rad(p.lat), lo = rad(p.lon);
+            return [Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la)];
         }
-        return Math.abs(sum * RADIUS * RADIUS / 2);
+        function dot(u, v) { return u[0] * v[0] + u[1] * v[1] + u[2] * v[2]; }
+        var a = unit(points[0]);
+        var excess = 0;
+        for (var i = 1; i + 1 < points.length; i++) {
+            var b = unit(points[i]), c = unit(points[i + 1]);
+            var triple = a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+            excess += 2 * Math.atan2(triple, 1 + dot(a, b) + dot(b, c) + dot(c, a));
+        }
+        return Math.abs(excess) * RADIUS * RADIUS;
     }
 
     // geofence: the even–odd ray test on longitude (x) and latitude (y), which is the algorithm the specification
@@ -1301,11 +1348,18 @@
                 return parts.join(separator);
             }
             case 'substr': {
+                // ODK: a 0-based start and an exclusive end. A negative index counts from the end, as JavaRosa's own
+                // vectors have it (substr('hello', -2) is 'lo', substr('hello', 0, -1) is 'hell'; condition 4, section
+                // 5.27): the specification does not say, and the first version clamped them to 0.
                 var s = str(0);
-                var start = Math.max(0, Math.floor(num(1)));
-                var end = args.length > 2 ? Math.min(s.length, Math.floor(num(2))) : s.length;
+                var start = Math.trunc(num(1));
+                var end = args.length > 2 ? Math.trunc(num(2)) : s.length;
                 if (isNaN(start)) { start = 0; }
-                return isNaN(end) || end <= start ? '' : s.substring(start, end);
+                if (isNaN(end)) { return ''; }
+                if (start < 0) { start = Math.max(0, s.length + start); }
+                if (end < 0) { end = s.length + end; }
+                end = Math.min(s.length, end);
+                return end <= start ? '' : s.substring(start, end);
             }
             case 'substring-before': {
                 var a = str(0), b = str(1), at = a.indexOf(b);
@@ -1365,6 +1419,14 @@
                     };
                     var answered = ctx.layer(request);
                     return answered === null || answered === undefined ? '' : answered;
+                }
+                if (file === '@javascript') {
+                    if (args.length < 3) { fail('pulldata("@javascript") names its script file and its function', ast.at); }
+                    if (typeof ctx.javascript !== 'function') { return ''; }
+                    var given = [];
+                    for (var ai = 3; ai < args.length; ai++) { given.push(scriptArgument(arg(ai))); }
+                    var ran = ctx.javascript({ file: str(1), fn: str(2), args: given });
+                    return ran === null || ran === undefined ? '' : ran;
                 }
                 if (file.charAt(0) === '@') {
                     fail('pulldata("' + file + '") is not supported: ' + (hasKey(REFUSED_PULLDATA_SOURCES, file)

@@ -291,7 +291,7 @@ measurable question. The two device claims are, so they are conditions and not a
      that no longer exists is refused by the server, and the record is kept on the device, marked, and shown to its
      author rather than lost or silently trimmed;
    - (g) Esri's Survey123 apps opening Graticula's forms is **not** a goal;
-   - (h) a report per record (Survey123's *feature report*) is a later ADR, built on the print service
+   - (h) a report per record (Survey123's *feature report*) is a later ADR, built on the print service — *written 2026-11-17 as [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md), on an engine of its own; the print service gives it neither the document nor PDF, only its maps (ADR-301 §1, §5.7, §5.10)*
      ([ADR-265](ADR-265-the-server-prints-a-web-map.md)) and not on Word templates;
    - (i) the server checks what a database can check (types, lengths, domains, required fields that are not
      conditional) and does **not** re-evaluate the form's XPath logic. A second evaluator in C# would drift from the
@@ -338,7 +338,8 @@ measurable question. The two device claims are, so they are conditions and not a
     `readonly`, which the specification's own example uses), `calculation`, `choice_filter`, `appearance`,
     `repeat_count`, the `image` media column, and every `::language` variant of the text columns. `parameters` is
     supported for `range` (`start`, `end`, `step`) and for `image` (`max-pixels`), and refused for anything else.
-    Refused: `trigger`, and the `audio` and `video` media columns.
+    Refused: `trigger`, ~~and the `audio`~~ and the `video` media columns (**the `audio` column and `media::audio` are
+    supported since 2026-11-17, §5.26**).
 
     **Choices sheet.** `list_name`, `name`, `label`, `label::language`, `image`, and any further column a
     `choice_filter` reads. Refused: `geometry` (choosing on a map).
@@ -357,8 +358,9 @@ measurable question. The two device claims are, so they are conditions and not a
     `quickcompact`, `label`, `list-nolabel`, `counter`, `no-calendar`, the grid widths `w1`–`w4`, and every presentation
     appearance on Esri's list (`predictivetext`, `nopredictivetext`, `calculator`, `numbers`, `press-to-locate`,
     `hide-input`), and ODK's `tabular`, `columns`, `columns-pack` and `no-buttons`; and `minimal` on a type it means nothing on, where Survey123 ignores it too (§5.19 (2)). Refused because they capture something this client cannot: ~~`annotate`~~ (**built 2026-11-16, §5.24**), `map` and
-    `quick map`, ~~`search()`~~ (**supported since 2026-11-16, §5.23**), `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, `distress`, `spike` and its variants, `rangefinder`,
-    `image-map`, `inframarker`, `getinframarkerid`, `new-front`, `new-rear`.
+    `quick map`, ~~`search()`~~ (**supported since 2026-11-16, §5.23**), `autocomplete` on `select_multiple` (§5.19 (3)), `geocode`, ~~`distress`~~, `spike` and its variants, `rangefinder`,
+    `image-map`, `inframarker`, `getinframarkerid`, ~~`new-front`, `new-rear`~~ (**`distress`, `new-front` and `new-rear`
+    are built since 2026-11-17, §5.26, as are ODK's `new` and the grid widths under a grid style**).
 
     **Expressions.** `${name}` references and `.` for the question's own value. Every XPath 1.0 operator the ODK
     specification lists (`|`, `and`, `or`, `mod`, `div`, `=`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-` — and `*`, which XPath 1.0 has and the page's list drops), with
@@ -367,7 +369,7 @@ measurable question. The two device claims are, so they are conditions and not a
     | | Functions |
     |---|---|
     | Supported | **String:** `string`, `concat`, `join`, `substr`, `substring` (XPath 1.0 §4.2, beside ODK's `substr`), `substring-before`, `substring-after`, `translate`, `string-length` (one argument, required, as the specification says), `normalize-space`, `contains`, `starts-with`, `ends-with`, `uuid`; `pulldata` **in its CSV form** (a file uploaded with the form), **and `pulldata("@property", name)` and `pulldata("@geopoint", ${q}, part)`** (§5.20); `property(name)` (ODK's, §5.20). **Boolean:** `if`, `coalesce`, `once`, `true`, `false`, `boolean`, `boolean-from-string`, `not`, `regex`, `checklist`, `weighted-checklist`. **Number:** all of the specification's, `random` included, and XPath 1.0 §4.4's `floor` and `ceiling`. **Node-set:** `count`, `count-non-empty`, `position`, `last` (XPath 1.0 §4.1: the size of the node-set a predicate filters), `current`, `randomize`, and `instance` **for a choice list**. **Date and time:** all of the specification's, and `date-time` (Survey123's, §5.20; the specification's table has no other date function this list lacks). **Select:** `selected`, `selected-at`, `count-selected`, `jr:choice-name`. **Repeat:** `indexed-repeat`. **Geographic:** `area`, `distance`, `geofence`, `intersects` |
-    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: ~~`@layer`~~ (**supported since 2026-11-16, §5.23**), `@json`, `@exif`, `@javascript`; and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). ~~`@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again~~ — built 2026-11-16 by owner decision, online only, as Survey123's is (§5.23) |
+    | Refused | `digest`, `base64-decode`, `jr:itext`, and the XPath 1.0 core functions that name a node, an ID, a namespace or a language, which a form's answers do not have: `lang`, `id`, `name`, `local-name`, `namespace-uri` (each refused with its reason, on purpose, 2026-11-15); `instance` for anything other than a choice list, and **the Esri `pulldata("@…")` forms other than `@property` and `@geopoint`**: ~~`@layer`~~ (**supported since 2026-11-16, §5.23**), `@json`, `@exif`, ~~`@javascript`~~ (**supported since 2026-11-17 in a sandbox the page cannot be reached from, and never on a form shared with everyone, §5.27**); and, by name with a reason each, the properties a browser cannot know and the parts of a geopoint that are not built (§5.20). ~~`@layer` is the one most worth adding next, because it queries a feature layer, and this server has the layers. It is left out because the offline client would need a copy of that layer, which is the Inbox's problem again~~ — built 2026-11-16 by owner decision, online only, as Survey123's is (§5.23) |
 
     **Esri columns.** `bind::esri:fieldType` is supported for the types this server serves: `esriFieldTypeInteger`,
     `SmallInteger`, `BigInteger`, `Double`, `Single`, `String`, `Date`, `GUID`, and `null` (the question is not stored).
@@ -376,8 +378,10 @@ measurable question. The two device claims are, so they are conditions and not a
     else would change the value. `bind::esri:fieldLength`, `bind::esri:fieldAlias`, `body::esri:visible` (hidden but
     still stored), `body::accuracyThreshold`, `body::accept` **and `body::esri:inputMask` (on `text`, §5.19 (5))** are supported. `body::esri:style` and
     `bind::saveIncomplete` are drawn the default way (the client always keeps drafts — built 2026-11-15, §5.16 (a)). `bind::esri:parameters` is supported
-    for its `calculationMode` (`auto`, `manual`, `always`, `whenEmpty`) and for nothing else, which is refused by name (§5.20). Refused: `bind::esri:warning` and `bind::esri:warning_message`,
-    `bind::esri:workflow`.
+    for its `calculationMode` (`auto`, `manual`, `always`, `whenEmpty`) and for nothing else, which is refused by name (§5.20). Refused: ~~`bind::esri:warning` and `bind::esri:warning_message`,~~
+    `bind::esri:workflow` (**the warning columns are supported since 2026-11-17, §5.26, and `bind::esri:parameters`
+    takes an audio question's `max-duration` and, with a notice, the image and audio keys Survey123 documents for its
+    field app alone**).
 
     **What a question becomes in the layer** (follows Survey123's table where one exists, for §5.9 (d)):
 
@@ -887,7 +891,7 @@ measurable question. The two device claims are, so they are conditions and not a
       name and `userLastName` is empty. **Refused at upload by name, each with its reason:** `deviceModel` and `OS`
       (a browser does not tell a page; Survey123's web app does not either), `appVersion`, `portalInfo` (a JSON object no
       question holds), `token` (a credential that would be written into the layer), `submissionUrl`, `locale` and
-      `localeInfo` (the last three exist for `@layer`, `search()` and `@javascript`, which are refused). A name that is not
+      `localeInfo` (the last three exist for `@layer`, `search()` and `@javascript`, which are refused — *all three built since: §5.23 and §5.27*). A name that is not
       on Survey123's list is refused as unknown; a name worked out at run time cannot be checked at upload, and the
       client then refuses it when it runs. **INFERRED:** (1) an anonymous form, and any value the portal does not hold,
       answers an empty string, since Survey123's page says nothing; (2) `online` is a true boolean, `utcOffset` a number,
@@ -956,7 +960,7 @@ measurable question. The two device claims are, so they are conditions and not a
     - **(f) What still keeps a Survey123 form out.** The sole blockers after this item, from the same run: `or_other` (3
       forms), `autocomplete` (2) and one each of `esri:inputMask`, `spinner`, duplicate choices, a row with no name, an audio
       media column, the `grid` appearance, `pulldata("@javascript")`, a parameter on a question that takes none, and
-      `annotate`, and one row that holds cells and no question type. Some of those are another branch's tonight, the others are left. **`pulldata("@layer")`, `@json` and `@javascript` stay refused**,
+      `annotate`, and one row that holds cells and no question type. Some of those are another branch's tonight, the others are left. *(`@layer` built since in §5.23, `@javascript` in §5.27; `@json` is still refused.)* **`pulldata("@layer")`, `@json` and `@javascript` stay refused**,
       each with its reason in the upload (`FormCatalog.RefusedPulldataSources`); `@exif` too. *How `@layer` could be
       built, written down and not built:* `pulldata("@layer", property, layerUrl, field, value)` is a query on a feature
       layer, `where field = value`, `outFields property`. Online, the client could send exactly that to the layer through
@@ -1137,7 +1141,7 @@ measurable question. The two device claims are, so they are conditions and not a
         pinned one and it evaluates no strings; a page that is not a secure context gives the https hint. The earlier
         no-reader tests now remove the camera API as well, since a camera alone now means a Scan button.
         `FormFillPageTests`' offline test also checks the real server's cache holds both files.
-      - **INFERRED, for the owner to confirm:** (7) the library is part of the offline shell for every form, as `ol.js`
+      - **INFERRED, confirmed by the owner 2026-11-17 (§5.29):** (7) the library is part of the offline shell for every form, as `ol.js`
         is, rather than fetched only by forms with a barcode question — 108 KB gzipped per device, once; (8) the browser's
         own reader is preferred wherever it exists, and ZXing is never used beside it, because it is faster and costs no
         download; (9) ZXing reads at most 1280 px of each frame and does not run its slower "try harder" mode, to keep a
@@ -1368,6 +1372,313 @@ measurable question. The two device claims are, so they are conditions and not a
       needed a connection:* and the questions' labels, kept on the queued record, so the member knows what to complete
       from the Inbox once it has been sent.
 
+26. **What still kept real forms out, and the question types not yet built — 2026-11-17, overnight, while the owner
+    slept** (*"gece, gerçek formlarla ve henüz olmayan her şeyi tamamla. yavaştan survey123'yi de bitirelim"*). The corpus
+    report after §5.25 was ranked by what blocks each form, Survey123's own first. Each blocker was looked up in a public
+    page and given the authoring tool's behaviour; where the pages do not settle it, the choice is **INFERRED** and listed
+    in [Q-238](../open-questions.md). **Measured with `AFormCorpusTests` on the same 110 workbooks (108 readable): 81 of
+    the 108 import unedited (from 65), and 56 of the 61 Survey123-authored forms (from 45).**
+    - **What Esri's and ODK's public pages say, and what each settles.**
+      - *Appearance* (`https://doc.esri.com/en/arcgis-survey123/latest/create/main/xlsformsappearance.html`): `distress`
+        on `integer`, *"Displays the question as a colored sliding scale"*, field app only; `new-front` and `new-rear` on
+        `image`, *"Limits the question to only taking a photo, using the front-facing (rear-facing) camera as the
+        default"*, field app only; `thousands-sep` (decimal, field app), `compact-n` (selects) and `no-ticks` (range);
+        *"You can specify width appearances for questions in surveys that use a grid layout"*. No `grid` appearance and no
+        plain `new` are listed.
+      - *Text and numbers* (`…/create/main/xlsform-text-numbers.html`): *"A distress scale is a 10-point scale used to
+        measure feelings such as stress, pain, and happiness."* It names no range, no stored values and no colours.
+        `thousands-sep` *"does not affect the value sent as part of the survey response, only the display in the app."*
+      - *Media* (`…/create/main/xlsformmedia.html`): *"The audio question type allows users to record audio"*; *"Audio
+        questions only allow uploading an existing audio file in the web app"*; recordings are limited *"to 10 minutes in
+        the Survey123 web app"* by default, and *"you can specify a time limit in seconds using the max-duration
+        parameter"*; *"Images and audio can also be added to other questions in a survey for reference and styling
+        purposes"*; *"You may not be able to play some audio files in a web browser because not all codecs are supported
+        by browsers"*; the file question's table lists BMP among image types. The page says nothing of `media::audio`'s
+        formats, of a `.bmp` label picture, or of `bind::esri:fieldType` on an attachment question.
+      - *XLSForm parameters* (`…/create/main/xlsformparameters.html`): in `bind::esri:parameters`, `max-duration` (audio;
+        mobile, web and field app), `codec` (audio; mobile and field app), `fileName` and `max-size`, and on `image` the
+        watermarks (`watermark`, `topLeftWatermark` … `bottomRightWatermark`), `smartAttributes`, `smartAnnotation` and
+        `redaction`, **field app only**. In `parameters`, `start`, `end` and `step` are listed for `range` alone.
+      - *Geopoints* (`…/create/main/geopoints.html`): *"The bind::esri:warning and bind::esri:warning_message columns can
+        be used to display a warning to the user if the location quality expression is not met"* and *"the user can still
+        capture the location"*; location quality expressions are listed as not supported in the web app. The page shows
+        the warning only on a geopoint; it does not say the columns are limited to one.
+      - *Groups and pages* (`…/create/main/xlsform-groups-pages.html`): *"By setting the style column on the settings sheet
+        to fixed-grid or dynamic-grid, groups in your survey can be set to display the contained questions in a grid"*;
+        *"Set a group's width appearance to w followed by the number of columns"*; a question's width is how many columns
+        it spans; *"The fixed grid style creates a placeholder for each question, including those with a hidden
+        appearance"*; dynamic lets questions move with their relevance; *"The table-list appearance will not function in a
+        grid layout."* No default width is given.
+      - **pyxform** (`github.com/XLSForm/pyxform`, the converter ODK documents; its source read, BSD-licensed, nothing
+        copied): `question_type_dictionary.py` has `string`, `int`, `trigger`, `phone number` (a text input bound with
+        `regex(., '^\d*$')` and the hint *"Enter numbers only."*), `imei` (preloads `deviceid`), `subscriberid`,
+        `simserial`, `phonenumber` and their `uri:`/`get …` spellings, and `select all that apply from`; `aliases.py`
+        has `select one from` and the survey header `audio` (media). `xls2json.py`: a begin row matches
+        `^begin(\s|_)(group|repeat|loop)( (over )?(\S+))?$` and only a loop uses the word after it; an unnamed `note` is
+        named `generated_note_name_<row>` and any other unnamed row is *"Question or group with no name"*; a row with a
+        name or label and no type is *"Question with no type"*; the choices sheet is grouped by `list_name` and a row
+        without one is passed over. `survey_element.py`: *"The survey element named '…' has no label or hint"* only when
+        the label, the media, the hint and the guidance hint are all empty.
+    - **Built — question types and appearances.**
+      - **Recording an `audio` answer.** The audio question kept its file input (an attachment, like a photo) and gained a
+        **Record** button where the browser has `MediaRecorder` and `getUserMedia` (both need an https address; the page
+        says which is missing, in words, where they are not). Record asks for the microphone only, shows a running clock
+        and the limit (*Longest recording: 10:00*), and turns into **Stop recording** (`aria-pressed`); a live region says
+        *Recording…*, *Recording saved.*, *Recording stopped at the time limit and saved.*, a refused or missing
+        microphone, and focus returns to the button. The recording becomes the question's file in the browser's own
+        format (`{name}-{UTC time}.webm` on Chrome), with a player and Remove, is kept in the draft as a Blob and goes
+        through the outbox and `addAttachment` as a photo does, so it works with no signal. **`max-duration`** in
+        `bind::esri:parameters` (1–86400 s) stops it; **600 s when the form does not say**, Survey123's web-app default. The
+        tracks are stopped on Stop, at the limit, on `pagehide` and when the page is hidden (keeping what was recorded).
+        `codec` is accepted with a notice (the browser picks the format); `max-size` and `fileName` stay refused.
+      - **Recordings in a label and beside a choice** (`media::audio`, and pyxform's `audio` column, per language). Checked
+        like a picture — a file of the form, named without a folder or an address, and one a browser plays (`.mp3`, `.wav`,
+        `.ogg`, `.oga`, `.opus`, `.m4a`, `.aac`, `.webm`, `.flac`) — and looked for among the item's files at publish,
+        where a missing one is refused by row and column (*The recording '…' is not among this form's files*). The client
+        draws a native player labelled *Recording: {label}*, beside a choice and not inside its label (so pressing play
+        does not choose), and keeps the file on the device with the form, so it plays offline; one that cannot be found
+        says *Recording not available: {name}*. On a group or a repeat it is refused (*drawn as a heading*). `media::video`
+        stays refused.
+      - **`distress`** on `integer`: eleven radio buttons **0–10** in a `radiogroup` labelled by the question, with *0 is
+        none at all and 10 is the most.*, coloured from green to red along their lower edge, a Clear button (focus goes to
+        0), and the integer stored. Off `integer` it is refused (*applies to integer*).
+      - **`bind::esri:warning` / `bind::esri:warning_message`**: Survey123's soft constraint. The expression is checked like
+        a constraint at upload (its `${}` references, its functions); the client shows the message (or *Check this
+        answer.*) in a `role=status` line under the question, joined to its control by `aria-describedby`, when the
+        expression is false for an answered, touched question, and **the record is sent all the same**. An error, when
+        there is one, is said instead. A message with no expression, a warning on a note, on a question with no screen
+        (`calculate`, `hidden`, metadata) and on a group or repeat are refused, each in words.
+      - **A grid**: `fixed-grid`, `dynamic-grid` and the older `theme-grid` in the settings' `style` are read (they were
+        drawn the default way). A group whose appearance has `w2`…`wN` lays its questions out in N columns; a question's
+        own `wK` is its span (capped at N); a group or a repeat inside takes the whole row; under `fixed-grid` a question
+        hidden by its relevance keeps its place. Below 480 px the grid is one column. Without a grid style a width does
+        nothing, as in Survey123, and the upload now says so in those words. `grid` written as an appearance (a real form
+        writes `grid w2`) is ignored with a notice that a grid is set by the style.
+      - **The camera**: `new-front` (`image`) opens the front camera through the file input's `capture="user"`, `new-rear`
+        and ODK's `new` (`image`, `audio`, `video`) the rear one — which is what a plain photo already did on a phone; a
+        desktop browser ignores `capture` and offers a file.
+      - **Display only, with a notice**: `thousands-sep`, `no-ticks`, `compact-2`…`compact-n`.
+    - **Accepted the way the authoring tools accept them, with a notice.**
+      - **pyxform's other spellings of a type** (`FormCatalog.TypeSpellings`): `string` → text, `int` → integer, `trigger`
+        → acknowledge, `imei`, `device id`, `get device id`, `uri:deviceid` → deviceid, `uri:username`, `uri:email`;
+        `phone number` → text with pyxform's digits-only constraint and hint unless the row has its own; `select one
+        from`, `select all that apply from`, `select multiple from`, and `or specify other` beside `or_other`. The SIM's
+        spellings (`subscriberid`, `simserial`, `uri:phonenumber`, `sim id` …) are **refused as types**, with the reason
+        `property()` already gives (*a browser cannot read …*).
+      - **A word after `begin group` / `begin repeat`** is ignored, as pyxform ignores it (`begin group pressure`).
+      - **`start`, `end`, `step` on an integer or a decimal** are ignored with a notice that they are a range's and that a
+        constraint bounds a number; any other key is still refused.
+      - **An image's field-app parameters** (the watermarks, `smartAttributes`, `smartAnnotation`, `redaction`) are accepted
+        with a notice that Survey123's field app alone applies them, not its web app and not this one. A
+        `bind::esri:parameters` cell is now read with double-quoted values, whose spaces and `&` are their own.
+      - **An attachment question given `esriFieldTypeString`** (two real forms, on photos): the photo is an attachment, no
+        field is made, and the upload says so; `null` is accepted silently; any other type is still refused.
+      - **`bind::esri:fieldLength` = `null`** (Esri's own question-types sample): the field keeps its usual length, and the
+        notice says that `null` belongs in `bind::esri:fieldType` to store nothing.
+      - **`bind::type`**, the XForms data type pyxform writes through (ODK XForms specification's bind types): on a
+        `calculate` or `hidden` it picks the field where `bind::esri:fieldType` does not (`int` → Integer, `decimal` →
+        Double, `string` → text) and must agree with it where it does; on any other question it must be the type it
+        already has (a notice), and anything else is refused.
+      - **A nameless note that calculates** is named `note_row_{row}` (pyxform: `generated_note_name_…`) and **stores
+        nothing**, which §5.21 refused; one that asks for a field with `bind::esri:fieldType` is still refused.
+      - **A question with a hint and no label** shows its hint as its label (pyxform refuses only when both are missing);
+        one with neither is refused (*has no label or hint*).
+      - **A choices row with no `list_name`** is left out, as pyxform leaves it out; one with a list and no name is still
+        refused.
+      - **A `.bmp` picture** is accepted: every browser shows one, and Survey123's media page lists BMP among image types.
+      - **`default_language` written without its code** (`English` for `English (en)`) is read as that language.
+    - **Still refused, and why.** A duplicate choice name in a list a `select_multiple` uses without
+      `allow_choice_duplicates` (Survey123's multiple-choice page and pyxform both refuse it: `palav-public_test-form`); a
+      row with a name and no type (pyxform: *Question with no type*: `sailing-CollectProfileInformation_Examples`); a
+      `submission_url` on arcgis.com (owner decision, §5.25: the two Apopka forms); `pulldata("@javascript")` (another
+      agent's work tonight); a question with a picture and no label or hint, which pyxform accepts and this server does not
+      yet (it would be named by its field name; no form is held by it alone); and on the ODK side `begin loop`,
+      `public_key`, `media::video`, `osm`, `select_one_external`, two location questions at the top level, ODK's
+      `ex:…` app appearances, `jr:itext()` and the SIM properties.
+    - **The forms this unblocked** (before → after, from `D:\temp\forms-corpus-report-compat4-before.json` to
+      `…-compat4.json`): Survey123-authored — `esri-Community_Pre-Enumeration_Survey` (`bind::type`),
+      `esri-Samples_001_Question_Types` (`fieldLength` null), `esri-Samples_002_Appearance` (`distress`),
+      `esri-Samples_CalculateLocationFromCSV` (a nameless calculating note), `esri-Samples_Media` (audio in labels),
+      `laff-…Hydrostatic_Testing_of_Ductile_Iron_Pipe` (warning, `begin group pressure`), `laff-…Pipe_Break_Calculations`
+      (`grid`), `laff-…Uni-Bell_Low_Air_Test` (`start`/`end`/`step` on an integer), `palav-…example-multipage-inspection`
+      (`new`), `sailing-R9SignsSurvey` (watermarks), `sailing-RapidStormDamageAssestment` (a stray choices row, a `.bmp`,
+      hints as labels); ODK and pyxform — `eddie-odk_simprints_verification_demo` (`trigger`),
+      `pyx-…ODKValidateWarnings` and `pyx-…group` (`phone number`), `pyx-…excel_with_macros` (`default_language`),
+      `pyx-…yes_or_no_question` (`select one from`). None was refused that was accepted before.
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.29)** ([Q-238](../open-questions.md)): (1) the browser **records** an audio answer,
+      where Survey123's web app only takes a file; the recording is in the browser's own format, not transcoded, and
+      `max-duration` (600 s by default) limits a recording, not a chosen file; (2) the label-recording formats are the
+      nine a browser's audio element plays, not Survey123's longer list; (3) `distress` is **0 to 10** (eleven points; the
+      page says only *10-point*), green to red, and it is drawn here although Survey123 draws it in its field app only;
+      (4) a warning is honoured on **every question with an answer**, not on a geopoint alone, is shown once the question
+      is touched or a send was tried, and is not repeated in the send summary; (5) `theme-grid` is read as
+      `dynamic-grid`, a question with no width spans **one** column, a nested group or repeat the whole row, one column
+      below 480 px, and `layout=` in `body::esri:style` is still not read (drawn the default way, with its notice);
+      (6) `grid` as an appearance is ignored; (7) `new`, `new-front` and `new-rear` are the file input's `capture`, which a
+      desktop browser ignores; (8) a photo given `esriFieldTypeString` makes no field; (9) `fieldLength` `null` keeps the
+      usual length; (10) `bind::type` on a calculation chooses its field when nothing else does; (11) the word after
+      `begin group` is ignored; (12) `start`/`end`/`step` on a number are ignored; (13) an image's field-app parameters are
+      accepted and not applied, as in Survey123's web app; (14) a nameless calculating note stores nothing; (15) a hint
+      stands in for a missing label; (16) a choices row with no list is left out; (17) `.bmp` is accepted; (18) pyxform's
+      type spellings are read, and `phone number`'s hint is pyxform's English *Enter numbers only.* (it is the form's text,
+      not the page's, so it is not translated); (19) `English` names `English (en)`. **And one proposal not taken:** ODK's
+      own web client leaves `phonenumber`, `subscriberid` and `simserial` empty rather than refusing the form; answering
+      them empty with a notice would let four more `stats4sd` forms in. It reverses a §5.10 refusal, so it is the owner's
+      to decide.
+
+    The service worker's shell cache is not changed here: `fill.js` and `fill.css` changed, and the merge sets the
+    version.
+
+27. **A form's own scripts, `pulldata("@javascript")`, in a sandbox — and the evaluator's answers checked against
+    ODK's — 2026-11-17, overnight** (*"gece, gerçek formlarla ve henüz olmayan her şeyi tamamla. yavaştan survey123'yi de
+    bitirelim"*: the owner asked for what Survey123 does to be built, and was asleep; every choice below that the public
+    pages do not settle is the conservative one and **INFERRED**, listed in [Q-239](../open-questions.md)). §5.10 refused
+    `@javascript` because *"running a script a form carries is not in the first version, and a form shared with everyone
+    must not carry code the page runs"*. The second half of that reason is a security reason, and it is answered here,
+    not set aside: a form's script never runs in the page.
+    - **What Survey123's public pages say.** [*JavaScript functions in survey forms*](https://doc.esri.com/en/arcgis-survey123/latest/create/main/pulldatajavascript.html)
+      (read 2026-11-17): the call is `pulldata("@javascript", "yourJSFile.js", "yourFunction", "parameter1", …)` with
+      *"any number of function parameters"*, and *"other questions in the survey can be used as parameters"*; the files
+      are kept *"in a folder named scripts in the survey directory"*; *"as of Survey123 version 3.14, empty values passed
+      through a JavaScript function can now return either undefined or null"*; a function may return an object that
+      `pulldata("@json")` reads; *"Document Object Model (DOM) is not supported"*, *"frameworks such as JQuery, Ember,
+      and Angular are not supported"*, *"you cannot access local files"*, *"asynchronous calls are not supported"*;
+      *"JavaScript functions are not supported for public surveys"* and *"are only supported in forms completed by users
+      in the same organization as the form author"*; *"accessing values in repeats using pulldata("@javascript") is not
+      supported in the Survey123 web app"*. Esri's developer page
+      [*Customize surveys using JavaScript*](https://developers.arcgis.com/documentation/app-builders/low-code/arcgis-survey123/customize-surveys-using-javascript/)
+      adds that functions *"run in a sandboxed environment with specific limitations"* and may *"process external data
+      through API calls (with limitations)"*, without saying which. Neither page says how long a function may run.
+    - **Can it be made safe in a browser? Yes, and this is how.** The script is the publisher's code running on every
+      member's device, so the question is what it can reach. Here: nothing but the values the call passes it.
+      (1) The form page frames `/forms/script-sandbox.html` with `sandbox="allow-scripts"` and nothing else, so the frame
+      runs at an **opaque origin**: no cookie, no `localStorage` or IndexedDB of this site, no token, no same-origin
+      request, and no way into the page that framed it (`parent.document` is a cross-origin object it cannot read).
+      (2) The frame's own policy — sent as a header built from the file at start-up, and the same again in a `<meta>` so a
+      copy served without the header is held to it — is `default-src 'none'; script-src 'sha256-…'; worker-src blob:;
+      base-uri 'none'; form-action 'none'; frame-ancestors 'self'`: its one inline block admitted by hash and no other
+      script, **no connection of any kind** (`connect-src` falls back to `'none'`), so neither `fetch`, `XMLHttpRequest`,
+      `WebSocket`, `sendBeacon` nor `importScripts` reaches anything. (3) Each script file runs in a **dedicated worker**
+      the frame starts from a `blob:` — a worker has no document, so not even the frame's DOM is there, and it inherits
+      the frame's policy. (4) What crosses is `postMessage` of plain values: the arguments (JSON, at most 64 KB) and the
+      answer (a string of at most 64 KB, a number, a boolean or nothing; an object comes back as its JSON, which is what
+      Survey123 hands to `@json`; a promise is refused, since Survey123 does not support asynchronous calls). Messages
+      from any window but the frame are dropped, and the frame drops any but its parent's. (5) **A call that does not
+      answer within 2 seconds is abandoned**: the page removes the frame, which ends every worker in it, the answer stays
+      empty, the question says *This answer is worked out by a script that took too long, and was stopped*, and the next
+      call starts a new frame; the page itself never waits, because the evaluator never waits (below). Measured in
+      Chrome before it was built (2026-11-17): a blob worker in an opaque-origin frame runs; the policy blocks a
+      synchronous request, `fetch`, `importScripts` and a socket, and no request reached the server; IndexedDB throws
+      `SecurityError`; a `while (true)` in the worker left the page's timers running. **The form page's own policy
+      changes by one directive**, `frame-src 'self'`; every other page here still refuses to be framed
+      (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so what can load in that frame is the sandbox, which alone is
+      sent `SAMEORIGIN` and `frame-ancestors 'self'`.
+    - **The script is never served as a script.** It is an item resource, like a CSV list and a picture, uploaded to
+      `scripts/name.js` (or `name.js`). Every item resource is now served with a type that is never JavaScript — a `.js`
+      file is stored as `text/plain`, and a resource stored earlier as `text/javascript` (or any `*javascript*` or
+      `*ecmascript*` type) is served as `text/plain` — with `nosniff`, as before. This matters beyond forms: the form
+      page and the console admit scripts from this origin (`script-src 'self'`), so a member's resource served as
+      JavaScript was a script any page here could be made to load. The page reads the file as text and hands it to the
+      sandbox, the one place it runs.
+    - **Server.** `pulldata("@javascript", file, function, …)` is checked at upload: the file and the function are
+      written out in quotes (so the file can be found at publish and the client knows what it runs before it runs it);
+      the file is a name alone ending `.js` — no folder, no address, no `..`, no space; the function is a JavaScript
+      identifier; the arguments are any expressions, as many as the function takes. The definition lists each script
+      with its sheet, row and column. **Publishing** refuses a form whose script is not among the item's files
+      (*"The script 'calc.js' is not among this form's files. Add it to the item's files as scripts/calc.js."*), one larger
+      than 256 KB, and **any form with a script that is shared with everyone**; **sharing** with everyone refuses a form
+      whose draft or published model has one (409, its sharing unchanged); and `form.json` tells the page `scripts:
+      "allowed"`, `"refused"` or `"none"` — `refused` for a form shared with everyone or a caller who is not signed in,
+      which covers a draft never published (saving a draft refuses nothing, so this is the last word).
+      `locale` and `localeInfo` stay refused for `pulldata("@property")`, now for the reason that is true: a script here
+      is given only the values the form passes it.
+    - **Client.** The evaluator's `pulldata("@javascript", …)` asks the page through `ctx.javascript({ file, fn, args })`
+      and answers from what the sandbox already returned for that exact call, `''` while it is out — the mechanism §5.23
+      built for `@layer`, reused rather than written twice: the call is sent, and when the answer arrives the form is
+      recalculated. The status line under the question (`aria-live`, the one `@layer` uses) says why an answer is empty:
+      refused, not uploaded, stopped, failed (with the function's own error message), or not startable on this device.
+      **Offline:** the script's text is kept in the device's copy of the form with its CSV lists and pictures, so a
+      form opened with no signal runs it. The sandbox page itself cannot be kept by the service worker — a sandboxed
+      frame's navigation bypasses it (measured in Chrome: the frame was served from the network while the same address
+      in an ordinary frame came from the worker) — so it is served `Cache-Control: public, max-age=31536000, immutable`
+      at a versioned address and the browser's own cache has it; it is loaded as soon as a form with a script opens,
+      while there is a connection. If it is not there with no signal, the question says *could not be started on this
+      device. It is tried again when the connection returns*, and the form still submits. The preview in Studio runs a
+      form's scripts for the publisher.
+    - **A fault §5.23 had, found by this work.** A calculation that wraps a lookup — `concat('[', pulldata(…), ']')` —
+      gave `'[]'` while the lookup was out, which is not empty, so an `auto` calculation whose inputs had not changed was
+      never run again when the answer came. Both `@layer` and `@javascript` now mark the calculation as waiting, and a
+      waiting calculation is neither kept nor locked. Tested for both.
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.29)** (Q-239): (a) **a form shared with everyone never runs a script**, refused at publish and at sharing,
+      and a caller who is not signed in is never given one to run — Survey123 says scripts are not supported for public
+      surveys; this does not reverse that, though the sandbox would make it safe; (b) **any signed-in member who can open
+      the form runs its scripts**: Survey123 limits them to the author's organisation, and here a form is shared with an
+      organisation or with groups, never with every organisation (§5.11 (l)); a group that holds members of a partner
+      organisation runs them too, because the sandbox, not the membership, is what keeps the script from the member's
+      data; (c) **a script has no network**: Survey123's developer page allows *"API calls (with limitations)"*, and a
+      script here that asks the network gets nothing — the stricter reading, because a script that could reach the
+      network could send the answers it is given anywhere; a publisher who needs a layer's data uses
+      `pulldata("@layer")`; (d) **2 seconds** before a call is abandoned, and a call is not retried with the same
+      arguments once abandoned; (e) arguments: an empty answer is `null`, an answer is its text as the form holds it
+      (a script reads a number with `Number()`), a number or boolean the expression worked out is that number or
+      boolean, a question in a repeat read from outside it is an array of its answers; (f) 256 KB a script, 64 KB of
+      arguments, 64 KB of answer; (g) a function that throws, returns a promise or does not exist leaves the answer empty
+      and says why; (h) the publisher's preview runs scripts.
+    - **Tests.** `AFormRunsItsScriptsInASandboxTests` (checker; the sandbox page's hash, header and `<meta>` agree; the
+      form page frames this origin only; no resource is served as a script), `AFormsScriptGoesOutOnlyWhereItMayRunTests`
+      (a real server over PostGIS: refused at publish until the file is there, published, the file served as
+      `text/plain` with `nosniff`, `scripts: "allowed"`, sharing with everyone refused and the sharing left as it was, a
+      public form refused at republish with a script, a public draft sent with `scripts: "refused"`, the sandbox page's
+      headers), and `FormFillScriptTests` in headless Chrome: a script works an answer out and again when its inputs
+      change, an empty answer arrives as `null`, an object comes back as JSON, an answer inside `concat()`; a script
+      that tries `XMLHttpRequest`, `fetch`, `sendBeacon`, a socket, `document.cookie`, `parent.document`,
+      `localStorage`, IndexedDB and `importScripts` gets nothing and **no request reaches the server**, while the
+      page's own cookie and storage are as they were; `while (true)` is stopped, a call behind it is answered by a new
+      frame, the page keeps taking input and the form submits; a throw, a promise and a missing function are said; a
+      refused form and a missing script start no frame; and the script works from the device with no server.
+    - **The corpus.** One workbook calls a script, `laff-surveys_Single-Family_Inspection_Single-Family_Residential_Inspection.xlsx`
+      (`passFail.js`, four calls), and `@javascript` was the only thing that refused it: it now imports, with notices
+      and no refusal, and publishes once `passFail.js` is uploaded with it (the script itself is not public, so it is not
+      in any test). **The corpus run, against the base's run the same night: 66 of the 108 readable workbooks import
+      unedited, up from 65.**
+    - **Condition 4: the evaluator's answers, not only its errors.** `XlsformEvaluatorExpectedResultsTests` adds 162 of
+      ODK's own vectors — the values JavaRosa, ODK's reference implementation, states for each expression in its public
+      test suite (Apache-2.0; `XPathEvalTest`, `RandomizeTypesTest`, `GeoAreaTest`, `GeoDistanceTest`), copied as data
+      and no code — 14 more compared within JavaRosa's tolerance, and **58 calculations, constraints and relevants from
+      twelve corpus workbooks**, each copied with its workbook and row and given answers whose value was worked out by
+      hand from the specification, the arithmetic written beside it. **Defects they found, all fixed:** (1) a text seed
+      of `randomize()` gave another order than ODK's, because the 64-bit integer it hashes to was kept exact rather than
+      as the number (a double) it is — every text seed's order depends on that rounding; (2) an empty seed was hashed
+      instead of being 0; (3) `area()` summed edges along parallels (Chamberlain and Duquette), not the great circles
+      `distance()` measures — 1.4 m² off ODK's 151,452 ± 0.5 m² for five points near Patras, now the spherical excess,
+      151,452.2; (4) `substr()` clamped a negative index to 0, where ODK's vectors count it from the end
+      (`substr('hello', -2)` is `lo`); (5) `format-date()` left `%H`, `%M` and `%S` as written, where ODK formats them;
+      and (6) the wrapped lookup above. **One disagreement is recorded, not resolved:** `checklist(1, 3, 'foo', 'bar')`
+      is true for JavaRosa, which counts any non-empty text; the specification counts what *"converts to a number > 0"*;
+      ODK's documentation counts *"exactly the string 'yes'"*. Three readings; this evaluator keeps the specification's
+      (INFERRED (i), Q-239). **`digest()` stays refused**, so JavaRosa's digest vectors are not run: building it means
+      MD5, SHA-1, SHA-384 and SHA-512 written here (the browser's own `crypto.subtle` is asynchronous and the evaluator is
+      not), which is a decision about scope and not a correctness fix (Q-239 (j)).
+
+28. **The UX review of §5.26 and §5.27's client — 2026-11-17** (ca099132). Rendered at phone and desktop width, light
+    and dark, English and Turkish, with a live-region recorder. It found and fixed: a script call timed from when it was
+    queued rather than when it ran, so a quick function called twice was stopped as *took too long* and, by §5.27 (d),
+    never retried — calls now go to the sandbox one at a time; the script status line written again on every keystroke;
+    the script status words, which now begin *This answer is left empty.* and say what to do; a warning told from an
+    error by colour alone, which now begins with *Warning:*; the `distress` scale wrapping 4/4/3 and 10/1, its chosen
+    and focused tiles drawn alike, and two of its colours under 3:1 — now 6+5 tiles on a phone and 11 from 640 px, a
+    fill for the choice and an outline for focus, and a ramp from 3.11 to 5.44:1 on both grounds, the number always
+    shown; a saved recording announced twice; an unnamed recording player. The status wording quoted in §5.27 and the
+    distress layout in §5.26 are as built before this review. Left: the browser's own `<audio>` control is 40 px tall;
+    the reviewer recommends 600 px rather than 480 px for the grid's one-column break (§5.26 INFERRED (5), in Q-238).
+
+29. **The owner's answers on §5.22's ZXing points and §5.26–§5.28 — 2026-11-17 morning** ([Q-238](../open-questions.md),
+    [Q-239](../open-questions.md)). Every INFERRED point is confirmed as written (*"Hepsi yazıldığı gibi"*): ZXing's (7) to
+    (10) in §5.22, (1) to (19) of §5.26, and (a) to (j) of §5.27. On scripts the owner was asked once more and kept (a)
+    (*"Böyle kalsın"*): a form shared with everyone never runs one, and a form with a script cannot be shared with
+    everyone; a script has no network. The proposal in Q-238 to answer `phonenumber`, `subscriberid` and `simserial`
+    empty was not taken, so §5.10's refusal of them stands. The feature report's answers are in ADR-301 §5.14.
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
@@ -1414,7 +1725,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
 [ADR-266](ADR-266-a-webhook-tells-another-system-what-changed.md). It leaves
 [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) standing (§5.6).
 
-**Depended on by**: the feature-report ADR, when written (§5.9 (h)).
+**Depended on by**: [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md), the feature report (§5.9 (h)), written 2026-11-17 — not on the print service, as (h) expected; ADR-301 §1 says why.
 
 ## 9. Conditions
 
@@ -1442,7 +1753,7 @@ per device, and finds a conflict from the record's own last-edited time, not fro
    condition 1 (§5.9 (b)), not here.
 4. **The expression evaluator is tested against the specifications' own examples** (xlsform.org's and the XForms
    specification's) and against at least twenty public XLSForms, before forms are released. A form whose logic
-   evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. **Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.
+   evaluates differently from its specification is a defect, not a limitation. **PARTLY DISCHARGED 2026-11-15:** 110 public workbooks, 108 readable, from the sources in §5.18. Of 1,441 expressions found, the 1,373 the server accepts all parse and run in the client, and the catalog and the evaluator agree on every function and refusal. The specifications' examples are covered: the ODK examples already in `XlsformEvaluatorTests` (decimal-time at noon and 6 pm, `regex('[0-9]+')`, `once(random())`, `sum()` of empty nodes, the `indexed-repeat()` equivalence) and XPath 1.0 §4.1, §4.2 and §4.4's examples for `last`, `substring`, `floor` and `ceiling`, with the §4.2 examples of `substring-before`, `substring-after` and `translate`. ~~**Not discharged:** the corpus has no expected results, so a wrong answer without an error is not caught; the expected values for corpus forms, and ODK's own `randomize` vectors, are still to write.~~ **DISCHARGED 2026-11-17 (§5.27):** `XlsformEvaluatorExpectedResultsTests` holds 162 of ODK's own vectors with the values JavaRosa, ODK's reference implementation, states for them (`XPathEvalTest`, `RandomizeTypesTest` — the seeded `randomize` orders for numeric, text, geopoint and empty seeds — `GeoAreaTest`, `GeoDistanceTest`), 14 more within JavaRosa's tolerance, and 58 calculations, constraints and relevants from twelve corpus workbooks with values worked out by hand. The five evaluator defects they found (`randomize` text and empty seeds, `area()` on great circles, negative `substr()` indexes, time in `format-date()`) and a recalculation fault are fixed, and every case passes. Two things are recorded rather than met: `checklist()` is read three ways by ODK's three sources and keeps the specification's reading, and `digest()` stays refused, so its vectors are not run (Q-239 (i), (j)).
 5. **Every refusal at upload names the row, the column and the reason**, and a set of real Survey123 forms is
    imported to count how many come in unedited. A-089 is validated or invalidated by that count. **DISCHARGED 2026-11-15:** a corpus of 110 public workbooks (108 read) was checked, and every refusal in the run has a row and a reason. Refusals with no column are whole-sheet ones, by name. Of the 108, 31 import unedited (29%); of the 61 Survey123-authored forms, 17 do (28%, all from Esri's repository). **A-089 is INVALIDATED** (`architecture-assumptions.md`). The counts and the reasons are in §5.18. **Raised 2026-11-15, same corpus, same run, after §5.19: 31 of the 61 Survey123-authored forms import unedited (51%, up from 17, 28%), and 47 of the 108 (44%, up from 31, 29%).** What still blocks them is in §5.19. **With §5.19, §5.20 and §5.21 together, measured after the three were merged: 42 of the 61 (68%) and 59 of the 108 (55%).** The rest is in §5.21.
 6. **The Inbox's conflict rule is tested with two devices**, or a device and Studio: the same record is edited on both

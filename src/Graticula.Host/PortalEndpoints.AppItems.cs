@@ -261,7 +261,7 @@ internal static partial class PortalEndpoints
         // Never a page: a resource is whatever its writer said it was, so it is not sniffed or framed.
         context.Response.Headers.XContentTypeOptions = "nosniff";
         context.Response.Headers.ContentSecurityPolicy = "sandbox; default-src 'none'";
-        return Results.File(found.Content, found.Resource.MediaType);
+        return Results.File(found.Content, Inert(found.Resource.MediaType));
     }
 
     /// <summary>
@@ -375,9 +375,21 @@ internal static partial class PortalEndpoints
     }
 
     /// <summary>What a resource is, by its name, or what its sender said, or bytes.</summary>
+    /// <summary>
+    /// A resource's type as it is served: never a script. A form's scripts are item resources (ADR-287 §5.27), and this
+    /// server's pages admit scripts from their own origin (<c>script-src 'self'</c>), so a resource served as JavaScript
+    /// would be a script any page here could be made to load. Served as text, with <c>nosniff</c>, a browser refuses to
+    /// run it; the form page reads it as text and hands it to its sandbox, the one place it runs.
+    /// </summary>
+    internal static string Inert(string mediaType) =>
+        mediaType.Contains("javascript", StringComparison.OrdinalIgnoreCase) || mediaType.Contains("ecmascript", StringComparison.OrdinalIgnoreCase)
+            ? "text/plain; charset=utf-8"
+            : mediaType;
+
     private static string MediaTypeOf(string path, string? said) =>
         System.IO.Path.GetExtension(path).ToLowerInvariant() switch
         {
+            ".js" or ".mjs" => "text/plain; charset=utf-8",
             ".json" => "application/json",
             ".png" => "image/png",
             ".jpg" or ".jpeg" => "image/jpeg",
@@ -389,6 +401,6 @@ internal static partial class PortalEndpoints
             ".xml" => "application/xml",
             ".pdf" => "application/pdf",
             ".zip" => "application/zip",
-            _ => said is { Length: > 0 } && !said.Contains("html", StringComparison.OrdinalIgnoreCase) ? said : "application/octet-stream",
+            _ => said is { Length: > 0 } && !said.Contains("html", StringComparison.OrdinalIgnoreCase) ? Inert(said) : "application/octet-stream",
         };
 }

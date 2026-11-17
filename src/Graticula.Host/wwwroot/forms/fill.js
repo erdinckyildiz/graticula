@@ -342,7 +342,28 @@
         "The camera could not be started. Type the code instead.": "Kamera açılamadı. Kodu elle yazın.",
         "The code could not be read. Type the code instead.": "Kod okunamadı. Kodu elle yazın.",
         "The code reader could not be loaded. Connect once to download it, or type the code instead.": "Kod okuyucu yüklenemedi. İndirmek için bir kez internete bağlanın ya da kodu elle yazın.",
-        "Scanning needs the form to be opened at an https address. Type the code instead.": "Tarama için form https ile başlayan bir adresten açılmalı. Kodu elle yazın."
+        "Scanning needs the form to be opened at an https address. Type the code instead.": "Tarama için form https ile başlayan bir adresten açılmalı. Kodu elle yazın.",
+        // ADR-287 section 5.26
+        "Record": "Ses kaydet",
+        "Stop recording": "Kaydı durdur",
+        "Longest recording: ": "En uzun kayıt: ",
+        "Opening the microphone…": "Mikrofon açılıyor…",
+        "Recording. Press Stop recording to finish.": "Kayıt sürüyor. Bitirmek için Kaydı durdur'a basın.",
+        "Recording saved.": "Kayıt eklendi.",
+        "Recording stopped at the time limit and saved.": "Süre dolduğu için kayıt durdu ve eklendi.",
+        "Recording stopped because the page was left, and saved.": "Sayfadan ayrıldığınız için kayıt durdu ve eklendi.",
+        "Nothing was recorded.": "Hiçbir şey kaydedilmedi.",
+        "Microphone permission was refused. Choose a recording instead.": "Mikrofon izni verilmedi. Bunun yerine bir ses dosyası seçin.",
+        "No microphone was found. Choose a recording instead.": "Mikrofon bulunamadı. Bunun yerine bir ses dosyası seçin.",
+        "The microphone could not be started. Choose a recording instead.": "Mikrofon açılamadı. Bunun yerine bir ses dosyası seçin.",
+        "This browser cannot record. Choose a recording instead.": "Bu tarayıcı ses kaydedemiyor. Bunun yerine bir ses dosyası seçin.",
+        "Recording needs the form to be opened at an https address. Choose a recording instead.": "Ses kaydı için form https ile başlayan bir adresten açılmalı. Bunun yerine bir ses dosyası seçin.",
+        "Recording not available: ": "Ses kaydı bulunamadı: ",
+        "Recording: ": "Ses kaydı: ",
+        "0 is none at all and 10 is the most.": "0 hiç, 10 en çok anlamına gelir.",
+        "Check this answer.": "Bu cevabı bir daha kontrol edin.",
+        "Warning:": "Uyarı:",
+        "Remove: ": "Kaldır: "
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
     // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
@@ -501,6 +522,7 @@
                 if (c.auto) { row.__auto = true; } // the Other that or_other adds is offered whatever choice_filter says
                 Object.keys(c.labels || {}).forEach(function (k) { row[k === '' ? 'label' : 'label::' + k] = c.labels[k]; });
                 Object.keys(c.images || {}).forEach(function (k) { row[k === '' ? 'image' : 'image::' + k] = c.images[k]; });
+                Object.keys(c.audio || {}).forEach(function (k) { row[k === '' ? 'audio' : 'audio::' + k] = c.audio[k]; });
                 Object.keys(c.filters || {}).forEach(function (k) { row[k] = c.filters[k]; });
                 return row;
             });
@@ -624,6 +646,7 @@
     var layerFields = {};    // layer address -> { state, fields: { name: esriFieldType }, geometryType }
     var searchStatus = {};   // instance id + '/' + question -> the state of its last search()
     var layerStatus = {};    // instance id + '/' + question -> the state of its calculation's last pulldata("@layer")
+    var lookupPending = false;   // set while a calculation runs when a lookup it made has not answered yet (section 5.27)
 
     function basePath() { return location.pathname.replace(/\/forms(\/.*)?$/i, ''); }
 
@@ -887,6 +910,7 @@
         var requestKey = 'layer|' + target.url + '|' + encodeForm(params);
         var entry = layerGet(requestKey, target.url + '/query', params);
         layerStatus[key] = entry.state;
+        if (entry.state === 'pending') { lookupPending = true; }
         if (entry.state !== 'done') { return ''; }
         var feature = (entry.json.features || [])[0];
         // INFERRED (section 5.23): nothing found is the empty answer, as is a layer the member cannot read.
@@ -928,6 +952,249 @@
     }
 
     // ---------------------------------------------------------------------------------------------------------------
+    // pulldata("@javascript") (ADR-287 section 5.27).
+    //
+    // A form's script is a file uploaded with it, under scripts/ as Survey123 keeps it, read like a CSV list and kept on
+    // the device with the form. It never runs in this page. It runs in a frame of script-sandbox.html with
+    // sandbox="allow-scripts" and nothing else: an opaque origin, so no cookie, no storage, no token and no same-origin
+    // request, and no way into this page; the frame's own policy forbids every connection and every other script, and
+    // the frame runs each file in a worker, so a script that never returns blocks nothing here. What crosses is what the
+    // call passes — the arguments the form wrote, as plain values — and what the function returns, both size-limited.
+    //
+    // The evaluator is synchronous, so a call is answered as pulldata("@layer") is (section 5.23): scriptAnswer() gives
+    // what the sandbox already returned for that exact call, or '' while it is out and sends it; when the answer arrives
+    // the form is recalculated. A call that does not answer within SCRIPT_TIMEOUT_MS is abandoned: the frame is removed,
+    // which stops every worker in it, the answer stays empty and the question says why. The next call starts a new frame.
+    //
+    // The server says whether this form's scripts may run at all (form.json's "scripts"): never on a form shared with
+    // everyone, nor for a caller who is not signed in; the preview, in Studio, runs them for the publisher.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    var SANDBOX_VERSION = '1';           // script-sandbox.html is cached for a year: change this when the file changes
+    var SCRIPT_TIMEOUT_MS = 2000;        // INFERRED (section 5.27): Survey123's page sets no limit
+    var SANDBOX_START_MS = 8000;
+    var SCRIPT_ARGS_MAX = 65536;         // characters of JSON a call may pass
+    var scriptTexts = {};                // script file name -> its text
+    var missingScripts = [];             // script names the item does not have
+    var scriptCache = {};                // call key -> { state: 'pending' | 'done' | 'error' | 'timeout' | 'unavailable', value, message }
+    var scriptStatus = {};               // instance id + '/' + question -> the state of its calculation's last script call
+    var sandbox = null;                  // { frame, ready, sent: { file: true }, queue: [message], waiting: { id: key }, timers: { id: timer }, startTimer }
+    var sandboxSeq = 0;
+
+    Object.assign(TR, {
+        "This answer is left empty. It is worked out automatically only for signed-in members, and never on a form shared with everyone.": "Bu cevap boş kaldı. Yalnız giriş yapmış üyeler için kendiliğinden hesaplanır; herkesle paylaşılan bir formda hiç hesaplanmaz.",
+        "This answer is left empty. What works it out was not uploaded with the form; tell the form's owner.": "Bu cevap boş kaldı. Onu hesaplayan dosya formla birlikte yüklenmemiş; formun sahibine haber verin.",
+        "This answer is left empty. Working it out took too long, so it was stopped; tell the form's owner.": "Bu cevap boş kaldı. Hesaplanması çok uzun sürdüğü için durduruldu; formun sahibine haber verin.",
+        "This answer is left empty. Working it out failed; tell the form's owner: ": "Bu cevap boş kaldı. Hesaplanamadı; formun sahibine şunu iletin: ",
+        "This answer is left empty for now: it cannot be worked out on this device yet. It is tried again when the connection returns.": "Bu cevap şimdilik boş: bu cihazda henüz hesaplanamıyor. Bağlantı gelince yeniden denenir."
+    });
+
+    function scriptNamesOf(formIn) {
+        var names = [];
+        (function walk(node) {
+            (node.body || []).forEach(function (n) {
+                if (n.kind === 'question') {
+                    [n.calculation, n.relevant, n.constraint, n.default, n.required, n.readOnly, n.choiceFilter].forEach(function (e) {
+                        var re = /pulldata\s*\(\s*['"]@javascript['"]\s*,\s*['"]([^'"]+)['"]/g, m;
+                        while (typeof e === 'string' && (m = re.exec(e))) { if (names.indexOf(m[1]) < 0) { names.push(m[1]); } }
+                    });
+                } else { walk(n); }
+            });
+        })(formIn.root);
+        return names;
+    }
+
+    // Whether this form's scripts may run here: the server's word, and in a preview the publisher's own.
+    function scriptsAllowed() {
+        if (loadedFrom === 'preview') { return true; }
+        return !!doc && doc.scripts === 'allowed';
+    }
+
+    // A script is an item resource like a CSV, tried under scripts/ first. It is read as text: the server serves it as
+    // text, never as a script, and it is handed to the sandbox, the one place it runs.
+    async function fetchScript(name) {
+        var candidates = ['scripts/' + name, name];
+        for (var i = 0; i < candidates.length; i++) {
+            try {
+                var headers = {};
+                var held = token();
+                if (held) { headers.Authorization = 'Bearer ' + held; }
+                var response = await fetch('/sharing/rest/content/items/' + itemId + '/resources/' + encodeURI(candidates[i]),
+                    { headers: headers, credentials: 'same-origin' });
+                if (!response.ok) { continue; }
+                var body = await response.text();
+                if (/json/i.test(response.headers.get('content-type') || '') && /"error"/.test(body)) { continue; }
+                return body;
+            } catch (e) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    async function loadScripts(loaded) {
+        if (!scriptsAllowed()) { return; }
+        var names = scriptNamesOf(form);
+        for (var i = 0; i < names.length; i++) {
+            if (scriptTexts[names[i]] !== undefined) { continue; }
+            var body = loaded.from !== 'device' && itemId ? await fetchScript(names[i]) : null;
+            if (body === null && loaded.from !== 'preview' && itemId) {
+                var copy = await dbGet('forms', itemId).catch(function () { return null; });
+                if (copy && copy.scripts && copy.scripts[names[i]] !== undefined) { body = copy.scripts[names[i]]; }
+            }
+            if (body === null) { missingScripts.push(names[i]); } else { scriptTexts[names[i]] = body; }
+        }
+        // Started now, while there is a connection, so the browser has the sandbox page in its cache for a reload with none.
+        if (Object.keys(scriptTexts).length) { sandboxFrame(); }
+    }
+
+    function sandboxUrl() { return basePath() + '/forms/script-sandbox.html?v=' + SANDBOX_VERSION; }
+
+    function sandboxFrame() {
+        if (sandbox) { return sandbox; }
+        var frame = document.createElement('iframe');
+        frame.setAttribute('sandbox', 'allow-scripts');
+        frame.setAttribute('title', 'Form scripts');
+        frame.setAttribute('aria-hidden', 'true');
+        frame.setAttribute('tabindex', '-1');
+        frame.hidden = true;
+        frame.className = 'script-sandbox';
+        frame.src = sandboxUrl();
+        var box = { frame: frame, ready: false, sent: {}, queue: [], backlog: [], waiting: {}, timers: {}, startTimer: 0 };
+        // No answer from the page at all — no connection and nothing cached — is said as such, and tried again later.
+        box.startTimer = setTimeout(function () { if (sandbox === box && !box.ready) { dropSandbox('unavailable'); } }, SANDBOX_START_MS);
+        sandbox = box;
+        document.body.appendChild(frame);
+        return box;
+    }
+
+    // Removes the frame and every worker in it. The call that caused it keeps its state; every other call that was out
+    // is forgotten, so it is simply asked again by the next recalculation.
+    function dropSandbox(why, culprit) {
+        var box = sandbox;
+        if (!box) { return; }
+        sandbox = null;
+        clearTimeout(box.startTimer);
+        Object.keys(box.timers).forEach(function (id) { clearTimeout(box.timers[id]); });
+        Object.keys(box.waiting).forEach(function (id) {
+            var key = box.waiting[id];
+            if (key === culprit) { return; }
+            if (why === 'unavailable') { scriptCache[key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[key]; }
+        });
+        box.queue.concat(box.backlog).forEach(function (m) { if (m.kind === 'call' && m.key !== culprit) { if (why === 'unavailable') { scriptCache[m.key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[m.key]; } } });
+        if (box.frame.parentNode) { box.frame.parentNode.removeChild(box.frame); }
+        setTimeout(function () { refresh(false); }, 0);
+    }
+
+    // One call at a time: a frame's worker runs its calls one after another, so a call sent behind another would have
+    // its time limit running while it only waited, and a quick function typed into fast was stopped as "took too long"
+    // (UX review 2026-11-17). The next call is sent when the one out answers.
+    function sandboxSend(box, message) {
+        if (!box.ready) { box.queue.push(message); return; }
+        if (message.kind === 'call' && Object.keys(box.waiting).length) { box.backlog.push(message); return; }
+        if (message.kind === 'call' && !box.sent[message.file]) {
+            box.frame.contentWindow.postMessage({ kind: 'load', file: message.file, source: scriptTexts[message.file] }, '*');
+            box.sent[message.file] = true;
+        }
+        if (message.kind === 'call') {
+            box.waiting[message.id] = message.key;
+            box.timers[message.id] = setTimeout(function () {
+                if (sandbox !== box || !Object.prototype.hasOwnProperty.call(box.waiting, message.id)) { return; }
+                scriptCache[message.key] = { state: 'timeout' };
+                dropSandbox('timeout', message.key);
+            }, SCRIPT_TIMEOUT_MS);
+            box.frame.contentWindow.postMessage({ kind: 'call', id: message.id, file: message.file, fn: message.fn, args: message.args }, '*');
+        }
+    }
+
+    window.addEventListener('message', function (event) {
+        var box = sandbox;
+        if (!box || event.source !== box.frame.contentWindow) { return; }
+        var d = event.data || {};
+        if (d.kind === 'ready' && !box.ready) {
+            box.ready = true;
+            clearTimeout(box.startTimer);
+            var queued = box.queue;
+            box.queue = [];
+            queued.forEach(function (m) { sandboxSend(box, m); });
+            return;
+        }
+        if (d.kind !== 'result' || typeof d.id !== 'number' || !Object.prototype.hasOwnProperty.call(box.waiting, d.id)) { return; }
+        var key = box.waiting[d.id];
+        delete box.waiting[d.id];
+        clearTimeout(box.timers[d.id]);
+        delete box.timers[d.id];
+        if (box.backlog.length) { sandboxSend(box, box.backlog.shift()); }
+        var v = d.value;
+        var fine = d.ok === true && (v === null || typeof v === 'boolean' || (typeof v === 'number' && isFinite(v)) || (typeof v === 'string' && v.length <= SCRIPT_ARGS_MAX));
+        scriptCache[key] = fine ? { state: 'done', value: v === null ? '' : v }
+            : { state: 'error', message: String(d.error || 'the answer is not a value a question can hold').slice(0, 300) };
+        setTimeout(function () { refresh(false); }, 0);
+    });
+
+    // A frame that could not start for want of a connection is tried again when the connection returns.
+    window.addEventListener('online', function () {
+        Object.keys(scriptCache).forEach(function (k) { if (scriptCache[k].state === 'unavailable') { delete scriptCache[k]; } });
+        if (form && root) { setTimeout(function () { refresh(false); }, 0); }
+    });
+
+    // pulldata("@javascript"): the evaluator's ctx.javascript, for the question q in the instance inst.
+    function scriptAnswer(inst, q, request) {
+        var at = inst.id + '/' + q.name;
+        if (!scriptsAllowed()) { scriptStatus[at] = 'refused'; return ''; }
+        if (scriptTexts[request.file] === undefined) { scriptStatus[at] = 'missing'; return ''; }
+        var args;
+        try { args = JSON.stringify(request.args || []); } catch (e) { args = null; }
+        if (args === null || args.length > SCRIPT_ARGS_MAX) {
+            scriptStatus[at] = 'error';
+            scriptStatus[at + '#message'] = 'its arguments are too long';
+            return '';
+        }
+        var key = request.file + '|' + request.fn + '|' + args;
+        var hit = scriptCache[key];
+        // Unstartable a moment ago: not asked again on every redraw, but after a while.
+        if (hit && hit.state === 'unavailable' && Date.now() - hit.at > 15000 && navigator.onLine !== false) { delete scriptCache[key]; hit = null; }
+        if (!hit) {
+            hit = scriptCache[key] = { state: 'pending' };
+            sandboxSend(sandboxFrame(), { kind: 'call', id: ++sandboxSeq, key: key, file: request.file, fn: request.fn, args: JSON.parse(args) });
+        }
+        scriptStatus[at] = hit.state;
+        scriptStatus[at + '#message'] = hit.message || '';
+        if (hit.state === 'pending') { lookupPending = true; }
+        return hit.state === 'done' ? hit.value : '';
+    }
+
+    var SCRIPT_STATUS_SETTLE_MS = 600;   // a script's changed status line is written once it has held this long
+
+    /** Whether the last script call a question's calculation made is still out. */
+    function scriptStatusPending(inst, q) {
+        return !!q.calculation && /@javascript/.test(q.calculation) && scriptStatus[inst.id + '/' + q.name] === 'pending';
+    }
+
+    /** What a question whose calculation runs a script says under its answer, or ''. */
+    function scriptStatusText(inst, q) {
+        if (!q.calculation || !/@javascript/.test(q.calculation)) { return ''; }
+        var at = inst.id + '/' + q.name;
+        switch (scriptStatus[at]) {
+            case 'refused': return t('This answer is left empty. It is worked out automatically only for signed-in members, and never on a form shared with everyone.');
+            case 'missing': return t("This answer is left empty. What works it out was not uploaded with the form; tell the form's owner.");
+            case 'timeout': return t("This answer is left empty. Working it out took too long, so it was stopped; tell the form's owner.");
+            case 'error': return t("This answer is left empty. Working it out failed; tell the form's owner: ") + (scriptStatus[at + '#message'] || '');
+            case 'unavailable': return t('This answer is left empty for now: it cannot be worked out on this device yet. It is tried again when the connection returns.');
+        }
+        return '';
+    }
+
+    // A new preview: the scripts are read again, and the frame that ran the old ones goes.
+    function resetScripts() {
+        scriptTexts = {};
+        missingScripts = [];
+        scriptCache = {};
+        scriptStatus = {};
+        if (sandbox) { var box = sandbox; sandbox = null; clearTimeout(box.startTimer); if (box.frame.parentNode) { box.frame.parentNode.removeChild(box.frame); } }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
     // Pictures (ADR-287 §5.10, 2026-11-15): a label or a choice may show a picture, a file uploaded with the form. It is
     // an item resource, kept under media/ as Survey123 keeps it, read like a CSV list and kept on the device with the
     // form so an offline reload still shows it. A picture that cannot be found says so; it is never a broken image.
@@ -940,7 +1207,10 @@
     function mediaTypeOf(name) {
         var m = /\.([a-z0-9]+)$/i.exec(name || '');
         var ext = m ? m[1].toLowerCase() : '';
-        return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' }[ext] || 'application/octet-stream';
+        return { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+            // section 5.26: a .bmp picture, and the recordings a label or a choice may play
+            bmp: 'image/bmp', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+            m4a: 'audio/mp4', aac: 'audio/aac', webm: 'audio/webm', flac: 'audio/flac' }[ext] || 'application/octet-stream';
     }
 
     function loadMedia(name) {
@@ -980,9 +1250,9 @@
         var names = [];
         function add(map) { Object.keys(map || {}).forEach(function (k) { if (map[k] && names.indexOf(map[k]) < 0) { names.push(map[k]); } }); }
         (function walk(node) {
-            (node.body || []).forEach(function (n) { if (n.kind === 'question') { add(n.images); } else { walk(n); } });
+            (node.body || []).forEach(function (n) { if (n.kind === 'question') { add(n.images); add(n.audio); } else { walk(n); } });
         })(formIn.root);
-        Object.keys(formIn.choices || {}).forEach(function (l) { formIn.choices[l].forEach(function (c) { add(c.images); }); });
+        Object.keys(formIn.choices || {}).forEach(function (l) { formIn.choices[l].forEach(function (c) { add(c.images); add(c.audio); }); });
         return names;
     }
 
@@ -1114,7 +1384,8 @@
             language: lang,
             pulldata: pulldata,
             property: propertyOf,
-            layer: function (request) { return q && q.kind === 'question' ? layerAnswer(inst, q, request) : ''; }
+            layer: function (request) { return q && q.kind === 'question' ? layerAnswer(inst, q, request) : ''; },
+            javascript: function (request) { return q && q.kind === 'question' ? scriptAnswer(inst, q, request) : ''; }
         };
     }
 
@@ -1187,6 +1458,7 @@
             if (inst.rel[n.name] !== r) { inst.rel[n.name] = r; changed = true; }
             if (n.kind === 'question') {
                 if (r && n.calculation && calculationDue(inst, n)) {
+                    lookupPending = false;
                     var v = asCalculated(n, evalString(n.calculation, inst, n));
                     noteCalculated(inst, n, v);
                     if (inst.values[n.name] !== v) { inst.values[n.name] = v; changed = true; }
@@ -1262,6 +1534,11 @@
     function noteCalculated(inst, q, value) {
         var st = calcState(inst, q.name);
         st.ran = true;
+        // A lookup the calculation made is still out (pulldata("@layer"), pulldata("@javascript")): what it gave stands for
+        // now, but is not this calculation's answer to these inputs, so it is neither kept nor locked, and the calculation
+        // runs again when the answer arrives. Without this a calculation that wraps the lookup — concat('[', …, ']') —
+        // gave '[]', which is not empty, and an "auto" calculation whose inputs had not changed was never run again.
+        if (lookupPending) { st.key = null; return; }
         if ((q.calculationMode || 'auto') === 'whenEmpty' && value !== '') { st.locked = true; }
         if ((q.calculationMode || 'auto') === 'auto') { st.key = calculationKey(inst, q); }
     }
@@ -1276,6 +1553,7 @@
 
     /** The Calculate button: runs the calculation now, whatever the mode, and leaves the person's own touch alone. */
     function calculateNow(inst, q) {
+        lookupPending = false;
         var v = asCalculated(q, evalString(q.calculation, inst, q));
         noteCalculated(inst, q, v);
         inst.values[q.name] = v;
@@ -1490,11 +1768,13 @@
     function renderBody(inst, body, container, level) {
         body.forEach(function (n) {
             if (n.kind === 'question') {
-                if (hasUi(n)) { renderQuestion(inst, n, container); }
+                if (hasUi(n)) { renderQuestion(inst, n, container); gridPlace(container, n); }
             } else if (n.kind === 'group') {
                 renderGroup(inst, n, container, level);
+                gridPlace(container, n);
             } else if (n.kind === 'repeat') {
                 renderRepeat(inst, n, container, level);
+                gridPlace(container, n);
             }
         });
     }
@@ -1559,6 +1839,8 @@
             box.appendChild(heading(level, label, { class: form.pages && !inst.parent ? 'page-title' : null }));
         }
         container.appendChild(box);
+        if (form.grid && widthOf(g.appearance) > 1 && target === box) { target = box.appendChild(el('div', { class: 'group-body' })); }
+        gridGroup(target, g);
         if (has(g.appearance, 'table-list')) { renderTable(inst, g, target); } else { renderBody(inst, g.body || [], target, level + 1); }
         if (toggle) { views.push({ update: toggle.flagUpdate }); }
         views.push({ update: function () { box.hidden = inst.rel[g.name] === false; } });
@@ -1731,15 +2013,19 @@
         var hint = hintText ? el('p', { class: 'hint', id: id + '-hint', text: hintText }) : null;
         var picture = pictureName(q.images);
         var pictureBlock = picture ? pictureNode('div', picture, 'question-picture') : null;
+        var sound = soundName(q.audio);
+        var soundBlock = sound ? soundNode(sound, labelTemplate, 'question-sound') : null;
+        var warning = q.warning ? el('p', { class: 'warning', id: id + '-warning', role: 'status' }) : null;
         var guidance = guidanceNodes(q, id, key);
         // No live region per question: the summary is the one alert, and two announcements per error was noise (UX review).
         var error = el('p', { class: 'error', id: id + '-error' });
-        var describedBy = (hint ? id + '-hint ' : '') + id + '-error';
+        var describedBy = (hint ? id + '-hint ' : '') + id + '-error' + (warning ? ' ' + id + '-warning' : '');
 
         var shell = useFieldset ? el('fieldset', { 'aria-describedby': describedBy }) : wrap;
         if (useFieldset) { wrap.appendChild(shell); }
         shell.appendChild(labelNode);
         if (pictureBlock) { shell.appendChild(pictureBlock); }
+        if (soundBlock) { shell.appendChild(soundBlock); }
         if (hint) { shell.appendChild(hint); }
         if (guidance) { shell.appendChild(guidance.button); shell.appendChild(guidance.panel); }
 
@@ -1759,18 +2045,36 @@
             shell.appendChild(calculated);
         }
         // pulldata("@layer") (section 5.23): what the lookup is doing, said where the answer is, and announced.
-        var lookup = q.calculation && /@layer/.test(q.calculation) ? el('p', { class: 'hint layer-status', id: id + '-lookup', 'aria-live': 'polite' }) : null;
+        var lookup = q.calculation && /@layer|@javascript/.test(q.calculation) ? el('p', { class: 'hint layer-status', id: id + '-lookup', 'aria-live': 'polite' }) : null;
         if (lookup) { shell.appendChild(lookup); }
         // "Looking this up…" is said only when the answer has not come back within half a second: a lookup per keystroke
         // in the question it reads otherwise announced it, and blanked it, once a letter (UX review 2026-11-16).
         var lookupTimer = 0;
+        var settleTimer = 0;
         function sayLookup() {
-            var said = layerStatusText(inst, q);
+            // A script's line (section 5.27) is not blanked while its next call is out, and a changed line is written
+            // once it has held for a moment: blanking it and writing it back announced the same failure on every
+            // keystroke in a question the script reads (UX review 2026-11-17).
+            if (!layerStatusText(inst, q) && scriptStatusPending(inst, q)) { return; }
+            if (q.calculation && /@javascript/.test(q.calculation) && !layerStatusText(inst, q)) {
+                var line = scriptStatusText(inst, q);
+                clearTimeout(settleTimer);
+                settleTimer = 0;
+                if (lookup.textContent === line) { return; }
+                if (line === '') { lookup.textContent = ''; return; }
+                settleTimer = setTimeout(function () {
+                    settleTimer = 0;
+                    var now = scriptStatusPending(inst, q) ? null : scriptStatusText(inst, q);
+                    if (now !== null && lookup.isConnected && lookup.textContent !== now) { lookup.textContent = now; }
+                }, SCRIPT_STATUS_SETTLE_MS);
+                return;
+            }
+            var said = layerStatusText(inst, q) || scriptStatusText(inst, q);
             if (said === t('Looking this up…') && lookup.textContent !== said) {
                 if (!lookupTimer) {
                     lookupTimer = setTimeout(function () {
                         lookupTimer = 0;
-                        var now = layerStatusText(inst, q);
+                        var now = layerStatusText(inst, q) || scriptStatusText(inst, q);
                         if (lookup.isConnected && lookup.textContent !== now) { lookup.textContent = now; }
                     }, 500);
                 }
@@ -1781,6 +2085,7 @@
             if (lookup.textContent !== said) { lookup.textContent = said; }
         }
         wrap.appendChild(error);
+        if (warning) { wrap.appendChild(warning); }
         if (q.type === 'note' && labelNode.tagName === 'DIV') { wrap.classList.add('note'); }
         container.appendChild(wrap);
 
@@ -1801,6 +2106,18 @@
                 var message = (showAll || inst.touched[q.name]) ? messageFor(inst, q) : '';
                 error.textContent = message;
                 wrap.classList.toggle('invalid', !!message);
+                if (warning) {
+                    var cautious = !message && (showAll || inst.touched[q.name]) ? warningFor(inst, q) : '';
+                    // Named in words, so a warning is not told from an error by its colour alone, and a screen reader
+                    // hears that it is one (UX review 2026-11-17).
+                    var cautionSaid = cautious ? t('Warning:') + ' ' + cautious : '';
+                    if (warning.textContent !== cautionSaid) {
+                        // One change, so it is announced once.
+                        if (cautious) { warning.replaceChildren(el('strong', { text: t('Warning:') }), document.createTextNode(' ' + cautious)); }
+                        else { warning.textContent = ''; }
+                    }
+                    wrap.classList.toggle('warned', !!cautious);
+                }
                 if (widget.controls) {
                     widget.controls().forEach(function (c) {
                         if (message) { c.setAttribute('aria-invalid', 'true'); } else { c.removeAttribute('aria-invalid'); }
@@ -2055,6 +2372,7 @@
 
     function numberWidget(inst, q, id, describedBy) {
         if (has(q.appearance, 'spinner')) { return spinnerWidget(inst, q, id, describedBy); }
+        if (q.type === 'integer' && has(q.appearance, 'distress')) { return distressWidget(inst, q, id); }
         var input = el('input', {
             type: 'text', id: id, 'aria-describedby': describedBy, 'data-focus': 'input',
             inputmode: q.type === 'integer' ? 'numeric' : 'decimal', autocomplete: 'off'
@@ -2204,6 +2522,8 @@
                 controls.push(input);
                 var shown = choicePicture(row);
                 box.appendChild(el('label', { class: 'choice', for: id + '-' + i }, [input, shown ? pictureNode('span', shown, 'choice-picture') : null, el('span', { text: choiceLabel(row) })]));
+                var heard = choiceSound(row);
+                if (heard) { box.appendChild(soundNode(heard, choiceLabel(row), 'choice-sound')); }
                 if (focusedValue === value) { setTimeout(function () { input.focus(); }, 0); }
             });
             holder.appendChild(box);
@@ -3093,7 +3413,7 @@
         var input = el('input', {
             type: 'file', id: id, accept: accept, multiple: multiple ? true : null, 'aria-describedby': describedBy,
             'data-focus': 'input', 'aria-labelledby': id + '-label',
-            capture: q.type === 'image' || q.type === 'video' ? 'environment' : q.type === 'audio' ? 'user' : null
+            capture: captureFor(q)
         });
         var list = el('ul', { class: 'files' });
         var urls = [];
@@ -3116,10 +3436,10 @@
                 var url = URL.createObjectURL(f.blob);
                 urls.push(url);
                 var preview = /^image\//.test(f.type) ? el('img', { src: url, alt: '' })
-                    : /^audio\//.test(f.type) ? el('audio', { src: url, controls: true })
-                    : /^video\//.test(f.type) ? el('video', { src: url, controls: true, muted: true }) : null;
+                    : /^audio\//.test(f.type) ? el('audio', { src: url, controls: true, 'aria-label': t('Recording: ') + f.name })
+                    : /^video\//.test(f.type) ? el('video', { src: url, controls: true, muted: true, 'aria-label': f.name }) : null;
                 var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove-' + i, text: t('Remove') });
-                remove.setAttribute('aria-label', 'Remove ' + f.name);
+                remove.setAttribute('aria-label', t('Remove: ') + f.name);
                 remove.addEventListener('click', function () {
                     var now = filesOf(inst, q.name).slice(); now.splice(i, 1); setFiles(inst, q, now); input.focus();
                 });
@@ -3128,7 +3448,7 @@
         }
         var drawnFor = null;
         return {
-            node: el('div', null, [input, list]),
+            node: el('div', null, [input, q.type === 'audio' ? audioRecorderNode(inst, q, id) : null, list]),
             controls: function () { return [input]; },
             sync: function (ro) {
                 var now = filesOf(inst, q.name);
@@ -3136,6 +3456,225 @@
                 input.disabled = !!ro;
             }
         };
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // ADR-287 section 5.26: recording an audio answer, recordings in labels, the distress scale, a warning that lets the
+    // answer go, the camera a photo is taken with, and a grid of a group's questions. Kept together so a merge of
+    // fill.js meets them in one place.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    // new-front takes a photo with the front camera, as Survey123's field app does; new, new-rear and a plain image the
+    // rear one. `capture` on a phone opens the camera itself; a desktop browser ignores it and offers a file.
+    function captureFor(q) {
+        if (q.type === 'image') { return has(q.appearance, 'new-front') ? 'user' : 'environment'; }
+        if (q.type === 'video') { return 'environment'; }
+        if (q.type === 'audio') { return 'user'; }
+        return null;
+    }
+
+    // ----- Recording an audio answer. Survey123's web app only chooses a file; this one also records where the browser
+    // can (MediaRecorder and a microphone, which need an https address), up to max-duration seconds (600 when the form
+    // does not say: Survey123's web-app default). A recording is a file like a chosen one: it waits in the outbox with
+    // the record when there is no signal, and is sent as an attachment.
+    var recording = null;    // the one recording running: { key, recorder, stream, chunks, started, timer, tick, view, stop }
+    var recordingSaid = {};  // what the last recording said, by question key, so a redraw still says it
+
+    function canRecord() {
+        return !!(window.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function clockOf(seconds) {
+        var s = Math.max(0, Math.floor(seconds));
+        return Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+    }
+
+    function recordingExtension(type) {
+        if (/ogg/.test(type)) { return '.ogg'; }
+        if (/mp4|aac|m4a/.test(type)) { return '.m4a'; }
+        if (/mpeg/.test(type)) { return '.mp3'; }
+        if (/wav/.test(type)) { return '.wav'; }
+        return '.webm';
+    }
+
+    function stopRecording(how) {
+        if (recording) { var r = recording; recording = null; r.stop(how); }
+    }
+
+    window.addEventListener('pagehide', function () { stopRecording('left'); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) { stopRecording('left'); } });
+
+    function audioRecorderNode(inst, q, id) {
+        var key = keyOf(inst, q.name);
+        var limit = Number(q.maxDuration) > 0 ? Number(q.maxDuration) : 600;
+        var status = el('p', { class: 'hint', id: id + '-recording', 'aria-live': 'polite' });
+        var clock = el('p', { class: 'hint recording-clock', 'aria-hidden': 'true' });
+        if (!canRecord()) {
+            var insecure = window.isSecureContext === false;
+            return el('div', { class: 'recorder' }, [el('p', { class: 'hint', text: insecure
+                ? t('Recording needs the form to be opened at an https address. Choose a recording instead.')
+                : t('This browser cannot record. Choose a recording instead.') })]);
+        }
+        var button = el('button', { type: 'button', class: 'quiet', 'data-focus': 'record', 'aria-describedby': id + '-label ' + id + '-limit' });
+        var limitNote = el('p', { class: 'hint', id: id + '-limit', text: t('Longest recording: ') + clockOf(limit) });
+        function draw() {
+            var on = !!(recording && recording.key === key);
+            button.textContent = on ? t('Stop recording') : t('Record');
+            button.setAttribute('aria-pressed', on ? 'true' : 'false');
+            clock.hidden = !on;
+            if (on) { clock.textContent = clockOf((Date.now() - recording.started) / 1000) + ' / ' + clockOf(limit); }
+            if (!on && !saying && recordingSaid[key] && status.textContent !== recordingSaid[key]) { status.textContent = recordingSaid[key]; }
+        }
+        // Emptied first so the same words are announced again; written once. The redraw that follows a saved recording
+        // wrote the words back at once, and the timer a second time, and both were announced (UX review 2026-11-17).
+        var saying = 0;
+        function say(words) {
+            recordingSaid[key] = words;
+            status.textContent = '';
+            clearTimeout(saying);
+            saying = setTimeout(function () { saying = 0; if (status.textContent !== words) { status.textContent = words; } }, 50);
+        }
+        button.addEventListener('click', function () {
+            if (recording && recording.key === key) { stopRecording('done'); return; }
+            stopRecording('other');
+            stopBarcodeScan('other');
+            say(t('Opening the microphone…'));
+            navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(function (stream) {
+                var recorder;
+                try { recorder = new MediaRecorder(stream); } catch (e) {
+                    stream.getTracks().forEach(function (tr) { tr.stop(); });
+                    say(t('This browser cannot record. Choose a recording instead.'));
+                    return;
+                }
+                var chunks = [];
+                var session = { key: key, recorder: recorder, stream: stream, started: Date.now(), view: draw, say: say };
+                var ended = 'done';
+                recorder.ondataavailable = function (e) { if (e.data && e.data.size) { chunks.push(e.data); } };
+                recorder.onstop = function () {
+                    stream.getTracks().forEach(function (tr) { tr.stop(); });
+                    var type = (recorder.mimeType || (chunks[0] && chunks[0].type) || 'audio/webm').split(';')[0];
+                    if (chunks.length) {
+                        var blob = new Blob(chunks, { type: type });
+                        var stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, '');
+                        var file = { name: q.name + '-' + stamp + recordingExtension(type), type: type, size: blob.size, blob: blob };
+                        var multiple = has(q.appearance, 'multiline');
+                        setFiles(inst, q, multiple ? filesOf(inst, q.name).concat([file]) : [file]);
+                        session.say(ended === 'limit' ? t('Recording stopped at the time limit and saved.')
+                            : ended === 'left' ? t('Recording stopped because the page was left, and saved.') : t('Recording saved.'));
+                    } else {
+                        session.say(t('Nothing was recorded.'));
+                    }
+                    var now = document.querySelector('[data-key="' + cssEscape(key) + '"] [data-focus=record]');
+                    if (ended === 'done' && now) { now.focus(); }
+                    if (session.view) { session.view(); }
+                };
+                session.stop = function (how) {
+                    ended = how;
+                    clearTimeout(session.timer); clearInterval(session.tick);
+                    try { if (recorder.state !== 'inactive') { recorder.stop(); } else { recorder.onstop(); } } catch (e) { recorder.onstop(); }
+                };
+                session.timer = setTimeout(function () { if (recording === session) { stopRecording('limit'); } }, limit * 1000);
+                session.tick = setInterval(function () { if (session.view) { session.view(); } }, 1000);
+                recording = session;
+                recorder.start();
+                say(t('Recording. Press Stop recording to finish.'));
+                draw();
+            }, function (err) {
+                var name = err && err.name;
+                say(name === 'NotAllowedError' || name === 'SecurityError' ? t('Microphone permission was refused. Choose a recording instead.')
+                    : name === 'NotFoundError' ? t('No microphone was found. Choose a recording instead.')
+                        : t('The microphone could not be started. Choose a recording instead.'));
+            });
+        });
+        // A redraw makes a new widget; the recording running is drawn by whichever widget is on the page now.
+        if (recording && recording.key === key) { recording.view = draw; recording.say = say; }
+        draw();
+        return el('div', { class: 'recorder' }, [el('div', { class: 'inline' }, [button]), clock, limitNote, status]);
+    }
+
+    // ----- Recordings in labels and choices (media::audio, and its older spelling audio). Found and kept on the device
+    // with the form, as pictures are, so an offline reload still plays them.
+    function soundName(map) { return text(map || {}, ''); }
+
+    function choiceSound(row) {
+        if (lang && row['audio::' + lang]) { return String(row['audio::' + lang]); }
+        if (row.audio) { return String(row.audio); }
+        var keys = Object.keys(row);
+        for (var i = 0; i < keys.length; i++) { if (keys[i].indexOf('audio::') === 0 && row[keys[i]]) { return String(row[keys[i]]); } }
+        return '';
+    }
+
+    function soundNode(name, label, cls) {
+        var holder = el('div', { class: 'sound' + (cls ? ' ' + cls : '') });
+        loadMedia(name).then(function (blob) {
+            if (!blob) {
+                holder.appendChild(el('span', { class: 'picture-missing', text: t('Recording not available: ') + name }));
+                return;
+            }
+            if (!mediaUrls[name]) { mediaUrls[name] = URL.createObjectURL(blob); }
+            holder.appendChild(el('audio', { src: mediaUrls[name], controls: true, preload: 'none', 'aria-label': t('Recording: ') + label }));
+        });
+        return holder;
+    }
+
+    // ----- distress (Survey123's integer appearance): "a 10-point scale used to measure feelings such as stress, pain,
+    // and happiness". INFERRED: the points are 0 to 10, the convention of such scales, drawn from green to red; it is a
+    // set of radio buttons, so it is answered with the arrow keys as any choice is, and Clear takes the answer away.
+    function distressWidget(inst, q, id) {
+        var box = el('div', { class: 'choices distress', role: 'radiogroup', 'aria-labelledby': id + '-label', 'aria-describedby': id + '-scale' });
+        var radios = [];
+        for (var v = 0; v <= 10; v++) {
+            var value = String(v);
+            var radio = el('input', { type: 'radio', name: id, value: value, id: id + '-' + v, 'data-focus': 'opt-' + value });
+            radio.addEventListener('change', (function (val) { return function () { setValue(inst, q, val); }; })(value));
+            radios.push(radio);
+            box.appendChild(el('label', { class: 'choice distress-' + v, for: id + '-' + v }, [radio, el('span', { text: value })]));
+        }
+        var scale = el('p', { class: 'hint', id: id + '-scale', text: t('0 is none at all and 10 is the most.') });
+        var clear = el('button', { type: 'button', class: 'quiet', 'data-focus': 'clear', text: t('Clear') });
+        clear.addEventListener('click', function () { setValue(inst, q, ''); if (radios[0]) { radios[0].focus(); } });
+        return {
+            node: el('div', null, [scale, box, el('div', { class: 'inline' }, [clear])]),
+            controls: function () { return radios; },
+            sync: function (ro) {
+                var cur = current(inst, q);
+                radios.forEach(function (rd) { rd.checked = rd.value === cur; rd.disabled = !!ro; rd.parentNode.classList.toggle('on', rd.checked); });
+                clear.disabled = !!ro || cur === '';
+            }
+        };
+    }
+
+    // ----- bind::esri:warning: Survey123's soft constraint. When its expression is false for an answer the warning is
+    // shown beside the question, and the record can still be sent; an error, when there is one, is said instead.
+    function warningFor(inst, q) {
+        if (!q.warning || inst.relevant === false || inst.rel[q.name] === false || isEmpty(inst, q)) { return ''; }
+        var v = String(inst.values[q.name] === undefined ? '' : inst.values[q.name]);
+        return evalBool(q.warning, inst, q, true, v) ? '' : (text(q.warningMessages || {}) || t('Check this answer.'));
+    }
+
+    // ----- A grid (the settings' style fixed-grid or dynamic-grid, Survey123's groups-and-pages page): a group whose
+    // appearance has a width w2…w9 divides into that many columns, a question in it spans its own width (one when it has
+    // none, INFERRED) and a group or a repeat inside takes the whole row. Under fixed-grid a hidden question keeps its place.
+    function widthOf(appearance) {
+        var found = 0;
+        (appearance || []).forEach(function (a) { var m = /^w(\d+)$/.exec(a); if (m) { found = Number(m[1]); } });
+        return found;
+    }
+
+    function gridGroup(target, g) {
+        var columns = form.grid ? widthOf(g.appearance) : 0;
+        if (columns < 2 || has(g.appearance, 'table-list')) { return; }
+        target.classList.add('grid-group');
+        if (form.grid === 'fixed') { target.classList.add('grid-fixed'); }
+        target.setAttribute('data-grid-columns', String(columns));
+        target.style.gridTemplateColumns = 'repeat(' + columns + ', minmax(0, 1fr))';
+    }
+
+    function gridPlace(container, n) {
+        var columns = Number(container.getAttribute && container.getAttribute('data-grid-columns')) || 0;
+        var node = container.lastElementChild;
+        if (!columns || !node) { return; }
+        node.style.gridColumn = n.kind === 'question' ? 'span ' + Math.min(columns, Math.max(1, widthOf(n.appearance) || 1)) : '1 / -1';
     }
 
     // The signature pad, and the `draw` appearance (ADR-287 section 5.20), which is the same pad taller: a blank canvas drawn
@@ -5628,7 +6167,7 @@
             var blob = await loadMedia(wanted[i]);
             if (blob) { media[wanted[i]] = blob; }
         }
-        await dbPut('forms', { id: itemId, doc: doc, files: csv, media: media, saved: Date.now() });
+        await dbPut('forms', { id: itemId, doc: doc, files: csv, media: media, scripts: scriptTexts, saved: Date.now() });
     }
 
     async function downloadForOffline() {
@@ -5857,6 +6396,7 @@
         }
 
         mediaNamesOf(form).forEach(function (n) { loadMedia(n); });
+        await loadScripts(loaded);
 
         var languages = Array.isArray(form.languages) ? form.languages.filter(function (l) { return l !== null && l !== undefined; }) : [];
         var keep = languages.indexOf(lang) >= 0 && loaded.from === 'preview';
@@ -5919,6 +6459,7 @@
             drawing = drawing.then(function () {
                 files = {};
                 missingFiles = [];
+                resetScripts();
                 itemId = String(sent.itemId || '').toLowerCase();
                 $('summary').hidden = true;
                 $('done').hidden = true;
@@ -5952,7 +6493,9 @@
             });
         },
         /** The CSV lists the form names that the item does not hold. */
-        missingFiles: function () { return missingFiles.slice(); }
+        missingFiles: function () { return missingFiles.slice(); },
+        /** The scripts the form names that the item does not hold (section 5.27). */
+        missingScripts: function () { return missingScripts.slice(); }
     });
 
     if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', start); } else { start(); }

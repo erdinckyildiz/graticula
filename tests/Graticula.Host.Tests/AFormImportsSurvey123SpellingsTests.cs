@@ -315,12 +315,14 @@ public sealed class AFormImportsSurvey123SpellingsTests
     }
 
     [Fact]
-    public void A_note_with_no_name_that_calculates_is_still_refused_because_it_makes_a_field()
+    public void A_note_with_no_name_that_calculates_is_named_from_its_row_and_stores_nothing_since_section_5_26()
     {
         string[] header = ["type", "name", "label", "calculation"];
         FormCheck check = FormDefinition.Check(Form([["note", "", "Total", "1 + 1"]], header: header));
 
-        RefusedAt(check, "survey", 2, "name", "has no name");
+        FormQuestion note = Accepted(check).Root.Questions.Single();
+        Assert.Equal(("note_row_2", "1 + 1"), (note.Name, note.Calculation));
+        Assert.Null(FormLayerPlan.Stored(note));
     }
 
     [Fact]

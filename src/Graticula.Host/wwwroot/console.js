@@ -36694,11 +36694,14 @@ async function drawDocForm(doc) {
   const box = $("docForm");
   const results = $("docFormResults");
   if (!box || !results) return;
-  if (doc.kind !== "form" || !doc.manages) {
-    // A reader who is not its owner opens the form; its state and its answers are its owner's (§5.11 (l)).
+  if (doc.kind !== "form") {
     box.hidden = true; box.innerHTML = "";
     results.hidden = true; results.innerHTML = "";
-    if (doc.kind !== "form") formHere = null;
+    formHere = null;
+    return;
+  }
+  if (!doc.manages) {
+    await drawDocFormForReader(doc);
     return;
   }
 
@@ -36727,6 +36730,66 @@ async function drawDocForm(doc) {
   formHere = { id: doc.id, doc, read, form: client?.form || null };
   drawFormState();
   drawFormResults();
+}
+
+/**
+ * The form's page for a member who may open it and does not manage it (owner decision 2026-11-17): no Form panel — its
+ * state, publishing, sharing and Inbox settings stay its owner's (§5.11 (l)) — and Results of the records they may read,
+ * with Reports. The publication comes from `form.json`, the document the fill client is already given; the records from
+ * the layer as the reader is allowed to query it, so nothing here is wider than what they could already ask for.
+ */
+async function drawDocFormForReader(doc) {
+  const box = $("docForm");
+  const results = $("docFormResults");
+  box.hidden = true; box.innerHTML = "";
+  if (formHere?.id !== doc.id) { results.hidden = true; results.innerHTML = ""; }
+  let client;
+  try {
+    client = await api(`/forms/${encodeURIComponent(doc.id)}/form.json`);
+  } catch (e) {
+    if (docOpen !== doc) return;
+    results.hidden = false;
+    results.innerHTML = `<h4 id="formResultsHead">Results</h4><p class="bad">The form could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
+    return;
+  }
+  if (docOpen !== doc) return;
+  formHere = { id: doc.id, doc, reader: true, read: { publication: client?.publication || null, sharing: doc.sharing }, form: client?.form || null };
+  drawFormResults();
+}
+
+/**
+ * Where a reader's results are read from — the same order the server reads a report's records in: the form's own top layer
+ * when they may query it, else its Inbox view, which the database filters to the records the Inbox gives them (ADR-300),
+ * else nowhere. `{ url, via: "layer" | "inbox" | null, offline }`; a request that never reached the server is not taken
+ * for a refusal.
+ */
+async function formReaderSource(top) {
+  const reads = async url => {
+    try {
+      await api(`${url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`);
+      return true;
+    } catch (e) {
+      if (e instanceof TypeError) throw e;
+      return false;
+    }
+  };
+  try {
+    if (top.url && await reads(top.url)) return { url: top.url, via: "layer" };
+    if (top.inboxUrl && await reads(top.inboxUrl)) return { url: top.inboxUrl, via: "inbox" };
+    return { url: null, via: null };
+  } catch {
+    return { url: null, via: null, offline: true };
+  }
+}
+
+/** Whether this reader may download the answers: the export endpoint's own rule (Extract on the layer), asked of it. */
+async function formReaderMayExport(service) {
+  try {
+    const said = await api(`/admin/services/${encodeURIComponent(service)}/data-exports?folder=hosted`);
+    return !!said?.mayExport;
+  } catch {
+    return false;
+  }
 }
 
 /** Set by the designer's Publish: the form's page opens what publishing does as soon as it is drawn. */
@@ -36956,7 +37019,8 @@ const FORM_NUMBER_TYPES = new Set(["integer", "decimal", "range"]);
 
 /**
  * Results (§5.7): how many answers, the latest twenty from the top layer, and a summary per question — counts per choice,
- * and the lowest, highest and average of a number. Read from the layer with the owner's token, as Data reads it.
+ * and the lowest, highest and average of a number. Read from the layer with the owner's token, as Data reads it; for a
+ * reader who does not manage the form, from what they may query — the layer, else the form's Inbox view (formReaderSource).
  */
 async function drawFormResults() {
   const f = formHere;
@@ -36967,12 +37031,39 @@ async function drawFormResults() {
   if (!box.innerHTML) box.innerHTML = `<h4>Results</h4><p class="hint">Reading the answers…</p>`;
   box.hidden = false;
 
+  // The owner reads the top layer itself; a reader, what they may read of it (owner decision 2026-11-17).
+  let url = top.url;
+  let sourceSays = "";
+  if (f.reader) {
+    if (!f.source || f.source.offline) {
+      f.source = await formReaderSource(top);
+      if (formHere !== f) return;
+      if (f.source.via === "layer" && pub.service) f.mayExport = await formReaderMayExport(pub.service);
+      if (formHere !== f) return;
+    }
+    if (!f.source.url) {
+      box.innerHTML = `<h4 id="formResultsHead">Results</h4><p id="formResultsSource" class="hint">${f.source.offline
+        ? "The answers could not be read: the server could not be reached. They are read from the server; open this page again when you are online."
+        : h(`You cannot see this form's answers: they are not shared with you. To see them, ask ${f.doc?.owner
+          ? `its owner, ${f.doc.owner},` : "its owner"} to share its results with you.`)}</p>`;
+      return;
+    }
+    url = f.source.url;
+    sourceSays = f.source.via === "inbox"
+      // The Inbox's filter is the owner's: it may pick a member's own submissions or the ones assigned to them, so the
+      // sentence says whose choice it is rather than guessing which (UX review 2026-11-17).
+      ? "Only the submissions this form's Inbox gives you, not everyone's. Its owner decides which those are."
+      : "Every submission to this form: its owner shares the results layer with you.";
+  }
+  const owns = !f.reader;
+  const throughLayer = owns || f.source?.via === "layer";
+
   const columns = top.columns || {};
   const asked = formQuestions(f.form).filter(q => !q.repeat && columns[q.name] && !FORM_NOT_ANSWERS.has(q.type)
     && formLabel(q.labels, f.form, ""));
   const filter = f.filter || {};
   const where = formFilterWhere(filter, asked, columns);
-  const query = params => api(`${top.url}/query?${new URLSearchParams({ f: "json", where, ...params })}`);
+  const query = params => api(`${url}/query?${new URLSearchParams({ f: "json", where, ...params })}`);
   const summarised = asked.filter(q => FORM_CHOICE_TYPES.has(q.type) || FORM_NUMBER_TYPES.has(q.type));
   const index = String(top.url).slice(String(top.url).lastIndexOf("/") + 1);
   const dataPage = `${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(index)}`;
@@ -36983,7 +37074,7 @@ async function drawFormResults() {
   let stats;
   try {
     [all, count, latest, ...stats] = await Promise.all([
-      where === "1=1" ? null : api(`${top.url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`),
+      where === "1=1" ? null : api(`${url}/query?${new URLSearchParams({ f: "json", where: "1=1", returnCountOnly: "true" })}`),
       query({ returnCountOnly: "true" }),
       query({ outFields: "*", returnGeometry: "false", orderByFields: "objectid DESC", resultRecordCount: "20" }),
       ...summarised.map(q => FORM_CHOICE_TYPES.has(q.type)
@@ -37042,35 +37133,46 @@ async function drawFormResults() {
         ${unanswered ? `<tr><td class="hint">Not answered</td><td class="num">${num(unanswered)}</td><td></td></tr>` : ""}</tbody></table></section>`;
   };
 
+  // <b>Reports sit under the table they are chosen in</b>, not after the summaries: the tick boxes and Create report were
+  // 700 pixels apart at 1280 and a thousand on a phone (UX review of ADR-301 §5.8, 2026-11-17). Survey123 puts its
+  // Report action on the table's own toolbar for the same reason.
+  const reportSection = `<section id="formReports" class="formreports" aria-labelledby="formReportsHead"><h5 id="formReportsHead">Reports</h5><p class="hint">Reading the report templates…</p></section>`;
   box.innerHTML = `
     <h4 id="formResultsHead">Results</h4>
+    ${sourceSays ? `<p id="formResultsSource" class="hint">${h(sourceSays)}</p>` : ""}
     <p id="formResultCount"><b>${num(total)}</b> ${filtered ? `of ${num(everything)} ${everything === 1 ? "submission matches" : "submissions match"} the filter`
-      : total === 1 ? "submission" : "submissions"}${everything
+      : total === 1 ? "submission" : "submissions"}${everything && throughLayer
       ? ` · <a href="${dataPage}">Open all ${num(everything)} in Data</a>` : ""}</p>
     ${everything ? formFilterMarkup(filter, asked, f.form) : ""}
-    ${everything ? formExportMarkup(everything, filtered ? total : null) : ""}
+    ${everything && (owns || f.mayExport) ? formExportMarkup(everything, filtered ? total : null) : ""}
     ${total && drawn ? `<div id="formMap" class="formmap" role="region" aria-label="${h(`${num(Math.min(total, FORM_MAP_LIMIT))} submissions on a map`)}"
         aria-describedby="formMapHow"></div>
       <p class="hint" id="formMapHow">Choose a point to see its answers. Zoom with Ctrl and the wheel, or with two fingers on a
         phone.${total > FORM_MAP_LIMIT ? ` The map shows the latest ${num(FORM_MAP_LIMIT)}.` : ""}</p>
       <div id="formMapCard" class="formmapcard" role="status" aria-live="polite"></div>` : ""}
-    ${total === 0 ? `<p class="hint">${filtered ? "No submission matches the filter." : "No answers yet. When someone sends the form, the latest appear here with a summary per question."}</p>` : `
+    ${total === 0 ? `<p class="hint" id="formResultsNone">${filtered ? "No submission matches the filter." : f.source?.via === "inbox"
+      // Through the Inbox, none here is not none sent: the form may have answers that are not this reader's.
+      ? "The Inbox gives you no submissions yet. When one is meant for you, it appears here."
+      : "No answers yet. When someone sends the form, the latest appear here with a summary per question."}</p>` : `
       <h5>Latest submissions</h5>
       <div class="widetable" tabindex="0" role="region" aria-label="Latest submissions"><table class="formresults" id="formLatest">
-        <thead><tr><th scope="col">Sent</th>${asked.map(q => `<th scope="col"${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}>${
+        <thead><tr>${formReportPickHead(rows)}<th scope="col">Sent</th>${asked.map(q => `<th scope="col"${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}>${
           h(formLabel(q.labels, f.form, q.name))}</th>`).join("")}</tr></thead>
-        <tbody>${rows.map(r => `<tr><td>${h(when(r.attributes))}</td>${asked.map(q => {
+        <tbody>${rows.map(r => `<tr>${formReportPickCell(r.attributes, when(r.attributes))}<td>${h(when(r.attributes))}</td>${asked.map(q => {
           const shown = formValueShown(q, r.attributes?.[columns[q.name]], f.form);
           // The cell is cut short at a width; its whole value is in its title.
           return `<td${FORM_NUMBER_TYPES.has(q.type) ? ' class="num"' : ""}${shown.length > 24 ? ` title="${h(shown)}"` : ""}>${h(shown)}</td>`;
         }).join("")}</tr>`).join("")}</tbody>
       </table></div>
       ${total > rows.length ? `<p class="hint">The latest ${num(rows.length)} of ${num(total)}.</p>` : ""}
+      ${reportSection}
       ${summarised.length ? `<h5>By question</h5><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
-    ${others.length ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
-      `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}`;
+    ${others.length && throughLayer ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
+      `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}
+    ${total === 0 ? reportSection : ""}`;
   formFilterFollows(asked, f.form);
-  if (total && drawn) formDrawMap(top.url, where);
+  formDrawReports(f, rows);
+  if (total && drawn) formDrawMap(url, where);
 }
 
 /** The most submissions the results map draws, the latest first. */
@@ -37546,6 +37648,289 @@ document.addEventListener("click", async event => {
   if (t.id === "formExportGo") { await formExport(t); return; }
   if (t.id === "formInboxSave") { await formInboxSave(t); return; }
   if (t.id === "formShareSave") await formShareSave(t);
+});
+
+// ---------------------------------------------------------------- feature reports (ADR-301)
+
+/**
+ * The submissions chosen for a report: their object ids, kept across a redraw of the results (a new filter) for the rows
+ * still shown. Survey123's Data tab chooses records the same way before its Report tool.
+ */
+function formReportPickHead(rows) {
+  if (!rows.length) return "";
+  return `<th scope="col" class="formpick"><input type="checkbox" id="formPickAll" aria-label="Choose every submission shown for a report"></th>`;
+}
+
+/** A row's tick box: its label names the submission by when it was sent. */
+function formReportPickCell(attributes, sent) {
+  const id = Number(attributes?.objectid);
+  if (!Number.isFinite(id)) return "<td></td>";
+  const picked = formHere?.reportPick?.has(id);
+  return `<td class="formpick"><input type="checkbox" data-form-pick="${id}"${picked ? " checked" : ""}
+    aria-label="${h(`Choose the submission sent ${sent || `as number ${id}`} for a report`)}"></td>`;
+}
+
+/** What the Create report button says about the choice, in words a screen reader reads with it. */
+function formReportPicked() {
+  const f = formHere;
+  const n = f?.reportPick?.size || 0;
+  const says = $("formReportPicked");
+  const go = $("formReportGo");
+  const all = $("formPickAll");
+  const boxes = [...document.querySelectorAll("[data-form-pick]")];
+  if (all) {
+    const on = boxes.filter(b => b.checked).length;
+    all.checked = on > 0 && on === boxes.length;
+    all.indeterminate = on > 0 && on < boxes.length;
+  }
+  // A polite live region: ticking a box, or every box, says how many are chosen now, not only when the button is reached.
+  const words = n === 0 ? (boxes.length ? "No submission chosen. Tick them in Latest submissions to make a report."
+      : "No submission is shown, so there is none to make a report of.")
+    : n === 1 ? "1 submission chosen." : `${num(n)} submissions chosen.`;
+  if (says && says.textContent !== words) says.textContent = words;
+  if (go) {
+    if (n === 0) go.setAttribute("aria-disabled", "true"); else if (!go.hasAttribute("aria-busy")) go.removeAttribute("aria-disabled");
+    go.textContent = n > 1 ? `Create ${num(n)} reports` : "Create report";
+  }
+  const mode = $("formReportModeRow");
+  if (mode) mode.hidden = n < 2;
+}
+
+/** The Reports section: making a report of the chosen submissions first, then the form's templates, adding and removing one. */
+async function formDrawReports(f, rows) {
+  const box = $("formReports");
+  if (!box) return;
+  f.reportPick ||= new Set();
+  // A redraw for a new filter keeps only the chosen submissions still shown.
+  if (rows) {
+    const shown = new Set(rows.map(r => Number(r.attributes?.objectid)));
+    for (const id of [...f.reportPick]) if (!shown.has(id)) f.reportPick.delete(id);
+  }
+  let listed;
+  try {
+    listed = await api(`/admin/forms/${encodeURIComponent(f.id)}/reports/templates`);
+  } catch (e) {
+    if (formHere !== f || !box.isConnected) return;
+    box.innerHTML = `<h5 id="formReportsHead">Reports</h5><p class="bad-inline">The report templates could not be read: ${h(lowerFirst(e.message || String(e)))}</p>`;
+    return;
+  }
+  if (formHere !== f || !box.isConnected) return;
+  f.reportTemplates = listed.templates || [];
+  const templates = f.reportTemplates;
+  const manages = !!listed.manages;
+  const kept = f.reportChoice && templates.some(t => t.name === f.reportChoice) ? f.reportChoice : templates[0]?.name;
+  // <b>Make first, manage second</b>, as Survey123's report panel orders them: the template, how several arrive, the file's
+  // name and Create report stand together under the table; the list of templates and Add a template follow under their own
+  // heading, because adding one is done once and making a report is done every day.
+  box.innerHTML = `<h5 id="formReportsHead">Reports</h5>
+    <p class="hint">A Word document for each chosen submission, filled from a template — Survey123's feature report.</p>
+    ${templates.length ? `<div class="formreportmake">
+        <div class="formfilterrow"><label for="formReportTemplate">Template</label>
+          <select id="formReportTemplate">${templates.map(t => `<option value="${h(t.name)}"${t.name === kept ? " selected" : ""}>${h(t.name)}</option>`).join("")}</select></div>
+        <div class="formfilterrow" id="formReportModeRow" hidden><label for="formReportMode">Several submissions as</label>
+          <select id="formReportMode"><option value="separate">One document each, in a ZIP file</option>
+            <option value="merged">One document, a page break between them</option></select></div>
+        <div class="formfilterrow"><label for="formReportName">File name</label>
+          <input type="text" id="formReportName" aria-describedby="formReportNameHint" autocomplete="off">
+          <p class="hint" id="formReportNameHint">Left empty, a report is named after the form and the submission's number. For one
+            document each it may hold values, as in Inspection \${objectid}.</p></div>
+        <p class="hint">Written as Word (.docx). PDF is not offered yet. At most ${num(listed.maximumRecords || 100)} submissions at once.</p>
+        <div class="formreportgo"><button type="button" class="primary" id="formReportGo" aria-describedby="formReportPicked">Create report</button>
+          <p class="hint" id="formReportPicked" role="status" aria-live="polite"></p></div>
+      </div>`
+      : `<p class="hint">${manages ? "No template yet. Add one below to make reports." : "This form has no report template yet. Its owner adds them; ask them for one."}</p>`}
+    <p class="hint" id="formReportSays" role="status" aria-live="polite"></p>
+    <div id="formReportNotes"></div>
+    <h6 id="formReportTemplatesHead">Templates</h6>
+    ${templates.length ? `<ul class="formreporttemplates" aria-labelledby="formReportTemplatesHead">${templates.map(t => `<li><span>${h(t.name)}</span>
+        <span class="hint">${fileSize(t.size)}</span>${manages ? ` <button type="button" class="ghost" data-form-report-remove="${h(t.name)}"
+        aria-label="${h(`Remove the template ${t.name}`)}">Remove</button>` : ""}</li>`).join("")}</ul>` : ""}
+    ${manages ? `<div class="formreportadd">
+        <label for="formReportFile">Add a template</label>
+        <input type="file" id="formReportFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          aria-describedby="formReportFileHint">
+        <button type="button" id="formReportUpload">Upload</button>
+        <p class="hint" id="formReportFileHint">A Word document (.docx) of at most 10 MB, whose text holds placeholders such as
+          \${question}, \${#repeat} … \${/} and \${if …} … \${/}. It is checked against the form's questions; a placeholder that
+          cannot be filled is listed with its paragraph. A template with the same name is replaced.</p>
+      </div>` : templates.length ? `<p class="hint">Only the form's owner adds and removes templates.</p>` : ""}
+    <div id="formReportIssues"></div>
+    <details class="formreportlimits"><summary>What a template here cannot hold yet</summary><p class="hint">${h(listed.notSupported || "")}</p></details>`;
+  formReportPicked();
+}
+
+/** The refusal's list of placeholders, each with where it is, under the upload or the Create button. */
+function formReportIssuesShown(issues, lead) {
+  const box = $("formReportIssues");
+  if (!box) return;
+  box.innerHTML = issues?.length ? `<p class="bad-inline" id="formReportIssuesHead" tabindex="-1">${h(lead)}</p>
+    <ul class="formreportissues" aria-labelledby="formReportIssuesHead">${issues.map(i => `<li><b>${h(i.part === "document" ? "Document" : i.part)},
+      paragraph ${num(i.paragraph)}</b>${i.text ? ` (“${h(i.text)}”)` : ""}: <code>${h(i.placeholder)}</code> — ${h(i.message)}</li>`).join("")}</ul>` : "";
+}
+
+
+/**
+ * What a made report could not hold in full — a basemap at another address left out of its map, a web map the asker may
+ * not read — from the `Graticula-Report-Notes` header (ADR-301 §5.10). Shown, because the person is about to send the
+ * document on and its map is missing something; not focused, because the download is what they asked for.
+ */
+function formReportNotesShown(header) {
+  const box = $("formReportNotes");
+  if (!box) return 0;
+  let text = "";
+  try { text = decodeURIComponent(header || ""); } catch { text = header || ""; }
+  // The server joins its sentences with a space; each starts with a capital after a full stop.
+  const notes = text.trim() ? text.trim().split(/(?<=[.!?])\s+(?=[A-Z'"(‘“])/).filter(Boolean) : [];
+  box.innerHTML = notes.length ? `<p class="warn-inline" id="formReportNotesHead">Check the report before you send it on:</p>
+    <ul class="formreportissues" aria-labelledby="formReportNotesHead">${notes.map(n => `<li>${h(n)}</li>`).join("")}</ul>` : "";
+  return notes.length;
+}
+
+/** Upload: the file is checked by the server; refused, its places are listed and focus goes to the list. */
+async function formReportUpload(button) {
+  const f = formHere;
+  const input = $("formReportFile");
+  const says = (text, bad = false) => { $("formReportSays").textContent = text; $("formReportSays").classList.toggle("bad-inline", bad); };
+  if (!f || !input || button.getAttribute("aria-disabled") === "true") return;
+  const file = input.files?.[0];
+  formReportIssuesShown(null);
+  formReportNotesShown("");
+  if (!file) { says("Choose a .docx file first.", true); input.focus(); return; }
+  const body = new FormData();
+  body.append("file", file, file.name);
+  button.setAttribute("aria-disabled", "true");
+  button.setAttribute("aria-busy", "true");
+  says(`Checking ${file.name}…`);
+  try {
+    const answer = await fetch(`/admin/forms/${encodeURIComponent(f.id)}/reports/templates`,
+      { method: "POST", body, headers: token ? { Authorization: "Bearer " + token } : {} });
+    const said = await answer.json().catch(() => null);
+    if (formHere !== f) return;
+    if (!answer.ok) {
+      if (said?.issues?.length) {
+        // The server's own sentence also says *not added*; the list says why, so the status says what to do.
+        says(`${file.name} was not added. Change the placeholders listed under Upload and add it again.`, true);
+        formReportIssuesShown(said.issues, `${file.name} has ${said.issues.length === 1 ? "a placeholder" : `${num(said.issues.length)} placeholders`} this server cannot fill:`);
+        $("formReportIssuesHead")?.focus();
+      } else {
+        says(`Not added: ${lowerFirst(said?.error?.message || `the server answered ${answer.status}.`)}`, true);
+      }
+      return;
+    }
+    f.reportChoice = said.name;
+    await formDrawReports(f, null);
+    $("formReportSays").textContent = `${said.name} ${said.replaced ? "replaced the template of that name" : "was added"}. It fits the form.`;
+    ($("formReportTemplate") || $("formReportFile"))?.focus();
+  } catch (e) {
+    says(e instanceof TypeError ? "Not added: the server could not be reached. Try again when you are online."
+      : `Not added: ${lowerFirst(e.message || String(e))}`, true);
+  } finally {
+    if (button.isConnected) { button.removeAttribute("aria-disabled"); button.removeAttribute("aria-busy"); }
+  }
+}
+
+/** Remove a template; the list is drawn again and focus goes to what is left of it. */
+async function formReportRemove(button) {
+  const f = formHere;
+  const name = button.dataset.formReportRemove;
+  if (!f || !name || !confirm(`Remove the report template ${name}? Reports already downloaded are not affected.`)) return;
+  try {
+    await api(`/admin/forms/${encodeURIComponent(f.id)}/reports/templates/${encodeURIComponent(name)}`, { method: "DELETE" });
+    if (formHere !== f) return;
+    await formDrawReports(f, null);
+    $("formReportSays").textContent = `${name} was removed.`;
+    ($("formReportTemplate") || $("formReportFile") || $("formReportsHead"))?.focus();
+  } catch (e) {
+    $("formReportSays").textContent = `Not removed: ${lowerFirst(e.message || String(e))}`;
+  }
+}
+
+/** Create report: the chosen submissions, the template and the file name, sent; the file handed to the browser. */
+async function formReportCreate(button) {
+  const f = formHere;
+  if (!f) return;
+  if (button.getAttribute("aria-disabled") === "true") {
+    if (!f.reportPick?.size) $("formReportSays").textContent = "Choose the submissions first: tick them in Latest submissions.";
+    return;
+  }
+  const ids = [...f.reportPick];
+  const template = $("formReportTemplate")?.value;
+  f.reportChoice = template;
+  const says = (text, bad = false) => { $("formReportSays").textContent = text; $("formReportSays").classList.toggle("bad-inline", bad); };
+  formReportIssuesShown(null);
+  formReportNotesShown("");
+  button.setAttribute("aria-disabled", "true");
+  button.setAttribute("aria-busy", "true");
+  const making = ids.length === 1 ? "the report" : `${num(ids.length)} reports`;
+  says(`Making ${making}…`);
+  // A report with maps and photographs can take several seconds: said once more, so a wait is not read as nothing happening.
+  const still = setTimeout(() => { if (button.hasAttribute("aria-busy")) says(`Still making ${making}. Maps and photographs take longer; the file downloads when it is ready.`); }, 4000);
+  try {
+    const answer = await fetch(`/admin/forms/${encodeURIComponent(f.id)}/reports`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+      body: JSON.stringify({ template, objectIds: ids, mode: ids.length > 1 ? ($("formReportMode")?.value || "separate") : "separate",
+        name: $("formReportName")?.value.trim() || "", utcOffsetMinutes: -new Date().getTimezoneOffset(), format: "docx" }),
+    });
+    if (!answer.ok) {
+      const said = await answer.json().catch(() => null);
+      if (said?.issues?.length) formReportIssuesShown(said.issues, "The template no longer fits the form:");
+      throw new Error(said?.error?.message || `the server could not make the report (error ${answer.status}).`);
+    }
+    const blob = await answer.blob();
+    const disposition = answer.headers.get("Content-Disposition") || "";
+    const name = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1] || /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+    const address = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement("a"), { href: address, download: name ? decodeURIComponent(name) : "report.docx" });
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(address), 10000);
+    const notes = formReportNotesShown(answer.headers.get("Graticula-Report-Notes"));
+    says(`${link.download} (${fileSize(blob.size)}) is downloading.${notes ? ` ${notes === 1
+      ? "Something is missing from it; it is" : "Some things are missing from it; they are"} listed below.` : ""}`);
+  } catch (e) {
+    // With no signal the request never reaches the server: said in words, and nothing is half made.
+    says(e instanceof TypeError ? "Not made: the server could not be reached. Reports are made on the server; try again when you are online."
+      : `Not made: ${lowerFirst(e.message || String(e))}`, true);
+  } finally {
+    clearTimeout(still);
+    if (button.isConnected) {
+      button.removeAttribute("aria-busy");
+      button.removeAttribute("aria-disabled");
+      formReportPicked();
+      if (!document.activeElement || document.activeElement === document.body) button.focus();
+    }
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("#formReportGo, #formReportUpload, [data-form-report-remove]") : null;
+  if (!t || !formHere) return;
+  if (t.id === "formReportGo") { await formReportCreate(t); return; }
+  if (t.id === "formReportUpload") { await formReportUpload(t); return; }
+  if (t.dataset.formReportRemove) await formReportRemove(t);
+});
+
+document.addEventListener("change", event => {
+  const t = event.target;
+  if (!(t instanceof HTMLInputElement) || !formHere) return;
+  if (t.id === "formPickAll") {
+    formHere.reportPick ||= new Set();
+    for (const box of document.querySelectorAll("[data-form-pick]")) {
+      box.checked = t.checked;
+      const id = Number(box.dataset.formPick);
+      if (t.checked) formHere.reportPick.add(id); else formHere.reportPick.delete(id);
+    }
+    formReportPicked();
+    return;
+  }
+  if (t.dataset.formPick) {
+    formHere.reportPick ||= new Set();
+    const id = Number(t.dataset.formPick);
+    if (t.checked) formHere.reportPick.add(id); else formHere.reportPick.delete(id);
+    formReportPicked();
+  }
 });
 
 // ---------------------------------------------------------------- System › Backups (ADR-193 condition 4)

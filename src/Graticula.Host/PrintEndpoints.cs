@@ -18,6 +18,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -527,36 +528,11 @@ internal static class PrintEndpoints
         PixelTransform transform = new(framed, logicalWidth, logicalHeight);
         MapRenderer renderer = new(window, transform, geographic);
 
-        foreach ((WebMapPrintLayer asked, List<Drawable> drawn) in resolved)
+        foreach (string note in await DrawLayersAsync(
+                     context, resolved, window, renderer, transform, framed, logicalWidth, logicalHeight, srid, contexts, settings,
+                     projector, readers, cancellation).ConfigureAwait(false))
         {
-            foreach (Drawable one in drawn)
-            {
-                if (one.Coverage is { } coverage)
-                {
-                    string? refused = await ImageServerEndpoints.DrawIntoMapAsync(
-                            context, window, coverage, framed, logicalWidth, logicalHeight, srid, readers, projector, cancellation)
-                        .ConfigureAwait(false);
-
-                    if (refused is not null)
-                    {
-                        messages.Add(Warning($"'{Title(asked)}' was not drawn: {refused}"));
-                    }
-
-                    continue;
-                }
-
-                try
-                {
-                    await WmsEndpoints.DrawLayerAsync(
-                            contexts, renderer, transform, one.Layer!, srid, null, settings.MaximumRecordCount, cancellation,
-                            symbology: one.Symbology, honourVisibleRange: true, definition: one.Definition, whole: true)
-                        .ConfigureAwait(false);
-                }
-                catch (RenderException e)
-                {
-                    messages.Add(Warning($"'{Title(asked)}' was not drawn: {e.Message}"));
-                }
-            }
+            messages.Add(Warning(note));
         }
 
         renderer.FinishLabels();
@@ -602,6 +578,129 @@ internal static class PrintEndpoints
         }
 
         return new Outcome(ExportOutputs.Keep(context, file, type), null, messages);
+    }
+
+    /// <summary>Draws the resolved layers into the window, bottom first; the sentences saying what was not drawn.</summary>
+    private static async Task<List<string>> DrawLayersAsync(
+        HttpContext context, List<(WebMapPrintLayer Asked, List<Drawable> Drawn)> resolved, IMapCanvas window, MapRenderer renderer,
+        PixelTransform transform, Envelope framed, int logicalWidth, int logicalHeight, int srid, ServiceContexts contexts,
+        HostSettings settings, IProjector projector, ICoverageReaderFactory readers, CancellationToken cancellation)
+    {
+        List<string> notes = [];
+
+        foreach ((WebMapPrintLayer asked, List<Drawable> drawn) in resolved)
+        {
+            foreach (Drawable one in drawn)
+            {
+                if (one.Coverage is { } coverage)
+                {
+                    string? refused = await ImageServerEndpoints.DrawIntoMapAsync(
+                            context, window, coverage, framed, logicalWidth, logicalHeight, srid, readers, projector, cancellation)
+                        .ConfigureAwait(false);
+
+                    if (refused is not null)
+                    {
+                        notes.Add($"'{Title(asked)}' was not drawn: {refused}");
+                    }
+
+                    continue;
+                }
+
+                try
+                {
+                    await WmsEndpoints.DrawLayerAsync(
+                            contexts, renderer, transform, one.Layer!, srid, null, settings.MaximumRecordCount, cancellation,
+                            symbology: one.Symbology, honourVisibleRange: true, definition: one.Definition, whole: true)
+                        .ConfigureAwait(false);
+                }
+                catch (RenderException e)
+                {
+                    notes.Add($"'{Title(asked)}' was not drawn: {e.Message}");
+                }
+            }
+        }
+
+        return notes;
+    }
+
+    /// <summary>
+    /// A web map drawn as a picture, as <c>MAP_ONLY</c> draws one, for another part of this server — a feature report's map
+    /// (ADR-301 §5.10): the same layers, resolved and drawn as the caller by the same code, with <paramref name="overlay"/>
+    /// drawn on top before the picture is encoded. Not bounded by the print service's two-at-once: the caller bounds its own.
+    /// </summary>
+    /// <returns>The PNG, or null with the reason; and the sentences saying what was left out.</returns>
+    internal static async Task<(byte[]? Png, string? Refused, List<string> Notes)> DrawMapImageAsync(
+        HttpContext context, WebMapPrintRequest print, Action<IMapCanvas, PixelTransform>? overlay, CancellationToken cancellation)
+    {
+        IServiceProvider services = context.RequestServices;
+        CatalogFallback catalog = services.GetRequiredService<CatalogFallback>();
+        ServiceContexts contexts = services.GetRequiredService<ServiceContexts>();
+        IMapCanvasFactory canvases = services.GetRequiredService<IMapCanvasFactory>();
+        HostSettings settings = services.GetRequiredService<HostSettings>();
+        IProjector projector = services.GetRequiredService<IProjector>();
+        ICoverageCatalog coverages = services.GetRequiredService<ICoverageCatalog>();
+        ICoverageReaderFactory readers = services.GetRequiredService<ICoverageReaderFactory>();
+        List<string> notes = [];
+        int srid = print.Srid;
+
+        if (!await projector.KnowsAsync(srid, cancellation).ConfigureAwait(false))
+        {
+            return (null, $"EPSG:{srid.ToString(CultureInfo.InvariantCulture)} is not a reference this server's projection database has.", notes);
+        }
+
+        Envelope extent = print.Extent;
+
+        if (srid != print.ExtentSrid)
+        {
+            if (!await projector.KnowsAsync(print.ExtentSrid, cancellation).ConfigureAwait(false)
+                || await ImageServerEndpoints.ProjectEnvelopeAsync(extent, print.ExtentSrid, srid, projector, cancellation)
+                    .ConfigureAwait(false) is not { } carried)
+            {
+                return (null, $"The map's extent could not be carried from EPSG:{print.ExtentSrid.ToString(CultureInfo.InvariantCulture)} into EPSG:{srid.ToString(CultureInfo.InvariantCulture)}.", notes);
+            }
+
+            extent = carried;
+        }
+
+        List<(WebMapPrintLayer Asked, List<Drawable> Drawn)> resolved = [];
+
+        foreach (WebMapPrintLayer layer in print.Layers.Where(l => l.Visible))
+        {
+            (List<Drawable> drawn, string? left) = await ResolveAsync(context, layer, catalog, contexts, coverages, cancellation).ConfigureAwait(false);
+
+            if (left is not null)
+            {
+                notes.Add(left);
+            }
+
+            if (drawn.Count > 0)
+            {
+                resolved.Add((layer, drawn));
+            }
+        }
+
+        int width = print.OutputWidth, height = print.OutputHeight;
+
+        if (width > settings.MaximumImageWidth || height > settings.MaximumImageHeight)
+        {
+            return (null, $"A map of {width}x{height} pixels is larger than the {settings.MaximumImageWidth}x{settings.MaximumImageHeight} this server draws.", notes);
+        }
+
+        bool geographic = AxisOrder.IsGeographic(srid);
+        Envelope framed = Frame(extent, print.Scale, width, height, geographic);
+
+        using IMapCanvas canvas = canvases.Create(width, height);
+        canvas.Clear(Rgba.White);
+        PixelTransform transform = new(framed, width, height);
+        MapRenderer renderer = new(canvas, transform, geographic);
+
+        notes.AddRange(await DrawLayersAsync(
+            context, resolved, canvas, renderer, transform, framed, width, height, srid, contexts, settings, projector, readers, cancellation)
+            .ConfigureAwait(false));
+
+        renderer.FinishLabels();
+        overlay?.Invoke(canvas, transform);
+        return (canvas.Encode(MapImageFormat.Png, 90), null, notes);
     }
 
     /// <summary>

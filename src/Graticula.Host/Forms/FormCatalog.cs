@@ -41,6 +41,8 @@ public static class FormCatalog
         ["select_one_external"] = "external choices are not in the first version; use select_one_from_file with a CSV",
         ["select_multiple_external"] = "external choices are not in the first version; use select_multiple_from_file with a CSV",
         ["phonenumber"] = "a browser cannot read the device's phone number",
+        ["subscriberid"] = "a browser cannot read the SIM's subscriber id",
+        ["simserial"] = "a browser cannot read the SIM's serial number",
         ["audit"] = "audit logs are not in the first version",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
@@ -50,7 +52,9 @@ public static class FormCatalog
         "constraint_message", "relevant", "default", "read_only", "readonly", "calculation", "choice_filter",
         "appearance", "parameters", "repeat_count", "image", "media::image",
         "bind::esri:fieldType", "bind::esri:fieldLength", "bind::esri:fieldAlias", "body::esri:visible",
-        "body::accuracyThreshold", "body::accept", "bind::esri:parameters", "body::esri:inputMask");
+        "body::accuracyThreshold", "body::accept", "bind::esri:parameters", "body::esri:inputMask",
+        // ADR-287 §5.26: audio in a label, a warning that lets the answer go, and the XForms bind type pyxform writes through.
+        "audio", "media::audio", "bind::esri:warning", "bind::esri:warning_message", "bind::type");
 
     /// <summary>Survey columns that change only how a question looks; drawn the default way, with a notice.</summary>
     public static readonly FrozenSet<string> PresentationSurveyColumns = Columns("body::esri:style", "bind::saveIncomplete");
@@ -59,21 +63,18 @@ public static class FormCatalog
     public static readonly FrozenDictionary<string, string> RefusedSurveyColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["trigger"] = "triggered calculations are not in the first version",
-        ["audio"] = "audio in a label is not in the first version",
-        ["media::audio"] = "audio in a label is not in the first version",
         ["video"] = "video in a label is not in the first version",
         ["media::video"] = "video in a label is not in the first version",
-        ["bind::esri:warning"] = "warnings are not in the first version",
-        ["bind::esri:warning_message"] = "warnings are not in the first version",
         ["bind::esri:workflow"] = "rangefinder workflows are not in the first version",
     }.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Columns that may carry a <c>::language</c> suffix.</summary>
     public static readonly FrozenSet<string> TranslatableColumns = Columns(
-        "label", "hint", "guidance_hint", "required_message", "constraint_message", "image", "media::image");
+        "label", "hint", "guidance_hint", "required_message", "constraint_message", "image", "media::image",
+        "audio", "media::audio", "bind::esri:warning_message");
 
     /// <summary>Choices columns supported. Any other column is a column a <c>choice_filter</c> may read.</summary>
-    public static readonly FrozenSet<string> ChoiceColumns = Columns("list_name", "list name", "name", "label", "image", "media::image");
+    public static readonly FrozenSet<string> ChoiceColumns = Columns("list_name", "list name", "name", "label", "image", "media::image", "audio", "media::audio");
 
     /// <summary>Settings columns supported.</summary>
     public static readonly FrozenSet<string> SettingsColumns = Columns(
@@ -112,6 +113,11 @@ public static class FormCatalog
         ["field-list"] = Set("begin group", "begin repeat"),
         ["table-list"] = Set("begin group"),
         ["hidden-answer"] = Set("barcode"),
+        // ADR-287 §5.26.
+        ["distress"] = Set("integer"),
+        ["new"] = Set("image", "audio", "video"),
+        ["new-front"] = Set("image"),
+        ["new-rear"] = Set("image"),
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
@@ -125,7 +131,7 @@ public static class FormCatalog
     public static readonly FrozenSet<string> PresentationAppearances = Set(
         "horizontal", "horizontal-compact", "compact", "quick", "quickcompact", "label", "list-nolabel", "counter",
         "no-calendar", "predictivetext", "nopredictivetext", "calculator", "numbers", "press-to-locate", "hide-input",
-        "tabular", "columns", "columns-pack", "no-buttons");
+        "tabular", "columns", "columns-pack", "no-buttons", "thousands-sep", "no-ticks");
 
     /// <summary>Appearances refused, with the reason.</summary>
     public static readonly FrozenDictionary<string, string> RefusedAppearances = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -133,7 +139,6 @@ public static class FormCatalog
         ["map"] = "choosing on a map is not in the first version",
         ["quick map"] = "choosing on a map is not in the first version",
         ["geocode"] = "geocoding a text answer is not in the first version",
-        ["distress"] = "the distress scale is a Survey123 field app control",
         ["spike"] = "Spike devices are not supported",
         ["spike-full-measure"] = "Spike devices are not supported",
         ["spike-point-to-point"] = "Spike devices are not supported",
@@ -141,8 +146,6 @@ public static class FormCatalog
         ["image-map"] = "image maps are not in the first version",
         ["inframarker"] = "inframarkers are not supported",
         ["getinframarkerid"] = "inframarkers are not supported",
-        ["new-front"] = "choosing the camera is not in the first version",
-        ["new-rear"] = "choosing the camera is not in the first version",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Functions an expression may call (ADR-287 §5.10, from the ODK XForms function table).</summary>
@@ -229,8 +232,8 @@ public static class FormCatalog
         ["portalInfo"] = "the whole portal description is a JSON object, which no question in a form can hold",
         ["token"] = "an access token is a credential, and a form's answers are stored and shown, so a token would be written into the layer",
         ["submissionUrl"] = "the address answers go to here is a view made for the form when it is shared, not the layer itself, so a query written with it would read the view; write the address of the layer in the call (§5.23)",
-        ["locale"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
-        ["localeInfo"] = "Survey123 offers it only to pulldata(\"@javascript\"), which is refused",
+        ["locale"] = "Survey123 offers it to pulldata(\"@javascript\") scripts, and a script here is given only the values the form passes it (§5.27); pass pulldata(\"@property\", 'language') to the script instead",
+        ["localeInfo"] = "Survey123 offers it to pulldata(\"@javascript\") scripts as an object no question can hold, and a script here is given only the values the form passes it (§5.27); pass pulldata(\"@property\", 'language') to the script instead",
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>
@@ -289,14 +292,23 @@ public static class FormCatalog
 
     /// <summary>
     /// The <c>pulldata("@…")</c> sources refused, with the reason. <c>@property</c> and <c>@geopoint</c> are built (§5.20),
-    /// and <c>@layer</c> since §5.23.
+    /// <c>@layer</c> since §5.23, and <c>@javascript</c> since §5.27 — run in a sandbox the page cannot be reached from,
+    /// and never on a form shared with everyone.
     /// </summary>
     public static readonly FrozenDictionary<string, string> RefusedPulldataSources = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["@json"] = "reading a JSON answer is not in the first version",
-        ["@javascript"] = "running a script a form carries is not in the first version, and a form shared with everyone must not carry code the page runs",
         ["@exif"] = "reading the metadata of a photo is not in the first version",
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The folder a form's scripts are uploaded to among the item's files, as Survey123 keeps them in the survey's
+    /// <c>scripts</c> folder (§5.27). A script is also found at its bare name, as a CSV and a picture are.
+    /// </summary>
+    public const string ScriptFolder = "scripts/";
+
+    /// <summary>The largest script a form may carry, in bytes: the sandbox is handed the whole file (§5.27).</summary>
+    public const int MaximumScriptBytes = 256 * 1024;
 
     /// <summary>The documented values of <c>calculationMode</c> in <c>bind::esri:parameters</c> (§5.20).</summary>
     public static readonly FrozenSet<string> CalculationModes = Set("auto", "manual", "always", "whenEmpty");
@@ -304,6 +316,50 @@ public static class FormCatalog
     /// <summary>The question types Survey123 allows <c>calculationMode</c> on.</summary>
     public static readonly FrozenSet<string> CalculationModeTypes = Set(
         "text", "decimal", "integer", "note", "date", "time", "dateTime", "select_one", "select_multiple", "geopoint", "calculate", "hidden");
+
+    /// <summary>
+    /// Type spellings pyxform reads as another type (its <c>question_type_dictionary</c> and <c>aliases</c>), each with the
+    /// type it is read as here — ADR-287 §5.26. The type cell is compared lower-cased.
+    /// </summary>
+    public static readonly FrozenDictionary<string, string> TypeSpellings = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["string"] = "text",
+        ["int"] = "integer",
+        ["trigger"] = "acknowledge",
+        ["phone number"] = "text",
+        ["imei"] = "deviceid",
+        ["device id"] = "deviceid",
+        ["get device id"] = "deviceid",
+        ["uri:deviceid"] = "deviceid",
+        ["uri:username"] = "username",
+        ["uri:email"] = "email",
+        ["subscriber id"] = "subscriberid",
+        ["get subscriber id"] = "subscriberid",
+        ["uri:subscriberid"] = "subscriberid",
+        ["sim id"] = "simserial",
+        ["get sim id"] = "simserial",
+        ["uri:simserial"] = "simserial",
+        ["get phone number"] = "phonenumber",
+        ["uri:phonenumber"] = "phonenumber",
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The settings <c>style</c> values that lay groups out as a grid (ADR-287 §5.26): Survey123's two, and the older
+    /// <c>theme-grid</c> its forms still carry.
+    /// </summary>
+    public static readonly FrozenSet<string> GridStyles = Columns("fixed-grid", "dynamic-grid", "theme-grid");
+
+    /// <summary>The keys of <c>bind::esri:parameters</c> Survey123 documents for its field app only, by question type (§5.26).</summary>
+    public static readonly FrozenDictionary<string, FrozenSet<string>> FieldAppParameters = new Dictionary<string, FrozenSet<string>>(StringComparer.Ordinal)
+    {
+        ["image"] = Columns("watermark", "topLeftWatermark", "topWatermark", "topRightWatermark", "leftWatermark", "centerWatermark",
+            "rightWatermark", "bottomLeftWatermark", "bottomWatermark", "bottomRightWatermark", "smartAttributes", "redaction",
+            "smartAnnotation"),
+        ["audio"] = Columns("codec"),
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The longest recording an <c>audio</c> question takes when it does not say: Survey123's web app's ten minutes (§5.26).</summary>
+    public const int DefaultMaxDurationSeconds = 600;
 
     private static FrozenSet<string> Set(params string[] items) => items.ToFrozenSet(StringComparer.Ordinal);
 
