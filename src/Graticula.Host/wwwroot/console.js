@@ -37684,16 +37684,36 @@ function formReportPicked() {
     all.indeterminate = on > 0 && on < boxes.length;
   }
   // A polite live region: ticking a box, or every box, says how many are chosen now, not only when the button is reached.
+  const over = formReportPdfOver(f, n);
   const words = n === 0 ? (boxes.length ? "No submission chosen. Tick them in Latest submissions to make a report."
       : "No submission is shown, so there is none to make a report of.")
+    : over ? `${num(n)} chosen. Separate PDFs are limited to ${num(f.reportMaxPdf)}: choose fewer, or make one document.`
     : n === 1 ? "1 submission chosen." : `${num(n)} submissions chosen.`;
   if (says && says.textContent !== words) says.textContent = words;
+  const limit = $("formReportLimit");
+  if (limit) limit.textContent = formReportLimitText(f);
   if (go) {
-    if (n === 0) go.setAttribute("aria-disabled", "true"); else if (!go.hasAttribute("aria-busy")) go.removeAttribute("aria-disabled");
+    if (n === 0 || over) go.setAttribute("aria-disabled", "true"); else if (!go.hasAttribute("aria-busy")) go.removeAttribute("aria-disabled");
     go.textContent = n > 1 ? `Create ${num(n)} reports` : "Create report";
   }
   const mode = $("formReportModeRow");
   if (mode) mode.hidden = n < 2;
+}
+
+/**
+ * ADR-302 §5.5: whether the chosen submissions, made as separate PDFs, are more than the server lays out at once — said and
+ * held here, so the server never has to refuse it. A merged report is one document and is not counted.
+ */
+function formReportPdfOver(f, n) {
+  return !!f?.reportMaxPdf && $("formReportFormat")?.value === "pdf" && n > 1
+    && ($("formReportMode")?.value || "separate") === "separate" && n > f.reportMaxPdf;
+}
+
+/** The limits line under the choices, for the format chosen: the server's numbers, never typed here. */
+function formReportLimitText(f) {
+  const most = `At most ${num(f?.reportMaxRecords || 100)} submissions at once`;
+  if (!f?.reportMaxPdf) return `Written as Word (.docx). ${most}.`;
+  return $("formReportFormat")?.value === "pdf" ? `${most}, and at most ${num(f.reportMaxPdf)} as separate PDFs.` : `${most}.`;
 }
 
 /** The Reports section: making a report of the chosen submissions first, then the form's templates, adding and removing one. */
@@ -37722,6 +37742,8 @@ async function formDrawReports(f, rows) {
   // ADR-302: PDF is offered only where the server says its engine is installed; Word is always there.
   const formats = (listed.formats || ["docx"]).filter(x => x === "docx" || x === "pdf");
   const format = formats.includes(f.reportFormat) ? f.reportFormat : "docx";
+  f.reportMaxRecords = listed.maximumRecords || 100;
+  f.reportMaxPdf = formats.includes("pdf") ? (listed.maximumPdfDocuments || 0) : 0;
   // <b>Make first, manage second</b>, as Survey123's report panel orders them: the template, how several arrive, the file's
   // name and Create report stand together under the table; the list of templates and Add a template follow under their own
   // heading, because adding one is done once and making a report is done every day.
@@ -37737,18 +37759,19 @@ async function formDrawReports(f, rows) {
           <select id="formReportFormat" aria-describedby="formReportFormatHint">
             <option value="docx"${format === "docx" ? " selected" : ""}>Word document (.docx)</option>
             <option value="pdf"${format === "pdf" ? " selected" : ""}>PDF</option></select>
-          <p class="hint" id="formReportFormatHint">A PDF is the Word document laid out by this server. A template it cannot lay out
-            is said so, and the Word document can still be made.</p></div>` : ""}
+          <p class="hint" id="formReportFormatHint">The PDF is made on this server from the Word document. If a template cannot be
+            converted, you can still get it as Word.</p></div>` : ""}
         <div class="formfilterrow"><label for="formReportName">File name</label>
           <input type="text" id="formReportName" aria-describedby="formReportNameHint" autocomplete="off">
           <p class="hint" id="formReportNameHint">Left empty, a report is named after the form and the submission's number. For one
             document each it may hold values, as in Inspection \${objectid}.</p></div>
-        <p class="hint">${formats.includes("pdf") ? "" : "Written as Word (.docx). "}At most ${num(listed.maximumRecords || 100)} submissions at once.</p>
+        <p class="hint" id="formReportLimit">${h(formReportLimitText(f))}</p>
         <div class="formreportgo"><button type="button" class="primary" id="formReportGo" aria-describedby="formReportPicked">Create report</button>
           <p class="hint" id="formReportPicked" role="status" aria-live="polite"></p></div>
       </div>`
       : `<p class="hint">${manages ? "No template yet. Add one below to make reports." : "This form has no report template yet. Its owner adds them; ask them for one."}</p>`}
     <p class="hint" id="formReportSays" role="status" aria-live="polite"></p>
+    <div id="formReportFallback"></div>
     <div id="formReportNotes"></div>
     <h6 id="formReportTemplatesHead">Templates</h6>
     ${templates.length ? `<ul class="formreporttemplates" aria-labelledby="formReportTemplatesHead">${templates.map(t => `<li><span>${h(t.name)}</span>
@@ -37860,6 +37883,7 @@ async function formReportCreate(button) {
   if (!f) return;
   if (button.getAttribute("aria-disabled") === "true") {
     if (!f.reportPick?.size) $("formReportSays").textContent = "Choose the submissions first: tick them in Latest submissions.";
+    else if (formReportPdfOver(f, f.reportPick.size)) $("formReportSays").textContent = $("formReportPicked")?.textContent || "";
     return;
   }
   const ids = [...f.reportPick];
@@ -37870,6 +37894,8 @@ async function formReportCreate(button) {
   const says = (text, bad = false) => { $("formReportSays").textContent = text; $("formReportSays").classList.toggle("bad-inline", bad); };
   formReportIssuesShown(null);
   formReportNotesShown("");
+  if ($("formReportFallback")) $("formReportFallback").innerHTML = "";
+  let fallback = false;
   button.setAttribute("aria-disabled", "true");
   button.setAttribute("aria-busy", "true");
   const making = ids.length === 1 ? "the report" : `${num(ids.length)} reports`;
@@ -37886,11 +37912,10 @@ async function formReportCreate(button) {
     if (!answer.ok) {
       const said = await answer.json().catch(() => null);
       if (said?.issues?.length) formReportIssuesShown(said.issues, "The template no longer fits the form:");
-      // ADR-302: the Word document could be made and only its layout failed — Word is chosen, and the sentence says so.
-      if (said?.fallback === "docx" && $("formReportFormat")) {
-        $("formReportFormat").value = "docx";
-        f.reportFormat = "docx";
-        throw new Error(`${said.error?.message || "the PDF could not be laid out."} Word is chosen now: choose Create report again to get it.`);
+      // ADR-302: only the layout failed. The choice stays PDF; the reason is said and Word is offered as its own button.
+      if (said?.fallback === "docx") {
+        fallback = true;
+        throw new Error(said.reason || said.error?.message || "the PDF could not be laid out.");
       }
       throw new Error(said?.error?.message || `the server could not make the report (error ${answer.status}).`);
     }
@@ -37909,7 +37934,12 @@ async function formReportCreate(button) {
   } catch (e) {
     // With no signal the request never reaches the server: said in words, and nothing is half made.
     says(e instanceof TypeError ? "Not made: the server could not be reached. Reports are made on the server; try again when you are online."
-      : `Not made: ${lowerFirst(e.message || String(e))}`, true);
+      : `Not made${fallback ? " as a PDF" : ""}: ${lowerFirst(e.message || String(e))}`, true);
+    if (fallback && $("formReportFallback")) {
+      // The way on is a button that reads the reason with it, and focus goes there (WCAG 3.3.3).
+      $("formReportFallback").innerHTML = `<button type="button" id="formReportAsWord" aria-describedby="formReportSays">Create as Word (.docx)</button>`;
+      $("formReportAsWord").focus();
+    }
   } finally {
     clearTimeout(still);
     if (button.isConnected) {
@@ -37923,12 +37953,26 @@ async function formReportCreate(button) {
 
 // The report's format is kept across a redraw — an upload or a removal draws the section again — as the template is.
 document.addEventListener("change", event => {
-  if (event.target instanceof HTMLSelectElement && event.target.id === "formReportFormat" && formHere) formHere.reportFormat = event.target.value;
+  const t = event.target;
+  if (!(t instanceof HTMLSelectElement) || !formHere || (t.id !== "formReportFormat" && t.id !== "formReportMode")) return;
+  if (t.id === "formReportFormat") formHere.reportFormat = t.value;
+  // The limits line and the choice's sentence follow the format and how several arrive (ADR-302 §5.5).
+  formReportPicked();
 });
 
 document.addEventListener("click", async event => {
-  const t = event.target instanceof Element ? event.target.closest("#formReportGo, #formReportUpload, [data-form-report-remove]") : null;
+  const t = event.target instanceof Element ? event.target.closest("#formReportGo, #formReportUpload, #formReportAsWord, [data-form-report-remove]") : null;
   if (!t || !formHere) return;
+  if (t.id === "formReportAsWord") {
+    // Chosen by the person, not switched behind them: Word is set and the same report made.
+    if ($("formReportFormat")) $("formReportFormat").value = "docx";
+    formHere.reportFormat = "docx";
+    $("formReportFallback").innerHTML = "";
+    formReportPicked();
+    const go = $("formReportGo");
+    if (go) { go.focus(); await formReportCreate(go); }
+    return;
+  }
   if (t.id === "formReportGo") { await formReportCreate(t); return; }
   if (t.id === "formReportUpload") { await formReportUpload(t); return; }
   if (t.dataset.formReportRemove) await formReportRemove(t);

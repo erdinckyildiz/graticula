@@ -149,6 +149,7 @@ public static partial class FormEndpoints
             manages = LayerAccess.MayManage(document.Owner, context.Features.Get<RequestPrincipal>()!.Principal, context.Features.Get<RequestPrincipal>()!.Authorization),
             maximumRecords = MaximumReportRecords,
             formats = ReportFormats(context),
+            maximumPdfDocuments = MaximumPdfDocuments,
             notSupported = ReportTemplate.NotSupported,
             templates = page.Where(r => r.Path.StartsWith(ReportTemplatesPrefix, StringComparison.Ordinal))
                 .OrderBy(r => r.Path, StringComparer.OrdinalIgnoreCase)
@@ -509,9 +510,10 @@ public static partial class FormEndpoints
                 error = new
                 {
                     code = 422,
-                    message = $"{e.Message} The report can be made as a Word document (.docx), which is the report itself.",
+                    message = $"{e.Message} It can be made as a Word document (.docx) instead.",
                     details = Array.Empty<string>(),
                 },
+                reason = e.Message,
                 fallback = "docx",
             }, statusCode: 422);
         }

@@ -101,9 +101,10 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
 3. **The image installs the metric-compatible fonts** — `fonts-liberation2`, `fonts-crosextra-carlito`,
    `fonts-crosextra-caladea`, `fonts-dejavu-core` — so a line breaks where Word breaks it and ☒ can be written. CI installs
    the same four where it lays a report out.
-4. **A document the engine cannot lay out is answered `422`** with the engine's own reason, the sentence *"The report can
-   be made as a Word document (.docx), which is the report itself"*, and `fallback: "docx"`. Studio switches its format
-   back to Word and says so; nothing half-made is downloaded.
+4. **A document the engine cannot lay out is answered `422`** with the engine's own reason in `reason`, a sentence that
+   offers Word, and `fallback: "docx"`; nothing half-made is downloaded. Studio keeps the person's choice of PDF, says
+   *"Not made as a PDF: <reason>"*, and offers a *Create as Word (.docx)* button that takes focus and reads the reason with
+   it — after the ux-designer review of 2026-11-17, which refused the first build's silent switch back to Word.
 5. **INFERRED** ([Q-240](../open-questions.md)):
    1. one minute per document;
    2. **at most 25 PDF documents per request** in separate mode — a merged report is one document and is not counted; more
@@ -112,7 +113,9 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
       resources.
 6. **OfficeIMO.Word.Pdf 3.5.3** (2026-10-31), pinned centrally; the newest, 3.6.1, was ten days old.
 7. **Studio** offers *Format: Word document (.docx) / PDF* beside the template when the server lists `pdf`, and keeps the
-   choice across a redraw.
+   choice across a redraw. With PDF chosen, the limits line names §5.5's number as the server lists it
+   (`maximumPdfDocuments`), and more separate PDFs than that ticked hold *Create report* with the sentence that says why,
+   so the server never has to refuse it.
 
 ## 6. Consequences
 
