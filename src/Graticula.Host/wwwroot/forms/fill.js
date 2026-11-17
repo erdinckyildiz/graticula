@@ -360,8 +360,10 @@
         "Recording needs the form to be opened at an https address. Choose a recording instead.": "Ses kaydı için form https ile başlayan bir adresten açılmalı. Bunun yerine bir ses dosyası seçin.",
         "Recording not available: ": "Ses kaydı bulunamadı: ",
         "Recording: ": "Ses kaydı: ",
-        "0 is none at all and 10 is the most.": "0 hiç yok, 10 en fazla demek.",
-        "Check this answer.": "Bu cevabı bir daha kontrol edin."
+        "0 is none at all and 10 is the most.": "0 hiç, 10 en çok anlamına gelir.",
+        "Check this answer.": "Bu cevabı bir daha kontrol edin.",
+        "Warning:": "Uyarı:",
+        "Remove: ": "Kaldır: "
     };
     var STATIC_TEXT = {"back": ["Back", "Geri"], "next": ["Next", "İleri"], "submit": ["Submit", "Gönder"], "new-form": ["Fill in a new form", "Yeni form doldur"], "send-now": ["Send now", "Şimdi gönder"], "download-offline": ["Download for offline use", "Çevrimdışı kullanım için indir"], "outbox-heading": ["Outbox", "Giden kutusu"], "drafts-heading": ["Drafts", "Taslaklar"], "link-notices-title": ["Some settings in this link were not used", "Bu bağlantıdaki bazı ayarlar kullanılmadı"], "link-notices-dismiss": ["Dismiss", "Kapat"], "redirect-go": ["Go now", "Şimdi git"], "redirect-stay": ["Stay on this page", "Bu sayfada kal"], "draft-new": ["Start a new form", "Yeni form başlat"], "draft-discard": ["Discard this draft", "Bu taslağı sil"], "drafts-hint": ["Answers are kept on this device as you fill in the form. A draft is removed when its record is queued to be sent.", "Cevaplar, formu doldurdukça bu cihazda tutulur. Bir taslak, kaydı gönderilmek üzere kuyruğa alınınca silinir."], "done-heading": ["Submitted", "Gönderildi"], "ios-note": ["Offline on iPhone is not yet verified. Install this page to the Home Screen before relying on it without signal.", "iPhone’da çevrimdışı çalışma henüz doğrulanmadı. Sinyalsiz kullanmadan önce bu sayfayı Ana Ekran’a ekleyin."]};
     // Words of the 2026-11-15 compatibility work (ADR-287 §5.19), kept together so they stay apart from the list above.
@@ -980,11 +982,11 @@
     var sandboxSeq = 0;
 
     Object.assign(TR, {
-        "This answer is worked out by a script, which runs only for a signed-in member, and never on a form shared with everyone.": "Bu cevabı bir betik hesaplıyor; betik yalnız giriş yapmış bir üye için çalışır, herkesle paylaşılan bir formda hiç çalışmaz.",
-        "This answer is worked out by a script that was not uploaded with the form.": "Bu cevabı hesaplayan betik formla birlikte yüklenmemiş.",
-        "This answer is worked out by a script that took too long, and was stopped. The answer is left empty.": "Bu cevabı hesaplayan betik çok uzun sürdü ve durduruldu. Cevap boş bırakıldı.",
-        "This answer is worked out by a script that failed: ": "Bu cevabı hesaplayan betik hata verdi: ",
-        "This answer is worked out by a script that could not be started on this device. It is tried again when the connection returns.": "Bu cevabı hesaplayan betik bu cihazda başlatılamadı. Bağlantı gelince yeniden denenir."
+        "This answer is left empty. It is worked out automatically only for signed-in members, and never on a form shared with everyone.": "Bu cevap boş kaldı. Yalnız giriş yapmış üyeler için kendiliğinden hesaplanır; herkesle paylaşılan bir formda hiç hesaplanmaz.",
+        "This answer is left empty. What works it out was not uploaded with the form; tell the form's owner.": "Bu cevap boş kaldı. Onu hesaplayan dosya formla birlikte yüklenmemiş; formun sahibine haber verin.",
+        "This answer is left empty. Working it out took too long, so it was stopped; tell the form's owner.": "Bu cevap boş kaldı. Hesaplanması çok uzun sürdüğü için durduruldu; formun sahibine haber verin.",
+        "This answer is left empty. Working it out failed; tell the form's owner: ": "Bu cevap boş kaldı. Hesaplanamadı; formun sahibine şunu iletin: ",
+        "This answer is left empty for now: it cannot be worked out on this device yet. It is tried again when the connection returns.": "Bu cevap şimdilik boş: bu cihazda henüz hesaplanamıyor. Bağlantı gelince yeniden denenir."
     });
 
     function scriptNamesOf(formIn) {
@@ -1058,7 +1060,7 @@
         frame.hidden = true;
         frame.className = 'script-sandbox';
         frame.src = sandboxUrl();
-        var box = { frame: frame, ready: false, sent: {}, queue: [], waiting: {}, timers: {}, startTimer: 0 };
+        var box = { frame: frame, ready: false, sent: {}, queue: [], backlog: [], waiting: {}, timers: {}, startTimer: 0 };
         // No answer from the page at all — no connection and nothing cached — is said as such, and tried again later.
         box.startTimer = setTimeout(function () { if (sandbox === box && !box.ready) { dropSandbox('unavailable'); } }, SANDBOX_START_MS);
         sandbox = box;
@@ -1079,13 +1081,17 @@
             if (key === culprit) { return; }
             if (why === 'unavailable') { scriptCache[key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[key]; }
         });
-        box.queue.forEach(function (m) { if (m.kind === 'call' && m.key !== culprit) { if (why === 'unavailable') { scriptCache[m.key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[m.key]; } } });
+        box.queue.concat(box.backlog).forEach(function (m) { if (m.kind === 'call' && m.key !== culprit) { if (why === 'unavailable') { scriptCache[m.key] = { state: 'unavailable', at: Date.now() }; } else { delete scriptCache[m.key]; } } });
         if (box.frame.parentNode) { box.frame.parentNode.removeChild(box.frame); }
         setTimeout(function () { refresh(false); }, 0);
     }
 
+    // One call at a time: a frame's worker runs its calls one after another, so a call sent behind another would have
+    // its time limit running while it only waited, and a quick function typed into fast was stopped as "took too long"
+    // (UX review 2026-11-17). The next call is sent when the one out answers.
     function sandboxSend(box, message) {
         if (!box.ready) { box.queue.push(message); return; }
+        if (message.kind === 'call' && Object.keys(box.waiting).length) { box.backlog.push(message); return; }
         if (message.kind === 'call' && !box.sent[message.file]) {
             box.frame.contentWindow.postMessage({ kind: 'load', file: message.file, source: scriptTexts[message.file] }, '*');
             box.sent[message.file] = true;
@@ -1118,6 +1124,7 @@
         delete box.waiting[d.id];
         clearTimeout(box.timers[d.id]);
         delete box.timers[d.id];
+        if (box.backlog.length) { sandboxSend(box, box.backlog.shift()); }
         var v = d.value;
         var fine = d.ok === true && (v === null || typeof v === 'boolean' || (typeof v === 'number' && isFinite(v)) || (typeof v === 'string' && v.length <= SCRIPT_ARGS_MAX));
         scriptCache[key] = fine ? { state: 'done', value: v === null ? '' : v }
@@ -1157,16 +1164,23 @@
         return hit.state === 'done' ? hit.value : '';
     }
 
+    var SCRIPT_STATUS_SETTLE_MS = 600;   // a script's changed status line is written once it has held this long
+
+    /** Whether the last script call a question's calculation made is still out. */
+    function scriptStatusPending(inst, q) {
+        return !!q.calculation && /@javascript/.test(q.calculation) && scriptStatus[inst.id + '/' + q.name] === 'pending';
+    }
+
     /** What a question whose calculation runs a script says under its answer, or ''. */
     function scriptStatusText(inst, q) {
         if (!q.calculation || !/@javascript/.test(q.calculation)) { return ''; }
         var at = inst.id + '/' + q.name;
         switch (scriptStatus[at]) {
-            case 'refused': return t('This answer is worked out by a script, which runs only for a signed-in member, and never on a form shared with everyone.');
-            case 'missing': return t('This answer is worked out by a script that was not uploaded with the form.');
-            case 'timeout': return t('This answer is worked out by a script that took too long, and was stopped. The answer is left empty.');
-            case 'error': return t('This answer is worked out by a script that failed: ') + (scriptStatus[at + '#message'] || '');
-            case 'unavailable': return t('This answer is worked out by a script that could not be started on this device. It is tried again when the connection returns.');
+            case 'refused': return t('This answer is left empty. It is worked out automatically only for signed-in members, and never on a form shared with everyone.');
+            case 'missing': return t("This answer is left empty. What works it out was not uploaded with the form; tell the form's owner.");
+            case 'timeout': return t("This answer is left empty. Working it out took too long, so it was stopped; tell the form's owner.");
+            case 'error': return t("This answer is left empty. Working it out failed; tell the form's owner: ") + (scriptStatus[at + '#message'] || '');
+            case 'unavailable': return t('This answer is left empty for now: it cannot be worked out on this device yet. It is tried again when the connection returns.');
         }
         return '';
     }
@@ -2036,7 +2050,25 @@
         // "Looking this up…" is said only when the answer has not come back within half a second: a lookup per keystroke
         // in the question it reads otherwise announced it, and blanked it, once a letter (UX review 2026-11-16).
         var lookupTimer = 0;
+        var settleTimer = 0;
         function sayLookup() {
+            // A script's line (section 5.27) is not blanked while its next call is out, and a changed line is written
+            // once it has held for a moment: blanking it and writing it back announced the same failure on every
+            // keystroke in a question the script reads (UX review 2026-11-17).
+            if (!layerStatusText(inst, q) && scriptStatusPending(inst, q)) { return; }
+            if (q.calculation && /@javascript/.test(q.calculation) && !layerStatusText(inst, q)) {
+                var line = scriptStatusText(inst, q);
+                clearTimeout(settleTimer);
+                settleTimer = 0;
+                if (lookup.textContent === line) { return; }
+                if (line === '') { lookup.textContent = ''; return; }
+                settleTimer = setTimeout(function () {
+                    settleTimer = 0;
+                    var now = scriptStatusPending(inst, q) ? null : scriptStatusText(inst, q);
+                    if (now !== null && lookup.isConnected && lookup.textContent !== now) { lookup.textContent = now; }
+                }, SCRIPT_STATUS_SETTLE_MS);
+                return;
+            }
             var said = layerStatusText(inst, q) || scriptStatusText(inst, q);
             if (said === t('Looking this up…') && lookup.textContent !== said) {
                 if (!lookupTimer) {
@@ -2076,7 +2108,14 @@
                 wrap.classList.toggle('invalid', !!message);
                 if (warning) {
                     var cautious = !message && (showAll || inst.touched[q.name]) ? warningFor(inst, q) : '';
-                    if (warning.textContent !== cautious) { warning.textContent = cautious; }
+                    // Named in words, so a warning is not told from an error by its colour alone, and a screen reader
+                    // hears that it is one (UX review 2026-11-17).
+                    var cautionSaid = cautious ? t('Warning:') + ' ' + cautious : '';
+                    if (warning.textContent !== cautionSaid) {
+                        // One change, so it is announced once.
+                        if (cautious) { warning.replaceChildren(el('strong', { text: t('Warning:') }), document.createTextNode(' ' + cautious)); }
+                        else { warning.textContent = ''; }
+                    }
                     wrap.classList.toggle('warned', !!cautious);
                 }
                 if (widget.controls) {
@@ -3397,10 +3436,10 @@
                 var url = URL.createObjectURL(f.blob);
                 urls.push(url);
                 var preview = /^image\//.test(f.type) ? el('img', { src: url, alt: '' })
-                    : /^audio\//.test(f.type) ? el('audio', { src: url, controls: true })
-                    : /^video\//.test(f.type) ? el('video', { src: url, controls: true, muted: true }) : null;
+                    : /^audio\//.test(f.type) ? el('audio', { src: url, controls: true, 'aria-label': t('Recording: ') + f.name })
+                    : /^video\//.test(f.type) ? el('video', { src: url, controls: true, muted: true, 'aria-label': f.name }) : null;
                 var remove = el('button', { type: 'button', class: 'quiet', 'data-focus': 'remove-' + i, text: t('Remove') });
-                remove.setAttribute('aria-label', 'Remove ' + f.name);
+                remove.setAttribute('aria-label', t('Remove: ') + f.name);
                 remove.addEventListener('click', function () {
                     var now = filesOf(inst, q.name).slice(); now.splice(i, 1); setFiles(inst, q, now); input.focus();
                 });
@@ -3484,12 +3523,16 @@
             button.setAttribute('aria-pressed', on ? 'true' : 'false');
             clock.hidden = !on;
             if (on) { clock.textContent = clockOf((Date.now() - recording.started) / 1000) + ' / ' + clockOf(limit); }
-            if (!on && recordingSaid[key] && status.textContent !== recordingSaid[key]) { status.textContent = recordingSaid[key]; }
+            if (!on && !saying && recordingSaid[key] && status.textContent !== recordingSaid[key]) { status.textContent = recordingSaid[key]; }
         }
+        // Emptied first so the same words are announced again; written once. The redraw that follows a saved recording
+        // wrote the words back at once, and the timer a second time, and both were announced (UX review 2026-11-17).
+        var saying = 0;
         function say(words) {
             recordingSaid[key] = words;
             status.textContent = '';
-            setTimeout(function () { status.textContent = words; }, 50);
+            clearTimeout(saying);
+            saying = setTimeout(function () { saying = 0; if (status.textContent !== words) { status.textContent = words; } }, 50);
         }
         button.addEventListener('click', function () {
             if (recording && recording.key === key) { stopRecording('done'); return; }

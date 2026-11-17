@@ -103,6 +103,38 @@ public sealed class FormFillRealFormsTests : IClassFixture<FormFillClientTests.S
     }
 
     [Fact]
+    public async Task A_saved_recording_is_said_once_and_its_player_and_remove_button_are_named()
+    {
+        string id = _site.Publish(new FormFillClientTests.Form
+        {
+            Root = FormFillClientTests.Form.Repeat("", [Q("ses", "audio", "Sesli not")]),
+        });
+        await _site.OpenAsync(id);
+        await _site.EvalAsync<bool>(FakeMicrophone);
+        await _site.EvalAsync<bool>("document.querySelector('[data-name=ses] [data-focus=record]').click(); true");
+        await _site.WaitAsync("document.querySelector('[data-name=ses] [data-focus=record]').textContent === 'Stop recording'", "the recording to start");
+        await _site.EvalAsync<bool>("""
+            (function () {
+              window.__saved = 0;
+              var region = document.querySelector('[data-name=ses] [aria-live=polite]');
+              new MutationObserver(function () { if (region.textContent === 'Recording saved.') { window.__saved++; } })
+                .observe(region, { childList: true, characterData: true, subtree: true });
+              return true;
+            })()
+            """);
+
+        // The redraw after a saved recording wrote the words back at once and the timer a second time.
+        await _site.EvalAsync<bool>("document.querySelector('[data-name=ses] [data-focus=record]').click(); true");
+        await _site.WaitAsync("document.querySelectorAll('[data-name=ses] .files li audio').length === 1", "the recording to be listed");
+        await Task.Delay(300);
+        Assert.Equal(1, await _site.EvalAsync<int>("window.__saved"));
+
+        string file = await _site.EvalAsync<string>("document.querySelector('[data-name=ses] .files li span').textContent.split(' (')[0]") ?? "";
+        Assert.Equal("Recording: " + file, await _site.EvalAsync<string>("document.querySelector('[data-name=ses] .files li audio').getAttribute('aria-label')"));
+        Assert.Equal("Remove: " + file, await _site.EvalAsync<string>("document.querySelector('[data-name=ses] .files li button').getAttribute('aria-label')"));
+    }
+
+    [Fact]
     public async Task A_recording_stops_by_itself_at_max_duration_and_says_so()
     {
         string id = _site.Publish(new FormFillClientTests.Form
@@ -196,7 +228,9 @@ public sealed class FormFillRealFormsTests : IClassFixture<FormFillClientTests.S
 
         Assert.Equal("", await _site.EvalAsync<string>("document.querySelector('[data-name=proje] .warning').textContent"));
         await TypeAsync("[data-name=proje] input", "Project");
-        await _site.WaitAsync("document.querySelector('[data-name=proje] .warning').textContent === 'Bir proje adı yazın.'", "the warning");
+        await _site.WaitAsync("document.querySelector('[data-name=proje] .warning').textContent === 'Warning: Bir proje adı yazın.'", "the warning");
+        // Named a warning in words, not by its colour alone (UX review 2026-11-17).
+        Assert.Equal("Warning:", await _site.EvalAsync<string>("document.querySelector('[data-name=proje] .warning strong').textContent"));
         Assert.Equal("status", await _site.EvalAsync<string>("document.querySelector('[data-name=proje] .warning').getAttribute('role')"));
         Assert.Contains("-warning", await _site.EvalAsync<string>("document.querySelector('[data-name=proje] input').getAttribute('aria-describedby')"));
         Assert.Null(await _site.EvalAsync<string?>("document.querySelector('[data-name=proje] input').getAttribute('aria-invalid')"));
@@ -210,6 +244,31 @@ public sealed class FormFillRealFormsTests : IClassFixture<FormFillClientTests.S
         await _site.OpenAsync(id);
         await TypeAsync("[data-name=proje] input", "Köprü");
         await _site.WaitAsync("document.querySelector('[data-name=proje] .warning').textContent === ''", "no warning for a good answer");
+    }
+
+    [Fact]
+    public async Task A_warning_is_written_once_per_change_and_not_again_while_the_answer_keeps_it()
+    {
+        JsonObject depth = With(With(Q("derinlik", "decimal", "Derinlik"), "warning", ". <= 3"),
+            "warningMessages", new JsonObject { [""] = "3 metreden derin." });
+        string id = _site.Publish(new FormFillClientTests.Form { Root = FormFillClientTests.Form.Repeat("", [depth]) });
+        await _site.OpenAsync(id);
+        await _site.EvalAsync<bool>("""
+            (function () {
+              window.__warned = 0;
+              new MutationObserver(function (ms) { window.__warned += ms.length; })
+                .observe(document.querySelector('[data-name=derinlik] .warning'), { childList: true, characterData: true, subtree: true });
+              return true;
+            })()
+            """);
+        foreach (string typed in new[] { "4", "4.", "4.5" })
+        {
+            await TypeAsync("[data-name=derinlik] input", typed);
+        }
+
+        await _site.WaitAsync("document.querySelector('[data-name=derinlik] .warning').textContent === 'Warning: 3 metreden derin.'", "the warning");
+        await Task.Delay(300);
+        Assert.Equal(1, await _site.EvalAsync<int>("window.__warned"));
     }
 
     // ------------------------------------------------------------------------------------------------- camera

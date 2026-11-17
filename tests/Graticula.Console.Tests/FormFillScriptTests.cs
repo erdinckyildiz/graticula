@@ -57,6 +57,7 @@ public sealed class FormFillScriptTests : IClassFixture<FormFillClientTests.Site
         function tryAsync() { return Promise.resolve(1); }
         function fails() { throw new Error('no such parcel'); }
         function spin(x) { while (true) { } }
+        function slow(x) { var t = Date.now(); while (Date.now() - t < 1200) { } return 'ok ' + x; }
         """;
 
     private string Publish(JsonObject root, string scripts = "allowed", bool withFile = true) => _site.Publish(new FormFillClientTests.Form
@@ -161,6 +162,56 @@ public sealed class FormFillScriptTests : IClassFixture<FormFillClientTests.Site
         // The page's own state is as it was.
         Assert.Equal("kept", await _site.EvalAsync<string>("localStorage.getItem('graticula-secret')"));
         await _site.EvalAsync<bool>("localStorage.removeItem('graticula-secret'); document.cookie = 'graticula-secret=; max-age=0; path=/'; true");
+    }
+
+    [Fact]
+    public async Task A_quick_call_sent_behind_another_is_not_stopped_for_the_time_it_waited()
+    {
+        // Each call takes 1.2 s of the 2 s a call is given. Sent all at once, the third waited 2.4 s in the worker and was
+        // stopped as "took too long" with its answer left empty; one at a time, each has its own 2 s (UX review 2026-11-17).
+        string id = Publish(FormFillClientTests.Form.Repeat("", [
+            Q("a", "integer", "A"),
+            Calculated("yavas", Call("slow", "${a}")),
+        ]));
+        await _site.OpenAsync(id);
+
+        await _site.SetAsync("a", "1");
+        await _site.SetAsync("a", "12");
+        await _site.WaitAsync("document.querySelector('[data-name=yavas] input').value === 'ok 12'", "the last call's answer", seconds: 20);
+        Assert.Equal("", await Status("yavas"));
+    }
+
+    [Fact]
+    public async Task A_scripts_status_line_is_not_written_again_on_every_keystroke()
+    {
+        // The line was blanked while each new call was out and written back when it answered, so the same failure was
+        // announced once a letter typed into the question the script reads (UX review 2026-11-17).
+        string id = Publish(FormFillClientTests.Form.Repeat("", [
+            Q("a", "integer", "A"),
+            Calculated("hata", Call("fails", "${a}")),
+        ]));
+        await _site.OpenAsync(id);
+        await _site.WaitAsync("document.querySelector('[data-name=hata] .layer-status').textContent.indexOf('no such parcel') >= 0", "the failure to be said");
+        Assert.StartsWith("This answer is left empty.", await Status("hata"), StringComparison.Ordinal);
+        Assert.Contains("tell the form's owner", await Status("hata"), StringComparison.Ordinal);
+        await _site.EvalAsync<bool>("""
+            (function () {
+              window.__said = 0;
+              new MutationObserver(function (ms) { window.__said += ms.length; })
+                .observe(document.querySelector('[data-name=hata] .layer-status'), { childList: true, characterData: true, subtree: true });
+              return true;
+            })()
+            """);
+
+        foreach (string typed in new[] { "1", "12", "123", "1234" })
+        {
+            await _site.SetAsync("a", typed);
+            await Task.Delay(150);
+        }
+
+        await Task.Delay(1500);
+        Assert.Equal(0, await _site.EvalAsync<int>("window.__said"));
+        Assert.Contains("no such parcel", await Status("hata"), StringComparison.Ordinal);
     }
 
     [Fact]
