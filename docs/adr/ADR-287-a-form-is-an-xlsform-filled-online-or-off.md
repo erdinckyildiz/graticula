@@ -1660,6 +1660,18 @@ measurable question. The two device claims are, so they are conditions and not a
       MD5, SHA-1, SHA-384 and SHA-512 written here (the browser's own `crypto.subtle` is asynchronous and the evaluator is
       not), which is a decision about scope and not a correctness fix (Q-239 (j)).
 
+28. **The UX review of §5.26 and §5.27's client — 2026-11-17** (ca099132). Rendered at phone and desktop width, light
+    and dark, English and Turkish, with a live-region recorder. It found and fixed: a script call timed from when it was
+    queued rather than when it ran, so a quick function called twice was stopped as *took too long* and, by §5.27 (d),
+    never retried — calls now go to the sandbox one at a time; the script status line written again on every keystroke;
+    the script status words, which now begin *This answer is left empty.* and say what to do; a warning told from an
+    error by colour alone, which now begins with *Warning:*; the `distress` scale wrapping 4/4/3 and 10/1, its chosen
+    and focused tiles drawn alike, and two of its colours under 3:1 — now 6+5 tiles on a phone and 11 from 640 px, a
+    fill for the choice and an outline for focus, and a ramp from 3.11 to 5.44:1 on both grounds, the number always
+    shown; a saved recording announced twice; an unnamed recording player. The status wording quoted in §5.27 and the
+    distress layout in §5.26 are as built before this review. Left: the browser's own `<audio>` control is 40 px tall;
+    the reviewer recommends 600 px rather than 480 px for the grid's one-column break (§5.26 INFERRED (5), in Q-238).
+
 ## 6. Consequences
 
 **Positive.** An organization can collect data with Graticula alone, from the public or from a field crew without
