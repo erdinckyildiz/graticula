@@ -98,9 +98,13 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
 2. **The engine runs in `Graticula.Report.Pdf`, a child process,** started once per document with
    `OfflineUploadReader`'s bounds: a deadline of one minute, a 1 GB managed heap, a 1.5 GB working set polled from outside,
    a lower priority. OfficeIMO is referenced by that project and nothing else.
-3. **The image installs the metric-compatible fonts** — `fonts-liberation2`, `fonts-crosextra-carlito`,
+3. **The image carries the metric-compatible fonts** — `fonts-liberation2`, `fonts-crosextra-carlito`,
    `fonts-crosextra-caladea`, `fonts-dejavu-core` — so a line breaks where Word breaks it and ☒ can be written. CI installs
-   the same four where it lays a report out.
+   the same four where it lays a report out. **Amended 2026-11-18 ([D-428](../architecture-debt.md)):** 1.0.524 installed
+   them in /usr/share/fonts and the server died at its first map drawing on arm64, because the fontconfig inside
+   SkiaSharp's native read them. They are now installed in a build stage and only their files copied, to
+   `/opt/graticula/report-fonts/.fonts`, which the engine's child alone is given as its HOME; the image build fails if
+   /usr/share/fonts holds a file.
 4. **A document the engine cannot lay out is answered `422`** with the engine's own reason in `reason`, a sentence that
    offers Word, and `fallback: "docx"`; nothing half-made is downloaded. Studio keeps the person's choice of PDF, says
    *"Not made as a PDF: <reason>"*, and offers a *Create as Word (.docx)* button that takes focus and reads the reason with

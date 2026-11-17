@@ -330,6 +330,23 @@ RUN python tools/make-glyphs.py /out/glyphs --cjk \
 
 FROM glyphs-${GLYPHS_CJK} AS glyphs
 
+# <b>The report PDF engine's fonts, installed here and only their files copied — ADR-302 §5.3, D-428.</b> 1.0.524 installed the
+# four packages in the runtime stage, into /usr/share/fonts, and the server died at its first map drawing on arm64: SkiaSharp's
+# NoDependencies native carries its own fontconfig, which scanned the new fonts and called FT_Get_BDF_Property, absent from the
+# FreeType bundled beside it ("symbol lookup error", the process gone). Until then /usr/share/fonts was empty and that fontconfig
+# had nothing to read. So the files go to a folder no fontconfig looks in, and the engine's child process alone is pointed at it
+# (ReportPdfConverter sets its HOME; OfficeIMO reads ~/.fonts). Measured 2026-11-18: the thirteen public templates lay out
+# identically from there as from /usr/share/fonts.
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS reportfonts
+RUN apt-get update && apt-get install --yes --no-install-recommends \
+        fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /out/.fonts /out/licences \
+ && cp -r /usr/share/fonts/truetype/. /out/.fonts/ \
+ && for d in /usr/share/doc/fonts-*; do cp "$d/copyright" "/out/licences/$(basename "$d").copyright"; done \
+ && test -n "$(find /out/.fonts -name 'Carlito-Regular.ttf')" \
+ && test -n "$(find /out/.fonts -name 'LiberationSans-Regular.ttf')"
+
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 
@@ -379,14 +396,13 @@ RUN apt-get update && apt-get install --yes --no-install-recommends python3 pyth
 # <b>Fonts for a feature report laid out as a PDF — ADR-302 §5.3.</b> The engine embeds the family a Word template names, or an
 # installed substitute for a missing Office one, so these are the families whose letters are as wide as Office's: Liberation
 # for Arial, Times New Roman and Courier New, Carlito for Calibri, Caladea for Cambria — a line breaks where Word breaks it —
-# and DejaVu for the symbols a template's tick boxes are (☒, ☐). Without them the engine falls back to the PDF standard
-# fonts, which cannot write ☒, and five of thirteen public templates were refused (measured on this image, 2026-11-17). All
-# four are OFL-1.1 or permissive; their licences arrive with the packages, under /usr/share/doc.
-RUN apt-get update && apt-get install --yes --no-install-recommends \
-        fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \
- && rm -rf /var/lib/apt/lists/* \
- && test -n "$(find /usr/share/fonts -name 'Carlito-Regular.ttf')" \
- && test -n "$(find /usr/share/fonts -name 'LiberationSans-Regular.ttf')"
+# and DejaVu for the symbols a template's tick boxes are (☒, ☐). All four are OFL-1.1 or permissive; each package's
+# copyright file travels beside them. <b>And /usr/share/fonts stays empty</b>, checked here rather than trusted: a font there
+# is read by the fontconfig inside SkiaSharp's native and kills the server (the reportfonts stage above, D-428).
+COPY --from=reportfonts /out/ /opt/graticula/report-fonts/
+RUN test -n "$(find /opt/graticula/report-fonts/.fonts -name 'Carlito-Regular.ttf')" \
+ && test -s /opt/graticula/report-fonts/licences/fonts-crosextra-carlito.copyright \
+ && test -z "$(find /usr/share/fonts /usr/local/share/fonts -type f 2>/dev/null)"
 
 RUN groupadd --gid 64198 gisserver \
  && useradd --uid 64198 --gid 64198 --create-home --home-dir /home/gisserver --shell /usr/sbin/nologin gisserver \

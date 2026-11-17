@@ -55,25 +55,41 @@ internal sealed class ReportPdfConverter : IReportPdf
     /// <summary>How long one document may take.</summary>
     public static readonly TimeSpan DefaultDeadline = TimeSpan.FromMinutes(1);
 
+    /// <summary>
+    /// Where the image keeps the engine's fonts, as a home whose <c>.fonts</c> folder OfficeIMO reads — D-428.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not /usr/share/fonts, ever.</b> The fontconfig inside SkiaSharp's native reads that folder in this server's own
+    /// process, and a font there killed 1.0.524 at its first map drawing on arm64 (deploy/server.Dockerfile, reportfonts).
+    /// Only the child is pointed here, through its HOME; where the folder is absent, as on a developer's machine, the child
+    /// keeps the HOME it inherits and reads the machine's fonts.
+    /// </remarks>
+    public const string DefaultFontsHome = "/opt/graticula/report-fonts";
+
     private static readonly TimeSpan MemoryPoll = TimeSpan.FromMilliseconds(250);
 
     private readonly string _executable;
     private readonly string _scratch;
     private readonly TimeSpan _deadline;
+    private readonly string? _fontsHome;
 
-    public ReportPdfConverter(string executable)
-        : this(executable, Path.Combine(Path.GetTempPath(), "graticula-report-pdf"), DefaultDeadline)
+    public ReportPdfConverter(string executable, string? fontsHome = DefaultFontsHome)
+        : this(executable, Path.Combine(Path.GetTempPath(), "graticula-report-pdf"), DefaultDeadline, fontsHome)
     {
     }
 
-    internal ReportPdfConverter(string executable, string scratch, TimeSpan deadline)
+    internal ReportPdfConverter(string executable, string scratch, TimeSpan deadline, string? fontsHome = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         ArgumentException.ThrowIfNullOrWhiteSpace(scratch);
         _executable = executable;
         _scratch = scratch;
         _deadline = deadline;
+        _fontsHome = fontsHome is not null && Directory.Exists(Path.Combine(fontsHome, ".fonts")) ? fontsHome : null;
     }
+
+    /// <summary>The HOME the engine's child is given, or null when it keeps the one it inherits.</summary>
+    internal string? FontsHome => _fontsHome;
 
     /// <summary>Where the engine is in a build or an image: <c>reportpdf/</c> beside this assembly.</summary>
     public static string ExecutableBesideThisOne()
@@ -161,6 +177,11 @@ internal sealed class ReportPdfConverter : IReportPdf
         start.Environment["DOTNET_GCHeapHardLimit"] = HeapLimitBytes.ToString("X", CultureInfo.InvariantCulture);
         start.Environment["DOTNET_gcServer"] = "0";
         start.Environment["DOTNET_gcConcurrent"] = "0";
+
+        if (_fontsHome is not null)
+        {
+            start.Environment["HOME"] = _fontsHome;
+        }
 
         using Process process = Process.Start(start)
             ?? throw new ReportPdfException("The PDF engine did not start.");

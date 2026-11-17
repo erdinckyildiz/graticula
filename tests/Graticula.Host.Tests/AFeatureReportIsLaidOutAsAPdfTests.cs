@@ -105,6 +105,28 @@ public sealed class AFeatureReportIsLaidOutAsAPdfTests
         Assert.Contains("not installed", refused.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_engine_is_given_the_fonts_folder_as_its_home_only_where_the_folder_has_fonts()
+    {
+        // D-428: the image keeps the engine's fonts out of /usr/share/fonts, where SkiaSharp's fontconfig would read them in
+        // the server's own process, and points the child alone at them. A machine without the folder keeps its own HOME.
+        string home = Path.Combine(Path.GetTempPath(), "graticula-fonts-home-" + Guid.NewGuid().ToString("N"));
+        string scratch = Path.Combine(Path.GetTempPath(), "graticula-report-pdf-tests");
+
+        try
+        {
+            Assert.Null(new ReportPdfConverter("engine", scratch, ReportPdfConverter.DefaultDeadline, home).FontsHome);
+
+            Directory.CreateDirectory(Path.Combine(home, ".fonts"));
+            Assert.Equal(home, new ReportPdfConverter("engine", scratch, ReportPdfConverter.DefaultDeadline, home).FontsHome);
+            Assert.Null(new ReportPdfConverter("engine", scratch, ReportPdfConverter.DefaultDeadline).FontsHome);
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("{\"ok\":true,\"bytes\":1}", null)]
     [InlineData("{\"ok\":false,\"error\":\"PDF bookmark names must be unique.\"}", "The PDF engine could not lay this template out: PDF bookmark names must be unique.")]
