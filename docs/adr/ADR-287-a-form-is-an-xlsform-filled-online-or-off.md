@@ -1141,7 +1141,7 @@ measurable question. The two device claims are, so they are conditions and not a
         pinned one and it evaluates no strings; a page that is not a secure context gives the https hint. The earlier
         no-reader tests now remove the camera API as well, since a camera alone now means a Scan button.
         `FormFillPageTests`' offline test also checks the real server's cache holds both files.
-      - **INFERRED, for the owner to confirm:** (7) the library is part of the offline shell for every form, as `ol.js`
+      - **INFERRED, confirmed by the owner 2026-11-17 (§5.29):** (7) the library is part of the offline shell for every form, as `ol.js`
         is, rather than fetched only by forms with a barcode question — 108 KB gzipped per device, once; (8) the browser's
         own reader is preferred wherever it exists, and ZXing is never used beside it, because it is faster and costs no
         download; (9) ZXing reads at most 1280 px of each frame and does not run its slower "try harder" mode, to keep a
@@ -1505,7 +1505,7 @@ measurable question. The two device claims are, so they are conditions and not a
       hints as labels); ODK and pyxform — `eddie-odk_simprints_verification_demo` (`trigger`),
       `pyx-…ODKValidateWarnings` and `pyx-…group` (`phone number`), `pyx-…excel_with_macros` (`default_language`),
       `pyx-…yes_or_no_question` (`select one from`). None was refused that was accepted before.
-    - **INFERRED, for the owner to confirm** ([Q-238](../open-questions.md)): (1) the browser **records** an audio answer,
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.29)** ([Q-238](../open-questions.md)): (1) the browser **records** an audio answer,
       where Survey123's web app only takes a file; the recording is in the browser's own format, not transcoded, and
       `max-duration` (600 s by default) limits a recording, not a chosen file; (2) the label-recording formats are the
       nine a browser's audio element plays, not Survey123's longer list; (3) `distress` is **0 to 10** (eleven points; the
@@ -1609,7 +1609,7 @@ measurable question. The two device claims are, so they are conditions and not a
       gave `'[]'` while the lookup was out, which is not empty, so an `auto` calculation whose inputs had not changed was
       never run again when the answer came. Both `@layer` and `@javascript` now mark the calculation as waiting, and a
       waiting calculation is neither kept nor locked. Tested for both.
-    - **INFERRED** (Q-239): (a) **a form shared with everyone never runs a script**, refused at publish and at sharing,
+    - **INFERRED, confirmed by the owner 2026-11-17 (§5.29)** (Q-239): (a) **a form shared with everyone never runs a script**, refused at publish and at sharing,
       and a caller who is not signed in is never given one to run — Survey123 says scripts are not supported for public
       surveys; this does not reverse that, though the sandbox would make it safe; (b) **any signed-in member who can open
       the form runs its scripts**: Survey123 limits them to the author's organisation, and here a form is shared with an
@@ -1671,6 +1671,13 @@ measurable question. The two device claims are, so they are conditions and not a
     shown; a saved recording announced twice; an unnamed recording player. The status wording quoted in §5.27 and the
     distress layout in §5.26 are as built before this review. Left: the browser's own `<audio>` control is 40 px tall;
     the reviewer recommends 600 px rather than 480 px for the grid's one-column break (§5.26 INFERRED (5), in Q-238).
+
+29. **The owner's answers on §5.22's ZXing points and §5.26–§5.28 — 2026-11-17 morning** ([Q-238](../open-questions.md),
+    [Q-239](../open-questions.md)). Every INFERRED point is confirmed as written (*"Hepsi yazıldığı gibi"*): ZXing's (7) to
+    (10) in §5.22, (1) to (19) of §5.26, and (a) to (j) of §5.27. On scripts the owner was asked once more and kept (a)
+    (*"Böyle kalsın"*): a form shared with everyone never runs one, and a form with a script cannot be shared with
+    everyone; a script has no network. The proposal in Q-238 to answer `phonenumber`, `subscriberid` and `simserial`
+    empty was not taken, so §5.10's refusal of them stands. The feature report's answers are in ADR-301 §5.14.
 
 ## 6. Consequences
 

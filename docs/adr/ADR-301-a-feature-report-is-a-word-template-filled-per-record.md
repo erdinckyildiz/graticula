@@ -244,6 +244,19 @@ Every Survey123 behaviour below was read on Esri's public documentation (doc.esr
     - (aa) A summary section reads no record's answer outside a `${#layer}` section; a statistic over no rows writes nothing.
     - (ab) §5.12's readings of what public templates write, each of which Survey123's pages do not describe.
 
+14. **The owner's answers, 2026-11-17 morning** ([Q-237](../open-questions.md)). **No PDF: a report is a Word
+    document only** (*"Yalnız Word kalsın"*) — §5.7 stands as the decision rather than a gap, and a person who needs a
+    PDF saves the document as one in Word. **A reader of a form sees its Results and makes reports** (*"Okuyucuya da
+    Sonuçlar ve rapor"*), reversing what §5.8 had left — Studio showed Results only to whoever manages the form, so a
+    reader the server would serve had no way to a report. Built in eeff8d39, with no server change: a reader's Results
+    take the publication from `/forms/{id}/form.json` and read the records from the form's top layer when the reader
+    can query it, else from its Inbox view, else none — in the order the report endpoint already reads them (§5.5) —
+    and one sentence under the heading says which (*Every submission to this form…*, *Your own submissions, through the
+    form's Inbox…*, or *This form's answers are not shared with you…*, with no table). The Form panel, publishing,
+    sharing, the designer and template Add/Remove stay the owner's. A reader who reads the layer itself gets the
+    download only where the layer allows Extract, and never through the Inbox view, which refuses exports (ADR-300
+    §5.4). Every other INFERRED point, (a) to (ab), is confirmed as written (*"Hepsi yazıldığı gibi"*).
+
 ## 6. Consequences
 
 **Positive.** A form's results become the documents a shop hands over, from templates written in Word with Survey123's
@@ -283,8 +296,8 @@ the requests a report makes, not a port to a library.
    twelve single) without a repair prompt and exported each to PDF. What they needed is §5.12; the three not filled are
    refused at upload with their reasons. **Not done: LibreOffice**, which is not on this machine and was not installed
    (the brief forbids installing software on it); the half of this condition it names stays open.
-2. **The owner confirms the INFERRED list** of §5.9, (a) to (q), through [Q-237](../open-questions.md).
-3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down.
+2. **The owner confirms the INFERRED list** of §5.9, (a) to (q), through [Q-237](../open-questions.md). **DISCHARGED 2026-11-17:** every point confirmed, (p) as Word only and (ac) the other way (§5.14).
+3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down. **DISCHARGED 2026-11-17:** Word only, by owner decision (§5.14).
 4. **Maps are drawn** for `${location | map}` and `$shape` on ADR-265's renderer, or the refusal stays and is recorded as
    the decision. **DISCHARGED 2026-11-17** — §5.10: drawn by `PrintEndpoints.DrawMapImageAsync`, ADR-265's `MAP_ONLY`
    drawing, as the asker, the records marked; measured on the fixture (§4). `rotate` and `mapFilters` stay refused, and a

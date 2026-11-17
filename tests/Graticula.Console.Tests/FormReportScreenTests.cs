@@ -207,8 +207,9 @@ public sealed class FormReportScreenTests : ConsoleTest
         }
         finally
         {
-            await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{formId}?folder=hosted&drop=true");
+            // The view first: a base service with views is refused (409), which left it and its domains behind.
             await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{formId}_submit?folder=hosted&drop=true");
+            await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{formId}?folder=hosted&drop=true");
             (int status, string body) = await AdminAsync(HttpMethod.Get, "/admin/domains");
 
             if (status == 200 && JsonNode.Parse(body) is { } domains)
