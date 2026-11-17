@@ -8044,12 +8044,24 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 /* ADR-301: feature reports, under the results. */
 .formreports { margin-top: 16px; }
 .formreporttemplates { list-style: none; padding: 0; margin: 0 0 8px; }
-.formreporttemplates li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line, #ddd); }
+.formreporttemplates li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--rule); }
+/* The size sat 6px high: a .hint keeps its bottom margin in a centred flex row. */
+.formreporttemplates li .hint { margin: 0; }
 .formreporttemplates li > span:first-child { overflow-wrap: anywhere; }
 .formreportadd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
 .formreportadd .hint { flex-basis: 100%; margin: 0; }
 .formreportadd input[type="file"] { min-width: 0; max-width: 100%; }
-.formreportmake { margin: 8px 0; }
+.formreportmake { margin: 8px 0 4px; max-width: 34rem; }
+/* Labels above their controls, one column: the inline rows ran ragged at three widths (UX review 2026-11-17). */
+.formreportmake .formfilterrow { flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 12px; }
+.formreportmake .formfilterrow .hint { margin: 0; }
+.formreportgo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 4px 0 8px; }
+.formreportgo .hint { margin: 0; }
+/* Not chosen yet, or working: it looks unavailable, and stays focusable so a press says why. */
+#formReportGo[aria-disabled="true"], #formReportUpload[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+#formReportGo[aria-busy="true"], #formReportUpload[aria-busy="true"] { cursor: progress; }
+#formReportTemplatesHead { margin: 16px 0 4px; }
+#formReportNotes:not(:empty) { margin: 0 0 8px; }
 .formreportissues { margin: 4px 0 8px; padding-left: 20px; }
 .formreportissues code { overflow-wrap: anywhere; }
 .formpick { width: 2.5em; text-align: center; }
@@ -8059,6 +8071,7 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .formbar { background: var(--rule-strong); }
 @media (max-width: 600px) {
   .formfilterrow { flex-direction: column; align-items: stretch; }
+  .formreportadd input[type="file"] { min-height: 44px; }
   .formfilterrow > * { width: 100%; box-sizing: border-box; }
 }
 .fdlive { border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }

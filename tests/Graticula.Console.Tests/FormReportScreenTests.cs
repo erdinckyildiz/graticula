@@ -87,20 +87,23 @@ public sealed class FormReportScreenTests : ConsoleTest
 
             using (HttpRequestMessage edit = new(HttpMethod.Post, new Uri($"{Root}{url}/applyEdits")))
             {
-                JsonArray adds = [new JsonObject
+                // Two, so the tick box for every row shown has a mixed state to show.
+                JsonArray adds = [.. new[] { ("Kule", 29.0), ("Saray", 29.01) }.Select(r => (JsonNode)new JsonObject
                 {
-                    ["geometry"] = new JsonObject { ["x"] = 29.0, ["y"] = 41.0 },
-                    ["attributes"] = new JsonObject { [columns.GetProperty("ad").GetString()!] = "Kule", [columns.GetProperty("hasar").GetString()!] = "agir" },
-                }];
+                    ["geometry"] = new JsonObject { ["x"] = r.Item2, ["y"] = 41.0 },
+                    ["attributes"] = new JsonObject { [columns.GetProperty("ad").GetString()!] = r.Item1, [columns.GetProperty("hasar").GetString()!] = "agir" },
+                })];
                 edit.Content = new FormUrlEncodedContent(new Dictionary<string, string> { ["f"] = "json", ["adds"] = adds.ToJsonString() });
                 edit.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 using HttpResponseMessage answer = await Http.SendAsync(edit);
                 Assert.True(answer.IsSuccessStatusCode, await answer.Content.ReadAsStringAsync());
             }
 
-            using (MultipartFormDataContent form = new())
+            // The second draws a map, which may leave something out — a basemap at another address — and say so.
+            foreach ((string name, byte[] bytes) in new[] { ("denetim.docx", Template("Bina: ${ad}", "Hasar: ${hasar}")), ("konum.docx", Template("Bina: ${ad}", "${konum}")) })
             {
-                form.Add(new ByteArrayContent(Template("Bina: ${ad}", "Hasar: ${hasar}")), "file", "denetim.docx");
+                using MultipartFormDataContent form = new();
+                form.Add(new ByteArrayContent(bytes), "file", name);
                 using HttpRequestMessage upload = new(HttpMethod.Post, new Uri($"{Root}/admin/forms/{item}/reports/templates")) { Content = form };
                 upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 using HttpResponseMessage answer = await Http.SendAsync(upload);
@@ -123,10 +126,28 @@ public sealed class FormReportScreenTests : ConsoleTest
                 "['formReportTemplate', 'formReportName', 'formReportFile'].every(id => !!document.querySelector(`label[for=${id}]`))"),
                 "A report control has no label.");
 
+            // UX review 2026-11-17: Create report sits under the table it is chosen in, before the summaries, not after them.
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "!!(document.getElementById('formLatest').compareDocumentPosition(document.getElementById('formReports')) & Node.DOCUMENT_POSITION_FOLLOWING)"
+                + " && !!(document.getElementById('formReports').compareDocumentPosition(document.querySelector('.formsums')) & Node.DOCUMENT_POSITION_FOLLOWING)"),
+                "The Reports section is not between Latest submissions and the summaries.");
+
+            // Not yet available looks it, and the count is a live region, so a tick is heard as a number.
+            Assert.True(await Browser.EvaluateAsync<bool>("Number(getComputedStyle(document.getElementById('formReportGo')).opacity) < 1"),
+                "Create report looks available with nothing chosen.");
+            Assert.Equal("status", await Browser.EvaluateAsync<string>("document.getElementById('formReportPicked').getAttribute('role')"));
+
+            // The header box chooses every row shown; one row off leaves it mixed.
+            await ClickAsync("#formPickAll");
+            await WaitForAsync("document.getElementById('formReportPicked').textContent === '2 submissions chosen.'"
+                + " && document.getElementById('formReportGo').textContent === 'Create 2 reports' && !document.getElementById('formReportModeRow').hidden",
+                "Choosing every submission shown did not count them.");
             await ClickAsync("[data-form-pick]");
-            await WaitForAsync("document.getElementById('formReportGo').getAttribute('aria-disabled') === null"
-                + " && document.getElementById('formReportPicked').textContent.startsWith('One submission')",
-                "Ticking a submission did not make Create report available.");
+            await WaitForAsync("document.getElementById('formPickAll').indeterminate && !document.getElementById('formPickAll').checked"
+                + " && document.getElementById('formReportGo').getAttribute('aria-disabled') === null"
+                + " && document.getElementById('formReportPicked').textContent === '1 submission chosen.'"
+                + " && Number(getComputedStyle(document.getElementById('formReportGo')).opacity) === 1",
+                "One row off did not leave the header box mixed and one submission chosen.");
 
             // Create report reaches the server and the document comes back to be downloaded.
             await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/reports'], true)");
@@ -134,6 +155,32 @@ public sealed class FormReportScreenTests : ConsoleTest
             await WaitForAsync("/\\.docx \\(.*\\) is downloading/.test(document.getElementById('formReportSays').textContent)",
                 "Create report did not download a Word document.");
             Assert.Contains(await WritesAsync(), w => w.StartsWith($"POST /admin/forms/{item}/reports", StringComparison.Ordinal) && w.EndsWith("(sent)", StringComparison.Ordinal));
+            Assert.Equal("formReportGo", await Browser.EvaluateAsync<string>("document.activeElement?.id"));
+
+            // What the report left out is shown, not only sent in a header: the same request is asked here, and whatever
+            // notes the server gives it are the ones the screen lists (the fixture's basemap decides whether there are any).
+            long chosen = await Browser.EvaluateAsync<long>("[...formHere.reportPick][0]");
+            string notes;
+            using (HttpRequestMessage made = new(HttpMethod.Post, new Uri($"{Root}/admin/forms/{item}/reports")))
+            {
+                made.Content = new StringContent(new JsonObject { ["template"] = "konum.docx", ["objectIds"] = new JsonArray(chosen) }.ToJsonString(), Encoding.UTF8, "application/json");
+                made.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage answer = await Http.SendAsync(made);
+                Assert.True(answer.IsSuccessStatusCode, await answer.Content.ReadAsStringAsync());
+                notes = Uri.UnescapeDataString(answer.Headers.TryGetValues("Graticula-Report-Notes", out IEnumerable<string>? said) ? string.Concat(said) : string.Empty);
+            }
+
+            await Browser.EvaluateAsync<bool>("(document.getElementById('formReportTemplate').value = 'konum.docx', document.getElementById('formReportSays').textContent = '', true)");
+            await ClickAsync("#formReportGo");
+            await WaitForAsync("/is downloading/.test(document.getElementById('formReportSays').textContent) && !document.getElementById('formReportGo').hasAttribute('aria-busy')",
+                "The map report did not download.");
+            int listed = await Browser.EvaluateAsync<int>("document.querySelectorAll('#formReportNotes li').length");
+            Assert.True(notes.Length == 0 ? listed == 0 : listed > 0, $"The server noted \"{notes}\" and the screen listed {listed}.");
+
+            // The splitting itself, whatever this fixture's basemap is: two sentences are two lines.
+            Assert.Equal(2, await Browser.EvaluateAsync<int>(
+                "formReportNotesShown(encodeURIComponent(\"A map in the report: 'OpenStreetMap' was not drawn: it is at another address. The web map x is not there for you to read, so the map was drawn on the default basemap.\"))"));
+            Assert.Contains("Check the report", await Browser.EvaluateAsync<string>("document.getElementById('formReportNotesHead').textContent"), StringComparison.Ordinal);
 
             // A template with a rotated map is refused, its paragraph listed, focus on the list.
             string bad = Convert.ToBase64String(Template("Bina: ${ad}", "Yer: ${konum | rotate:90}"));
@@ -152,7 +199,9 @@ public sealed class FormReportScreenTests : ConsoleTest
             string issue = await Browser.EvaluateAsync<string>("document.querySelector('.formreportissues li').textContent") ?? string.Empty;
             Assert.Contains("paragraph 2", issue, StringComparison.Ordinal);
             Assert.Contains("map", issue, StringComparison.Ordinal);
-            Assert.StartsWith("Not added", await Browser.EvaluateAsync<string>("document.getElementById('formReportSays').textContent"));
+            Assert.StartsWith("harita.docx was not added", await Browser.EvaluateAsync<string>("document.getElementById('formReportSays').textContent"));
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('formReportSays').classList.contains('bad-inline')"), "The refusal is not shown as one.");
+            Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#formReportNotes li').length"));
 
             NothingWentWrong(await PageErrorsAsync());
         }

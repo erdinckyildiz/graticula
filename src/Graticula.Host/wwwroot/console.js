@@ -37042,6 +37042,10 @@ async function drawFormResults() {
         ${unanswered ? `<tr><td class="hint">Not answered</td><td class="num">${num(unanswered)}</td><td></td></tr>` : ""}</tbody></table></section>`;
   };
 
+  // <b>Reports sit under the table they are chosen in</b>, not after the summaries: the tick boxes and Create report were
+  // 700 pixels apart at 1280 and a thousand on a phone (UX review of ADR-301 §5.8, 2026-11-17). Survey123 puts its
+  // Report action on the table's own toolbar for the same reason.
+  const reportSection = `<section id="formReports" class="formreports" aria-labelledby="formReportsHead"><h5 id="formReportsHead">Reports</h5><p class="hint">Reading the report templates…</p></section>`;
   box.innerHTML = `
     <h4 id="formResultsHead">Results</h4>
     <p id="formResultCount"><b>${num(total)}</b> ${filtered ? `of ${num(everything)} ${everything === 1 ? "submission matches" : "submissions match"} the filter`
@@ -37066,10 +37070,11 @@ async function drawFormResults() {
         }).join("")}</tr>`).join("")}</tbody>
       </table></div>
       ${total > rows.length ? `<p class="hint">The latest ${num(rows.length)} of ${num(total)}.</p>` : ""}
+      ${reportSection}
       ${summarised.length ? `<h5>By question</h5><div class="formsums">${summarised.map((q, i) => summaryHtml(q, stats[i])).join("")}</div>` : ""}`}
     ${others.length ? `<p class="hint">Answers to repeats are in their own related ${others.length === 1 ? "table" : "tables"}: ${others.map(l =>
       `<a href="${servicePage(pub.service, "hosted")}?tab=data&layer=${encodeURIComponent(String(l.url).slice(String(l.url).lastIndexOf("/") + 1))}">${h(l.name)}</a>`).join(", ")}.</p>` : ""}
-    <section id="formReports" class="formreports" aria-labelledby="formReportsHead"><h5 id="formReportsHead">Reports</h5><p class="hint">Reading the report templates…</p></section>`;
+    ${total === 0 ? reportSection : ""}`;
   formFilterFollows(asked, f.form);
   formDrawReports(f, rows);
   if (total && drawn) formDrawMap(top.url, where);
@@ -37583,17 +37588,20 @@ function formReportPicked() {
     all.checked = on > 0 && on === boxes.length;
     all.indeterminate = on > 0 && on < boxes.length;
   }
-  if (says) says.textContent = n === 0 ? "No submission chosen: tick them in Latest submissions above."
-    : n === 1 ? "One submission chosen." : `${num(n)} submissions chosen.`;
+  // A polite live region: ticking a box, or every box, says how many are chosen now, not only when the button is reached.
+  const words = n === 0 ? (boxes.length ? "No submission chosen. Tick them in Latest submissions to make a report."
+      : "No submission is shown, so there is none to make a report of.")
+    : n === 1 ? "1 submission chosen." : `${num(n)} submissions chosen.`;
+  if (says && says.textContent !== words) says.textContent = words;
   if (go) {
-    if (n === 0) go.setAttribute("aria-disabled", "true"); else go.removeAttribute("aria-disabled");
+    if (n === 0) go.setAttribute("aria-disabled", "true"); else if (!go.hasAttribute("aria-busy")) go.removeAttribute("aria-disabled");
     go.textContent = n > 1 ? `Create ${num(n)} reports` : "Create report";
   }
   const mode = $("formReportModeRow");
   if (mode) mode.hidden = n < 2;
 }
 
-/** The Reports section: the form's templates, adding and removing one, and making a report of the chosen submissions. */
+/** The Reports section: making a report of the chosen submissions first, then the form's templates, adding and removing one. */
 async function formDrawReports(f, rows) {
   const box = $("formReports");
   if (!box) return;
@@ -37616,22 +37624,11 @@ async function formDrawReports(f, rows) {
   const templates = f.reportTemplates;
   const manages = !!listed.manages;
   const kept = f.reportChoice && templates.some(t => t.name === f.reportChoice) ? f.reportChoice : templates[0]?.name;
+  // <b>Make first, manage second</b>, as Survey123's report panel orders them: the template, how several arrive, the file's
+  // name and Create report stand together under the table; the list of templates and Add a template follow under their own
+  // heading, because adding one is done once and making a report is done every day.
   box.innerHTML = `<h5 id="formReportsHead">Reports</h5>
-    <p class="hint">A Word document for each chosen submission, filled from a template — Survey123's feature report. A template is a
-      .docx whose text holds placeholders such as \${question}, \${#repeat} … \${/} and \${if …} … \${/}.</p>
-    ${templates.length ? `<ul class="formreporttemplates" aria-label="Report templates">${templates.map(t => `<li><span>${h(t.name)}</span>
-        <span class="hint">${fileSize(t.size)}</span>${manages ? ` <button type="button" class="ghost" data-form-report-remove="${h(t.name)}"
-        aria-label="${h(`Remove the template ${t.name}`)}">Remove</button>` : ""}</li>`).join("")}</ul>`
-      : `<p class="hint">${manages ? "No template yet. Add one to make reports." : "This form has no report template yet; its owner adds them."}</p>`}
-    ${manages ? `<div class="formreportadd">
-        <label for="formReportFile">Add a template</label>
-        <input type="file" id="formReportFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          aria-describedby="formReportFileHint">
-        <button type="button" id="formReportUpload">Upload</button>
-        <p class="hint" id="formReportFileHint">A Word document (.docx) of at most 10 MB. It is checked against the form's
-          questions; a placeholder that cannot be filled is listed with its paragraph. A template with the same name is replaced.</p>
-      </div>` : ""}
-    <div id="formReportIssues"></div>
+    <p class="hint">A Word document for each chosen submission, filled from a template — Survey123's feature report.</p>
     ${templates.length ? `<div class="formreportmake">
         <div class="formfilterrow"><label for="formReportTemplate">Template</label>
           <select id="formReportTemplate">${templates.map(t => `<option value="${h(t.name)}"${t.name === kept ? " selected" : ""}>${h(t.name)}</option>`).join("")}</select></div>
@@ -37639,14 +37636,30 @@ async function formDrawReports(f, rows) {
           <select id="formReportMode"><option value="separate">One document each, in a ZIP file</option>
             <option value="merged">One document, a page break between them</option></select></div>
         <div class="formfilterrow"><label for="formReportName">File name</label>
-          <input type="text" id="formReportName" aria-describedby="formReportNameHint" autocomplete="off"></div>
-        <p class="hint" id="formReportNameHint">Left empty, a report is named after the form and the submission's number. For one
-          document each it may hold values, as in Inspection \${objectid}.</p>
+          <input type="text" id="formReportName" aria-describedby="formReportNameHint" autocomplete="off">
+          <p class="hint" id="formReportNameHint">Left empty, a report is named after the form and the submission's number. For one
+            document each it may hold values, as in Inspection \${objectid}.</p></div>
         <p class="hint">Written as Word (.docx). PDF is not offered yet. At most ${num(listed.maximumRecords || 100)} submissions at once.</p>
-        <button type="button" class="primary" id="formReportGo" aria-describedby="formReportPicked formReportSays">Create report</button>
-        <p class="hint" id="formReportPicked"></p>
-      </div>` : ""}
+        <div class="formreportgo"><button type="button" class="primary" id="formReportGo" aria-describedby="formReportPicked">Create report</button>
+          <p class="hint" id="formReportPicked" role="status" aria-live="polite"></p></div>
+      </div>`
+      : `<p class="hint">${manages ? "No template yet. Add one below to make reports." : "This form has no report template yet. Its owner adds them; ask them for one."}</p>`}
     <p class="hint" id="formReportSays" role="status" aria-live="polite"></p>
+    <div id="formReportNotes"></div>
+    <h6 id="formReportTemplatesHead">Templates</h6>
+    ${templates.length ? `<ul class="formreporttemplates" aria-labelledby="formReportTemplatesHead">${templates.map(t => `<li><span>${h(t.name)}</span>
+        <span class="hint">${fileSize(t.size)}</span>${manages ? ` <button type="button" class="ghost" data-form-report-remove="${h(t.name)}"
+        aria-label="${h(`Remove the template ${t.name}`)}">Remove</button>` : ""}</li>`).join("")}</ul>` : ""}
+    ${manages ? `<div class="formreportadd">
+        <label for="formReportFile">Add a template</label>
+        <input type="file" id="formReportFile" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          aria-describedby="formReportFileHint">
+        <button type="button" id="formReportUpload">Upload</button>
+        <p class="hint" id="formReportFileHint">A Word document (.docx) of at most 10 MB, whose text holds placeholders such as
+          \${question}, \${#repeat} … \${/} and \${if …} … \${/}. It is checked against the form's questions; a placeholder that
+          cannot be filled is listed with its paragraph. A template with the same name is replaced.</p>
+      </div>` : templates.length ? `<p class="hint">Only the form's owner adds and removes templates.</p>` : ""}
+    <div id="formReportIssues"></div>
     <details class="formreportlimits"><summary>What a template here cannot hold yet</summary><p class="hint">${h(listed.notSupported || "")}</p></details>`;
   formReportPicked();
 }
@@ -37660,18 +37673,38 @@ function formReportIssuesShown(issues, lead) {
       paragraph ${num(i.paragraph)}</b>${i.text ? ` (“${h(i.text)}”)` : ""}: <code>${h(i.placeholder)}</code> — ${h(i.message)}</li>`).join("")}</ul>` : "";
 }
 
+
+/**
+ * What a made report could not hold in full — a basemap at another address left out of its map, a web map the asker may
+ * not read — from the `Graticula-Report-Notes` header (ADR-301 §5.10). Shown, because the person is about to send the
+ * document on and its map is missing something; not focused, because the download is what they asked for.
+ */
+function formReportNotesShown(header) {
+  const box = $("formReportNotes");
+  if (!box) return 0;
+  let text = "";
+  try { text = decodeURIComponent(header || ""); } catch { text = header || ""; }
+  // The server joins its sentences with a space; each starts with a capital after a full stop.
+  const notes = text.trim() ? text.trim().split(/(?<=[.!?])\s+(?=[A-Z'"(‘“])/).filter(Boolean) : [];
+  box.innerHTML = notes.length ? `<p class="warn-inline" id="formReportNotesHead">Check the report before you send it on:</p>
+    <ul class="formreportissues" aria-labelledby="formReportNotesHead">${notes.map(n => `<li>${h(n)}</li>`).join("")}</ul>` : "";
+  return notes.length;
+}
+
 /** Upload: the file is checked by the server; refused, its places are listed and focus goes to the list. */
 async function formReportUpload(button) {
   const f = formHere;
   const input = $("formReportFile");
-  const says = text => { $("formReportSays").textContent = text; };
+  const says = (text, bad = false) => { $("formReportSays").textContent = text; $("formReportSays").classList.toggle("bad-inline", bad); };
   if (!f || !input || button.getAttribute("aria-disabled") === "true") return;
   const file = input.files?.[0];
   formReportIssuesShown(null);
-  if (!file) { says("Choose a .docx file first."); input.focus(); return; }
+  formReportNotesShown("");
+  if (!file) { says("Choose a .docx file first.", true); input.focus(); return; }
   const body = new FormData();
   body.append("file", file, file.name);
   button.setAttribute("aria-disabled", "true");
+  button.setAttribute("aria-busy", "true");
   says(`Checking ${file.name}…`);
   try {
     const answer = await fetch(`/admin/forms/${encodeURIComponent(f.id)}/reports/templates`,
@@ -37679,10 +37712,13 @@ async function formReportUpload(button) {
     const said = await answer.json().catch(() => null);
     if (formHere !== f) return;
     if (!answer.ok) {
-      says(`Not added: ${lowerFirst(said?.error?.message || `the server answered ${answer.status}.`)}`);
       if (said?.issues?.length) {
+        // The server's own sentence also says *not added*; the list says why, so the status says what to do.
+        says(`${file.name} was not added. Change the placeholders listed under Upload and add it again.`, true);
         formReportIssuesShown(said.issues, `${file.name} has ${said.issues.length === 1 ? "a placeholder" : `${num(said.issues.length)} placeholders`} this server cannot fill:`);
         $("formReportIssuesHead")?.focus();
+      } else {
+        says(`Not added: ${lowerFirst(said?.error?.message || `the server answered ${answer.status}.`)}`, true);
       }
       return;
     }
@@ -37692,9 +37728,9 @@ async function formReportUpload(button) {
     ($("formReportTemplate") || $("formReportFile"))?.focus();
   } catch (e) {
     says(e instanceof TypeError ? "Not added: the server could not be reached. Try again when you are online."
-      : `Not added: ${lowerFirst(e.message || String(e))}`);
+      : `Not added: ${lowerFirst(e.message || String(e))}`, true);
   } finally {
-    if (button.isConnected) button.removeAttribute("aria-disabled");
+    if (button.isConnected) { button.removeAttribute("aria-disabled"); button.removeAttribute("aria-busy"); }
   }
 }
 
@@ -37719,7 +37755,7 @@ async function formReportCreate(button) {
   const f = formHere;
   if (!f) return;
   if (button.getAttribute("aria-disabled") === "true") {
-    if (!f.reportPick?.size) $("formReportSays").textContent = "Choose the submissions first: tick them in Latest submissions above.";
+    if (!f.reportPick?.size) $("formReportSays").textContent = "Choose the submissions first: tick them in Latest submissions.";
     return;
   }
   const ids = [...f.reportPick];
@@ -37727,8 +37763,13 @@ async function formReportCreate(button) {
   f.reportChoice = template;
   const says = (text, bad = false) => { $("formReportSays").textContent = text; $("formReportSays").classList.toggle("bad-inline", bad); };
   formReportIssuesShown(null);
+  formReportNotesShown("");
   button.setAttribute("aria-disabled", "true");
-  says(ids.length === 1 ? "Making the report…" : `Making ${num(ids.length)} reports…`);
+  button.setAttribute("aria-busy", "true");
+  const making = ids.length === 1 ? "the report" : `${num(ids.length)} reports`;
+  says(`Making ${making}…`);
+  // A report with maps and photographs can take several seconds: said once more, so a wait is not read as nothing happening.
+  const still = setTimeout(() => { if (button.hasAttribute("aria-busy")) says(`Still making ${making}. Maps and photographs take longer; the file downloads when it is ready.`); }, 4000);
   try {
     const answer = await fetch(`/admin/forms/${encodeURIComponent(f.id)}/reports`, {
       method: "POST",
@@ -37750,13 +37791,17 @@ async function formReportCreate(button) {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(address), 10000);
-    says(`${link.download} (${fileSize(blob.size)}) is downloading.`);
+    const notes = formReportNotesShown(answer.headers.get("Graticula-Report-Notes"));
+    says(`${link.download} (${fileSize(blob.size)}) is downloading.${notes ? ` ${notes === 1
+      ? "Something is missing from it; it is" : "Some things are missing from it; they are"} listed below.` : ""}`);
   } catch (e) {
     // With no signal the request never reaches the server: said in words, and nothing is half made.
     says(e instanceof TypeError ? "Not made: the server could not be reached. Reports are made on the server; try again when you are online."
       : `Not made: ${lowerFirst(e.message || String(e))}`, true);
   } finally {
+    clearTimeout(still);
     if (button.isConnected) {
+      button.removeAttribute("aria-busy");
       button.removeAttribute("aria-disabled");
       formReportPicked();
       if (!document.activeElement || document.activeElement === document.body) button.focus();
