@@ -490,7 +490,7 @@ jobs:
       - name: host and geometry worker
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild'
+            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild&Needs!=ModelConverter'
 
   conformance:
     name: conformance (${{ matrix.part }})
@@ -799,11 +799,13 @@ jobs:
       #
       # <b>It runs even when a step before it failed, and that is the same argument.</b>
       # See the `console` step below for what not doing this cost.
+      # `Needs=ModelConverter` too: ADR-282 §5.5's FBX unit scale runs the server's converter on Assimp's command-line
+      # tool, which this job installs (`the 3D model converter`) and the datastore job does not.
       - name: the tests that need a running host
         if: "!cancelled() && matrix.part == 'suites'"
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs=RunningHost'
+            --filter 'Needs=RunningHost|Needs=ModelConverter'
 
       # <b>The console, in a real browser, in this job because this is the job with
       # a server.</b> D-59: four console defects in two days, every one found by the

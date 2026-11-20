@@ -542,7 +542,9 @@ public sealed class SceneLayerSourceTests : ConsoleTest
             Assert.True(status == 200, rebuilt);
             Assert.Equal(1, JsonDocument.Parse(rebuilt).RootElement.GetProperty("features").GetInt32());
 
-            // COLLADA and FBX (ASCII) are converted by the same path (ADR-282 condition 1): the same box, in each.
+            // COLLADA and FBX (ASCII) are converted by the same path (ADR-282 condition 1): the same box, in each — the FBX's
+            // a hundredth the size, since it declares centimetres and is converted to metres (ADR-282 §5.5,
+            // AnFbxIsConvertedToMetresTests).
             DirectoryInfo? repository = new(AppContext.BaseDirectory);
             while (repository is not null && repository.GetFiles("*.sln").Length == 0) repository = repository.Parent;
             // IFC by IfcConvert and USD, as text and zipped, by usd2glb (ADR-283 conditions 2 and 3): our own wall and box.

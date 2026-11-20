@@ -20,7 +20,7 @@ namespace Graticula.Host;
 /// <b>Three tools, each for the formats measured to convert with it</b>:
 /// <list type="bullet">
 /// <item>the Open Asset Import Library's <c>assimp</c> (BSD-3) for OBJ, alone or zipped with its materials, COLLADA and
-/// FBX (ADR-282 §4);</item>
+/// FBX (ADR-282 §4), an FBX scaled from its own units to metres by its <c>UnitScaleFactor</c> (ADR-282 §5.5);</item>
 /// <item>IfcOpenShell's <c>IfcConvert</c> (LGPL-3.0), with its Open CASCADE kernel and without its CGAL ones, for IFC
 /// (ADR-283 §5.2);</item>
 /// <item>our own <c>usd2glb</c>, built against tinyusdz (Apache-2.0), for USD in its text, binary and zipped forms
@@ -40,7 +40,10 @@ internal sealed class ModelConverters : IModelConverter
     {
         ["3D_obj"] = new(".obj", "assimp", "export \"$1\" \"$2\" -fglb2"),
         ["3D_dae"] = new(".dae", "assimp", "export \"$1\" \"$2\" -fglb2"),
-        ["3D_fbx"] = new(".fbx", "assimp", "export \"$1\" \"$2\" -fglb2"),
+        // -gs: Assimp's global-scale step, which multiplies by the scale the importer read from the file. For FBX that is
+        // the file's UnitScaleFactor (centimetres per unit) times 0.01, so the glb is in metres (ADR-282 §5.5, owner
+        // decision 2026-11-20). Only FBX: the other importers' units are not routed through this step.
+        ["3D_fbx"] = new(".fbx", "assimp", "export \"$1\" \"$2\" -fglb2 -gs"),
         ["3D_ifc"] = new(".ifc", "IfcConvert", "-y -q \"$1\" \"$2\""),
         ["3D_usdz"] = new(".usdz", "usd2glb", "\"$1\" \"$2\""),
         ["3D_usdc"] = new(".usdc", "usd2glb", "\"$1\" \"$2\""),

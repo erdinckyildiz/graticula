@@ -25,7 +25,7 @@ import time
 import urllib.request
 
 # (format, name, url at a pinned commit, sha256, made by, licence, expected: None to be refused, else
-#  (minimum triangles, (low, high) of the largest side of its box in the glb's units), or ("either", ...) when converting
+#  (minimum triangles, (low, high) of the largest side of its box in metres), or ("either", ...) when converting
 #  and being refused with a reason are both an answer)
 MODELS = [
     ("fbx", "maxPbrMaterial_metalRough.fbx",
@@ -38,8 +38,10 @@ MODELS = [
      "37ca4979dec31f5fbf41eaac2594918d56459cad3461e4b35425396142d4fe0a",
      "Blender 2.76 (binary FBX)", "BSD-3-Clause (Assimp's repository)",
      # Either: ADR-282 §4 saw Debian's Assimp 5.2.5 fail on a binary FBX, and Assimp 6.0.6 converts this one (measured
-     # 2026-11-20); which the image's packaged Assimp does is what this run is for, and is printed.
-     ("either", 1000, (1.0, 1e6))),
+     # 2026-11-20); which the image's packaged Assimp does is what this run is for, and is printed. Converted, it is in
+     # metres (ADR-282 §5.5): its UnitScaleFactor is 1, so 19,338 units are 193.4 m, and a converter that ignored the
+     # unit scale (19,338) fails here rather than passing.
+     ("either", 1000, (150.0, 250.0))),
     ("ifc", "hhs-construction.ifc",
      "https://raw.githubusercontent.com/opensourceBIM/IFC-files/cb96c50f511248cf0df7a16fd4bef0c89a3159f0/HHS%20Office/construction.ifc",
      "37917ba4dc9ee168fccbd0752a85c7cc927a19541edabb35d436c8511b936c05",
@@ -59,7 +61,7 @@ MODELS = [
 
 # The command lines of src/Graticula.Host/ModelConverters.cs.
 COMMANDS = {
-    "fbx": lambda i, o: [os.environ.get("ASSIMP", "assimp"), "export", i, o, "-fglb2"],
+    "fbx": lambda i, o: [os.environ.get("ASSIMP", "assimp"), "export", i, o, "-fglb2", "-gs"],
     "ifc": lambda i, o: [os.environ.get("IFCCONVERT", "IfcConvert"), "-y", "-q", i, o],
     "usd": lambda i, o: [os.environ.get("USD2GLB", "usd2glb"), i, o],
 }
