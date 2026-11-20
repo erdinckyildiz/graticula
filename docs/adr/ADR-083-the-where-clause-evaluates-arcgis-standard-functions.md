@@ -176,3 +176,34 @@ None recorded.
    *(2026-10-31: owed by the owner. Dashboards and Experience Builder run in ArcGIS Online or Enterprise and need an
    ArcGIS account, which this machine has no business holding: add a public layer of the showcase to a dashboard,
    give it a date filter, and the showcase's request log holds the `where` it sent.)*
+   **DISCHARGED 2026-11-20 — by ArcGIS Map Viewer, not Dashboards; and the check found four refusals and a defect
+   first.** The client: the Map Viewer of an ArcGIS Enterprise 2025.2 portal (the owner's QA site, written to by
+   permission), driven headless in Chrome, with a public point layer of dev added by its URL — thirty rows with a date
+   field, published from ArcGIS Pro for the purpose and deleted afterwards. Its *Filter* builds a clause and sends it on
+   *Save*; what reached dev, each answered 200:
+   - *is before* — `seen < timestamp '2026-11-05 21:27:41'` (the date picked in the browser's zone, sent in UTC);
+   - *is on* — `seen = timestamp '2026-11-05 21:27:41'`;
+   - *is between* — `seen BETWEEN timestamp '2026-11-05 21:27:41' AND timestamp '2026-11-20 09:27:41'`;
+   - *in the last* 2 weeks — `seen BETWEEN CURRENT_TIMESTAMP - INTERVAL '14' DAY AND CURRENT_TIMESTAMP`;
+   - *not in the last* — `seen NOT BETWEEN CURRENT_TIMESTAMP - INTERVAL '14' DAY AND CURRENT_TIMESTAMP`.
+   **The answers are the table's**: *is before* counted 15 and *in the last* 14, and `psql` on `gis_dev` counted 15 and 14
+   with PostgreSQL's own `timestamptz` and `now() - interval '14 days'`. **What stood in the way, in order:**
+   1. **The date was text.** A file geodatabase date field Pro published landed as a `text` column (every reader-path
+      import inferred its columns from OGR's text values), so Map Viewer offered string operators and sent
+      `seen = '2026/10/22 08:48:03+00'`. Fixed: a field the reader's header declares `Date` or `DateTime` is a
+      `timestamptz` (`DeclaredDates`, bb9a7808) — for a shapefile too.
+   2. **No date field was offered at all** once it was a date: the layer document did not say `useStandardizedQueries`,
+      which the Maps SDK reads as `supportsStandardizedQueriesOnly` and Esri's sample server says on every layer. It says
+      it now (6b177a24) — true, since this grammar passes nothing but the standardized list to a database.
+   3. **Map Viewer's own statistics were refused**, all three shapes: a date's milliseconds as
+      `((seen - TIMESTAMP'1970-01-01 00:00:00') * 86400000)` in `outStatistics` (*arithmetic is for numbers*; then a 500
+      when PostgreSQL's numeric variance overflowed a decimal), a thirty-bucket `CASE WHEN … THEN n … ELSE 0 END` in
+      `groupByFieldsForStatistics` and `orderByFields`, and `count` of `1`. Each is answered now: a date minus a date is
+      the days between them (`ScalarExpression.DaysBetween`, 42789bb5, a double since the next commit), `CASE` is an
+      expression (`ScalarExpression.Choice`), `count` of `1` counts rows, and an order by one of the query's own group
+      expressions is the group (ArcGIS Online answers it; sampleserver6, D-301's witness, does not — D-301's note and
+      [D-430](../architecture-debt.md)). PostGIS and DuckDB select the same rows for both new forms
+      (`GeoParquetAgainstPostgisTests`). The last run: thirteen requests from Map Viewer to dev, none refused.
+   *Why Map Viewer rather than Dashboards* (**INFERRED**, for the owner to confirm): the condition is "an ArcGIS
+   client's own clause", Dashboards was named as the likeliest; Map Viewer's *in the last* and *between* are the same
+   standardized date forms §4 was written from; a Dashboards date selector on the same QA portal is the next check if the owner wants that client by name.
