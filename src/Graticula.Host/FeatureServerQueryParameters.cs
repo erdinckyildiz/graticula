@@ -2166,7 +2166,8 @@ internal static class FeatureServerQueryParameters
         // exist, and Pro fell back to `returnCountOnly`, one refused request per layer. A count over a column that
         // cannot be null is a count of rows, and the object id is such a column. A layer with no such column is
         // still refused, with the way round it.
-        if (field == "*" && kind == StatisticKind.Count)
+        // `count` of `1` is the same count — ArcGIS Map Viewer's histogram asks it that way (dev, 2026-11-20).
+        if (field is "*" or "1" && kind == StatisticKind.Count)
         {
             if (allFields.FirstOrDefault(f => !f.Nullable) is not { Name.Length: > 0 } every)
             {

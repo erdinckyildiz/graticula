@@ -269,6 +269,19 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task A_count_of_one_is_the_row_count_too()
+    {
+        // How ArcGIS Map Viewer counts each bucket of a date field's histogram (dev, 2026-11-20, ADR-083 condition 2).
+        JsonElement counted = await QueryAsync("where=1%3D1&outStatistics=" + Uri.EscapeDataString(
+            """[{"statisticType":"count","onStatisticField":"1","outStatisticFieldName":"countOFExpr"}]""") + "&f=json");
+        JsonElement count = await QueryAsync("where=1%3D1&returnCountOnly=true");
+
+        Assert.Equal(
+            count.GetProperty("count").GetInt64(),
+            counted.GetProperty("features")[0].GetProperty("attributes").GetProperty("countOFExpr").GetInt64());
+    }
+
+    [Fact]
     public async Task Two_response_shapes_the_specification_does_not_rank_are_refused()
     {
         (string path, _) = await LayerAsync();
