@@ -118,10 +118,7 @@ internal sealed class ModelConverters : IModelConverter
             string all = (await said.ConfigureAwait(false)) + "\n" + (await errors.ConfigureAwait(false));
             if (process.ExitCode != 0 || !File.Exists(output))
             {
-                string why = all.Split('\n').Select(l => l.Trim())
-                    .LastOrDefault(l => l.StartsWith("ERROR", StringComparison.Ordinal) || l.StartsWith("[error]", StringComparison.Ordinal) || l.StartsWith("The ", StringComparison.Ordinal))
-                    ?? "the converter could not read it";
-                return new(null, $"The model could not be converted: {why}.");
+                return new(null, $"The model could not be converted: {Reason(all)}.");
             }
 
             byte[] glb = await File.ReadAllBytesAsync(output, cancellation).ConfigureAwait(false);
@@ -150,6 +147,20 @@ internal sealed class ModelConverters : IModelConverter
                 // A scratch directory left behind is the temporary directory's to clear.
             }
         }
+    }
+
+    /// <summary>The line of a converter's output that says why it failed.</summary>
+    /// <remarks>
+    /// usd2glb's own sentence first ("The file is not a USD stage this converter reads: ..."): the tinyusdz
+    /// <c>[error]</c> lines printed after it name the source files tinyusdz was built from, which is no reason a person
+    /// can use (measured 2026-11-20 on a real USDZ, ADR-282 condition 2). Otherwise Assimp's or IfcConvert's last error.
+    /// </remarks>
+    internal static string Reason(string output)
+    {
+        string[] lines = [.. (output ?? string.Empty).Split('\n').Select(l => l.Trim())];
+        return lines.FirstOrDefault(l => l.StartsWith("The ", StringComparison.Ordinal))
+            ?? lines.LastOrDefault(l => l.StartsWith("ERROR", StringComparison.Ordinal) || l.StartsWith("[error]", StringComparison.Ordinal))
+            ?? "the converter could not read it";
     }
 
     private static string Write(byte[] content, string scratch, string extension)

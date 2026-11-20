@@ -228,7 +228,14 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
    [ADR-254](ADR-254-gdal-without-poppler.md) (no GPL linked), and run where a malformed file cannot take the server
    down. Its own ADR. *(The ADR is [ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md),
    2026-11-07: Assimp's command-line tool in a process of its own, prototyped for OBJ, COLLADA and FBX. Its conditions
-   carry the rest.)*
+   carry the rest.)* **DISCHARGED 2026-11-20**, every part now standing: the port is `IModelConverter`; OBJ, COLLADA and
+   FBX go through Assimp (BSD-3-Clause), IFC through IfcConvert (LGPL-3.0, run and not linked, its CGAL kernels left
+   out as ADR-254 left Poppler out of GDAL) and USD through our own usd2glb (tinyusdz, Apache-2.0), each in a process of
+   its own per file under 90 s and 2 GB ([ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md)
+   conditions 1, 3 and 4; [ADR-283](ADR-283-owner-decisions-on-conversion-and-one-writer-per-site.md) conditions 2 and
+   3; the licences in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)). What is still owed is measurement, not
+   construction, and is carried there: the arm64 IFC conversion (ADR-283 condition 2) and real files on the image's own
+   tools (ADR-282 condition 2).
 
 ## 10. For the owner
 

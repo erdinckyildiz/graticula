@@ -141,6 +141,36 @@ The two questions, as the morning report put them. **(R)** marks the recommendat
    - `DEPENDENCY-LICENSES.md` names it.
 
    Open: blocked on permission to run the downloaded binary in this session (§4).
+   **PARTLY DISCHARGED 2026-11-20: built the same night as this ADR, measured on amd64 and on Windows x64, not on
+   arm64.** The sentence above was left behind when a later session built every part listed (the propagation shape of
+   D-130): `tools/ifcconvert-fetch.sh` (pinned hashes, the CGAL kernels and GMP/MPFR left out), `.ifc` in
+   `ModelConverters`, the image (`deploy/server.Dockerfile`, both architectures, which is also what dev runs), CI, and
+   [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) §IfcConvert and tinyusdz. What was measured, and where:
+   - **amd64, Linux, every CI push**: the conformance job's step *the IFC and USD converters* lays IfcConvert out with
+     the fetch script and converts `corpus/wall.ifc` to a non-empty glb; it passed on c4bc8b60 (run 44180733795,
+     2026-11-17). Through the server, `SceneLayerSourceTests.A_3d_object_layer_converts_obj_collada_and_fbx_models_and_refuses_one_it_cannot_read`
+     converts the wall by `uploadAssets`, and the server's `GltfTriangles` reads its triangles before keeping it; it
+     passed in run 42379263052 on 911bad52 (2026-11-07), when the console suite still ran in CI (D-398).
+   - **Windows x64, on this machine, 2026-11-20**: the same release's `win64` zip (SHA-256
+     `963265186fec13ad2ba56edea614f32b715774ca1a5777fc8b84e5e5a35767ff`), with its two CGAL kernels deleted. Our wall:
+     12 triangles, 4.00 x 3.00 x 0.20 m (its 4 x 0.2 x 3 m, Y up), 110 ms warm. A real Revit 2010 office model (IFC2x3,
+     opensourceBIM's *HHS Office*, CC BY-ND 4.0): `construction.ifc`, 3.9 MB, became 63,624 triangles, 65.9 x 11.1 x
+     53.9 m, in 10-13 s; `architect.ifc`, 13 MB, 423,466 triangles in 31 s at a peak of 156 MB. Both inside ADR-282's
+     90 s and 2 GB.
+   - **arm64: not measured.** The image's arm64 stage lays out the `linuxarm64` zip by the same script, and nothing runs
+     it. Owed: one conversion of `corpus/wall.ifc` in the arm64 image (the VPS builds it), with the result written here.
 3. **A tinyusdz-built converter, measured: our own USDA and USDZ convert to glb.** The same parts as condition 2.
    Open: blocked on permission to build third-party source in this session (§4).
+   **DISCHARGED 2026-11-20**: built the same night as this ADR by a later session (`tools/usd2glb/`, built against
+   tinyusdz at the commit `tools/usd2glb/TINYUSDZ` pins, checked after the clone; `.usda`, `.usdc` and `.usdz` in
+   `ModelConverters`; the image's `usd2glb` stage for both architectures; CI; the licence register), and measured:
+   - **amd64, Linux**: CI's step converts `corpus/box.usda` on every push (passed on c4bc8b60, run 44180733795); the
+     console test named under condition 2 converted `box.usda` and `box.usdz` through the server in run 42379263052.
+   - **Windows x64, 2026-11-20**: built from the same pinned commit with Zig 0.17.1's clang 22 (`TINYUSDZ_NO_WERROR`,
+     since clang 22 turns tinyusdz's `-Weverything` into errors). Our box, as USDA and as USDZ: 12 triangles, x 1 to
+     3 m, 0 to 3 m up, z -1 to 0 m, which is what `corpus/README.md` says a conversion that honours the stage's
+     centimetres, its Z up and its transform gives. 101 ms warm.
+   - A real USDZ (ADR-282 condition 2): the USD Working Group's *Carbon Frame Bike* (27 MB, CC BY-SA 4.0) became
+     135,648 triangles, 1.93 x 1.22 x 0.61 m, in 2-3 s; their *McUsd* (a Mineways export) is refused by tinyusdz, which
+     requires `doubleSided` to be `uniform`, with the converter's own sentence as the reason.
 4. **The two INFERRED readings in §5.2 confirmed by the owner:** tinyusdz rather than OpenUSD, and DWG left refused.
