@@ -222,6 +222,28 @@ public sealed class WhereClauseStandardFunctionsTests
         Assert.Equal("lower(\"name\") = lower(@w0)", parsed.Sql);
     }
 
+    /// <summary>
+    /// A date minus a date is the days between them — the expression ArcGIS Map Viewer writes for a date field's
+    /// milliseconds, measured against dev on 2026-11-20 (ADR-083 condition 2).
+    /// </summary>
+    [Fact]
+    public void A_date_minus_a_date_is_the_days_between_them_in_each_engine()
+    {
+        const string MapViewer = "((founded - TIMESTAMP'1970-01-01 00:00:00') * 86400000) >= 1792661261000";
+
+        ParsedWhere parsed = Ok(MapViewer);
+        Assert.Equal(
+            "((extract(epoch from (cast(\"founded\" as timestamptz) - cast(@w0 as timestamptz))) / 86400.0) * @w1) >= @w2",
+            parsed.Sql);
+        Assert.Equal(new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero), parsed.Parameters[0]);
+
+        Assert.Equal("(((epoch(\"founded\") - epoch($w0)) / 86400.0) * $w1) >= $w2", Duck(MapViewer));
+
+        // Anything else done to a date is still refused, naming it.
+        Assert.Contains("'founded' holds a date", Refused("founded + 1 = 2"), StringComparison.Ordinal);
+        Assert.Contains("'founded' holds a date", Refused("founded * 2 > 1"), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("SUBSTRING(population, 1, 2) = '12'", "'population' holds a number")]
     [InlineData("CHAR_LENGTH(area) > 1", "'area' holds a number")]

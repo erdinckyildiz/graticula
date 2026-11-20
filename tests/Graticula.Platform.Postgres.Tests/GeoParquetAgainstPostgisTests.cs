@@ -349,6 +349,8 @@ public sealed class GeoParquetAgainstPostgisTests : PostgresFixture
             "area - score * 100 > 8000",
             "(score + 1) * 2 > 10",
             "day > CAST('03/01/2026' AS DATE)",
+            // ArcGIS Map Viewer's own spelling of a date's milliseconds (2026-11-20, ScalarExpression.DaysBetween).
+            "((day - TIMESTAMP'1970-01-01 00:00:00') * 86400000) > 1772323200000",
             "EXTRACT(DAY FROM day) IN (1, 15)",
         ];
 

@@ -619,6 +619,7 @@ public static class WhereClause
             ScalarExpression.Constant => false,
             ScalarExpression.Arithmetic arithmetic => Mentions(arithmetic.Left) || Mentions(arithmetic.Right),
             ScalarExpression.Negated negated => Mentions(negated.Operand),
+            ScalarExpression.DaysBetween days => Mentions(days.Later) || Mentions(days.Earlier),
             ScalarExpression.FunctionCall call => call.Arguments.Any(Mentions),
             ScalarExpression.Cast cast => Mentions(cast.Operand),
             ScalarExpression.Extract extract => Mentions(extract.Operand),
@@ -981,6 +982,13 @@ public static class WhereClause
         {
             value = null;
             error = null;
+
+            // A date minus a date is the days between them (ScalarExpression.DaysBetween, 2026-11-20).
+            if (op == ArithmeticOperator.Subtract && left.Kind == ExpressionKind.Date && right.Kind == ExpressionKind.Date)
+            {
+                value = new ScalarExpression.DaysBetween(left, right);
+                return true;
+            }
 
             foreach (ScalarExpression side in (ScalarExpression[])[left, right])
             {

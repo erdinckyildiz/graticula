@@ -643,6 +643,40 @@ public static class PredicateSql
                 sql.Append(')');
                 return true;
 
+            case ScalarExpression.DaysBetween days:
+            {
+                // The days between two moments, with the fraction, in each engine's own spelling (2026-11-20).
+                (string open, string between, string close) = dialect.SqlServerForms
+                    ? ("(datediff_big(millisecond, ", ", ", ") / 86400000.0)")
+                    : dialect.MySqlForms
+                        ? ("(timestampdiff(microsecond, ", ", ", ") / 86400000000.0)")
+                        : dialect.OracleForms
+                            ? ("(cast(", " as date) - cast(", " as date))")
+                            : ReferenceEquals(dialect, SqlDialect.DuckDb)
+                                ? ("((epoch(", ") - epoch(", ")) / 86400.0)")
+                                : ("(extract(epoch from (cast(", " as timestamptz) - cast(", " as timestamptz))) / 86400.0)");
+
+                // SQL Server's and MySQL's functions take the earlier moment first.
+                bool earlierFirst = dialect.SqlServerForms || dialect.MySqlForms;
+
+                sql.Append(open);
+
+                if (!Inner(earlierFirst ? days.Earlier : days.Later, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(between);
+
+                if (!Inner(earlierFirst ? days.Later : days.Earlier, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(close);
+                return true;
+            }
+
             case ScalarExpression.Cast cast:
                 return WriteCast(cast, sql, dialect, Inner, out error);
 

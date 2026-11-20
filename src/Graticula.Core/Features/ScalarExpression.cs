@@ -246,6 +246,23 @@ public abstract record ScalarExpression
             : ExpressionKind.Real;
     }
 
+    /// <summary>
+    /// <c>later - earlier</c> for two dates: the days between them, with the fraction, as ArcGIS's standardized SQL
+    /// subtracts dates.
+    /// </summary>
+    /// <param name="Later">The date subtracted from.</param>
+    /// <param name="Earlier">The date subtracted.</param>
+    /// <remarks>
+    /// Measured 2026-11-20 (ADR-083 condition 2): ArcGIS Map Viewer, on a layer saying <c>useStandardizedQueries</c>,
+    /// asks a date field's histogram and range as <c>((seen - TIMESTAMP'1970-01-01 00:00:00') * 86400000)</c> — the
+    /// date's milliseconds — in <c>outStatistics</c>; every such query was refused with <i>arithmetic is for numbers</i>.
+    /// </remarks>
+    public sealed record DaysBetween(ScalarExpression Later, ScalarExpression Earlier) : ScalarExpression
+    {
+        /// <inheritdoc />
+        public override ExpressionKind Kind => ExpressionKind.Real;
+    }
+
     /// <summary><c>-operand</c>.</summary>
     /// <param name="Operand">The value negated.</param>
     public sealed record Negated(ScalarExpression Operand) : ScalarExpression
