@@ -272,6 +272,9 @@ internal static class ShapefileViaReader
                 return (null, headerError);
             }
 
+            // A shapefile's Date field stays a date (DeclaredDates, 2026-11-20).
+            DeclaredDates.DeclareDates(header.RootElement, columns);
+
             if (srid == 0 && layer is not null
                 && header.RootElement.TryGetProperty("srid", out JsonElement stated)
                 && stated.ValueKind == JsonValueKind.Number)
