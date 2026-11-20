@@ -51,6 +51,20 @@ class ProSweepAnalysis(unittest.TestCase):
     def names(self, path):
         return [f.name for f in arcpy.ListFields(path) if f.type not in ("OID", "Geometry")]
 
+    # ---- Union NO_GAPS (D-415, measured 2026-11-20: cases/analysis.py analysis.Union.NO_GAPS)
+
+    def test_union_no_gaps_writes_each_enclosed_area_as_its_own_feature(self):
+        bars = self.make("bars", "POLYGON", [("bar", "TEXT")], [
+            ("s", rect(0, 0, 300, 100)), ("n", rect(0, 200, 300, 300)), ("w", rect(0, 100, 100, 200)),
+            ("e", rect(200, 100, 300, 200))])
+        filled = arcpy.analysis.Union([bars], self.out("filled"), "ALL", None, "NO_GAPS").getOutput(0)
+        with arcpy.da.SearchCursor(filled, ["FID_bars", "bar", "SHAPE@AREA"]) as read:
+            rows = sorted(tuple(r) for r in read)
+        self.assertEqual(rows[0], (-1, "", 10000.0))
+        self.assertEqual(len(rows), 5)
+        gaps = arcpy.analysis.Union([bars], self.out("gaps"), "ALL", None, "GAPS").getOutput(0)
+        self.assertEqual(len(self.rows(gaps, ["FID_bars"])), 4)
+
     # ---- buffers: BUFF_DIST and ORIG_FID
 
     def test_buffer_and_pairwise_buffer_write_the_distance_and_the_feature_they_came_from(self):

@@ -387,10 +387,21 @@ def system_names(columns: list[Column]) -> tuple[str, str]:
     return chosen[0], chosen[1]
 
 
-def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool = False, has_m: bool = False) -> None:
+def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool | None = None,
+           has_m: bool | None = None) -> None:
     """A new, empty feature class — the file made if it is not there, the table replaced if it is. ``has_z`` and
     ``has_m`` set the geometry column's z and m flags to 1, *mandatory*, as the GeoPackage specification (§2.1.5)
-    defines them; a 2D class keeps 0, *prohibited*."""
+    defines them; a 2D class keeps 0, *prohibited*. Either left None follows the output Z and M environments over the
+    running tool's inputs, as Pro's *Same As Input* does (``_zm.from_tool``, D-412): a tool writing from a 3D input
+    writes a 3D output unless it says otherwise. A table (no shape, no reference) has neither."""
+    if has_z is None or has_m is None:
+        if shape == "Geometry" and not srid:
+            z, m = False, False
+        else:
+            from . import _zm
+            z, m = _zm.from_tool()
+        has_z = z if has_z is None else has_z
+        has_m = m if has_m is None else has_m
     file, table = split(path)
     table = table or os.path.splitext(os.path.basename(file))[0]
     os.makedirs(os.path.dirname(os.path.abspath(file)), exist_ok=True)

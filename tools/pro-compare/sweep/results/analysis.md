@@ -71,5 +71,5 @@ the old answers were changed, each with a comment saying Pro was measured.
 
 - Intersect, Union, Identity and Split with **line or point** inputs still take the pairwise path, so one input's own
   overlaps are not cut there. Not measured in Pro; about half a day to measure and to extend the planar overlay.
-- Union's `gaps` (NO_GAPS) is still accepted and ignored. Small once measured.
+- ~~Union's `gaps` (NO_GAPS) is still accepted and ignored. Small once measured.~~ **Built 2026-11-20 (D-415):** case `analysis.Union.NO_GAPS` (four bars round a square gap, and a square with a hole): Pro writes each enclosed area as its own feature, FID -1 and blanks; grapy ignored the option (DIFF, 5 rows against Pro's 7) and now matches (`test_pro_sweep_analysis.test_union_no_gaps_writes_each_enclosed_area_as_its_own_feature`). Module now: MATCH 36 of 36.
 - CreateThiessenPolygons: Pro's frame is 1.0999, not 1.1, times the points' extent (3 cm in 540 m); cause unknown.
