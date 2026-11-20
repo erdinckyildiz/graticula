@@ -306,7 +306,7 @@ internal static partial class AdminEndpoints
         ServerPageSize.Reading reading = await pageSize.ReadAsync(cancellation).ConfigureAwait(false);
         ServerGround.Reading chosen = await ground.ReadAsync(cancellation).ConfigureAwait(false);
 
-        await Results.Json(Describe(reading, await DescribeAsync(chosen, catalog, cancellation).ConfigureAwait(false)))
+        await Results.Json(Describe(reading, await DescribeAsync(chosen, catalog, cancellation).ConfigureAwait(false), EmbedOf(context)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -465,13 +465,26 @@ internal static partial class AdminEndpoints
 
         ServerGround.Reading chosen = await ground.ReadAsync(cancellation).ConfigureAwait(false);
 
-        await Results.Json(Describe(now, await DescribeAsync(chosen, catalog, cancellation).ConfigureAwait(false)))
+        await Results.Json(Describe(now, await DescribeAsync(chosen, catalog, cancellation).ConfigureAwait(false), EmbedOf(context)))
             .ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static object Describe(ServerPageSize.Reading reading, object ground) => new
+    /// <summary>
+    /// The sites that may frame a scene's embed address — ADR-275 condition 1: read-only here, because they are the
+    /// deployment's (<c>Graticula:EmbedOrigins</c>, checked at start), and shown so an operator sees what may frame a
+    /// scene without reading the configuration.
+    /// </summary>
+    private static object EmbedOf(HttpContext context) => new
+    {
+        origins = (context.RequestServices.GetService(typeof(HostSettings)) as HostSettings)?.EmbedOrigins ?? [],
+        setting = "Graticula:EmbedOrigins",
+        address = SecurityHeaders.EmbedPath,
+    };
+
+    private static object Describe(ServerPageSize.Reading reading, object ground, object embed) => new
     {
         ground,
+        embed,
         pageSize = new
         {
             value = reading.Value,
