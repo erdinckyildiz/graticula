@@ -118,7 +118,8 @@ def moment(value, default_date):
 
 def stamp(minutes):
     """A time of the plan as a date. ArcGIS Pro 3.7 writes a vehicle routing solve's times to the whole second (measured
-    2026-11-12, na.md 1; D-416). INFERRED: rounded to the nearest second, not cut — one measurement does not tell."""
+    2026-11-12, na.md 1; D-416). Rounded to the nearest second, not cut — one measurement does not tell; INFERRED
+    until confirmed by the owner 2026-11-20."""
     if minutes is None:
         return None
     return EPOCH + datetime.timedelta(seconds=round(minutes * 60.0))

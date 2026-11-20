@@ -186,8 +186,8 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
      more asset map on the feature, each answered by `query3D` and the asset map table. A feature given new asset maps
      by an edit now loses the ones it had, read from the reference's *"the existing geometry and the new assetMaps are
      mutually exclusive"* ([applyEdits](https://developers.arcgis.com/rest/services-reference/enterprise/apply-edits-feature-service-layer/)).
-     **INFERRED**: the reference does not say in so many words that the old maps are removed. The same test asserts one
-     map after the move.
+     The reference does not say in so many words that the old maps are removed; that reading was INFERRED until
+     **confirmed by the owner 2026-11-20**, as written. The same test asserts one map after the move.
 2. **The mesh scene layer**: the writer makes I3S 3D object nodes from glb assets and their transforms, and a rebuild
    picks up an edited model. *(Discharged 2026-11-07: the writer's half below, and the layer's (§5.4):
    `SceneLayerSourceTests.A_3d_object_layer_takes_a_model_from_the_scene_and_its_scene_layer_is_rebuilt_with_it` makes a

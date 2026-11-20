@@ -204,6 +204,7 @@ None recorded.
       expressions is the group (ArcGIS Online answers it; sampleserver6, D-301's witness, does not — D-301's note and
       [D-430](../architecture-debt.md)). PostGIS and DuckDB select the same rows for both new forms
       (`GeoParquetAgainstPostgisTests`). The last run: thirteen requests from Map Viewer to dev, none refused.
-   *Why Map Viewer rather than Dashboards* (**INFERRED**, for the owner to confirm): the condition is "an ArcGIS
-   client's own clause", Dashboards was named as the likeliest; Map Viewer's *in the last* and *between* are the same
-   standardized date forms §4 was written from; a Dashboards date selector on the same QA portal is the next check if the owner wants that client by name.
+   *Why Map Viewer rather than Dashboards*: the condition is "an ArcGIS client's own clause", Dashboards was named as
+   the likeliest; Map Viewer's *in the last* and *between* are the same standardized date forms §4 was written from.
+   **Confirmed by the owner 2026-11-20**: Map Viewer is enough, and Dashboards does not have to be tested; it was
+   INFERRED until then. A Dashboards date selector on the same QA portal stays available as a check, and is not owed.

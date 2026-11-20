@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-11-20, in the overnight run the owner asked for (*"first finish the things you can do yourself"*), to repay [D-412](../architecture-debt.md). Derived from measurement under [ADR-223](ADR-223-user-tools-run-sandboxed-on-grapy.md)'s aim that Pro scripts run on grapy; no owner choice was needed, and the one reading that is not measured is marked INFERRED in §5. |
+| **Decided** | 2026-11-20, in the overnight run the owner asked for (*"first finish the things you can do yourself"*), to repay [D-412](../architecture-debt.md). Derived from measurement under [ADR-223](ADR-223-user-tools-run-sandboxed-on-grapy.md)'s aim that Pro scripts run on grapy; no owner choice was needed, and the one reading that is not measured, §5.4, was INFERRED until **confirmed by the owner 2026-11-20**, as written. |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -61,9 +61,9 @@ MATCH 9, DIFF 65, GRAPY-ERROR 6. After: MATCH 78; the one DIFF and one SCHEMA ar
 3. A tool that cuts its inputs restores each output vertex's z and m from them (`_zm.restore`): a vertex's own values,
    or those interpolated along the input segment it lies on, the piece's own features first, then any other 3D input
    it lies on; a vertex on none has z 0 and m NaN. A shape a tool makes rather than cuts has z 0 and m NaN.
-4. INFERRED: a vertex lies on an input's segment within a ten-billionth of the largest coordinate (under half a
-   millimetre at UTM northings). Pro's XY tolerance is a millimetre by default; the figure was chosen below it, not
-   measured.
+4. A vertex lies on an input's segment within a ten-billionth of the largest coordinate (under half a millimetre at
+   UTM northings). Pro's XY tolerance is a millimetre by default; the figure was chosen below it, not measured.
+   INFERRED until **confirmed by the owner 2026-11-20**, as written.
 
 ## 6. Consequences
 

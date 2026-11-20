@@ -125,7 +125,8 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
             if by_field and row[names.index(buffer_distance_or_field)] is None:
                 continue
             if geodesic:
-                # A field's value is metres, as a bare number is (INFERRED: measured for a number, not for a field).
+                # A field's value is metres, as a bare number is (measured for a number, not for a field; INFERRED until
+                # confirmed by the owner 2026-11-20, D-397).
                 metres = (float(row[names.index(buffer_distance_or_field)]) if by_field
                           else _geodesic_metres(buffer_distance_or_field))
                 written = metres if str(method).upper() == "GEODESIC" else float(str(buffer_distance_or_field).split()[0])

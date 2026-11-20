@@ -205,9 +205,9 @@ the binding constraint (A-037). Times overlap the baseline's.
    `hosted/zz_fieldmaps_z` signed in at `https://dev.graticula.com/studio/`): dev's Pro capture recorded a service-level
    `applyEdits` whose point carried `"z":777.125` and no `hasZ`, then an update to `"z":888.375`; `psql` read `ST_Z`
    888.375 and Pro's search cursor read 888.375 back. The row was deleted through Pro's cursor and the table left as it
-   was (one row, the Field Maps point). *Why D-392 does not hold this open* (**INFERRED**, for the owner to confirm): the
-   condition asks what a client sends and what the table keeps; that the *Editing* filter of a portal search does not
-   list a map is about finding the map, and Collect on the map itself works.
+   was (one row, the Field Maps point). *Why D-392 does not hold this open*: the condition asks what a client sends and what
+   the table keeps; that the *Editing* filter of a portal search does not list a map is about finding the map, and
+   Collect on the map itself works. **Confirmed by the owner 2026-11-20**, as written; it was INFERRED until then.
 
 ## 7. Consequences
 
