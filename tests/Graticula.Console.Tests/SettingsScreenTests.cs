@@ -106,6 +106,44 @@ public sealed class SettingsScreenTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// ADR-275 condition 1: beside the style sources, the sites that may frame a scene — the deployment's
+    /// <c>Graticula:EmbedOrigins</c>, read-only — each named, or a sentence that none may. Whichever the fixture was
+    /// started with: the list is read from <c>/admin/settings</c> and the screen must say the same.
+    /// </summary>
+    [Fact]
+    public async Task Settings_names_the_sites_that_may_embed_a_scene_or_says_none_may()
+    {
+        (string token, _) = await SignInAsync();
+        (int status, string body) = await AdminAsync(System.Net.Http.HttpMethod.Get, "/admin/settings?f=json");
+        Assert.Equal(200, status);
+        string[] configured = [.. System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("embed").GetProperty("origins")
+            .EnumerateArray().Select(o => o.GetString()!)];
+
+        await OpenAsync("/system/settings", token);
+        await WaitForAsync(
+            "(document.getElementById('embedOriginsSays')?.textContent || '').includes('Graticula:EmbedOrigins')",
+            "Settings did not say which sites may embed a scene, or where the list is set.");
+
+        string[] shown = await Browser.EvaluateAsync<string[]>(
+            "[...document.querySelectorAll('#embedOrigins li')].map(li => li.textContent.trim())") ?? [];
+        Assert.Equal(configured, shown);
+        string says = await Browser.EvaluateAsync<string>("document.getElementById('embedOriginsSays').textContent") ?? string.Empty;
+        Assert.Contains(configured.Length == 0 ? "None listed" : "/studio/scene-embed.html", says, StringComparison.Ordinal);
+        Assert.Equal(configured.Length == 0, await Browser.EvaluateAsync<bool>("document.getElementById('embedOrigins').hidden"));
+
+        // The list belongs to the card's heading, beside the style sources, and offers nothing to type into.
+        Assert.Equal(
+            "Sites that may embed a scene",
+            await Browser.EvaluateAsync<string>("document.getElementById(document.getElementById('embedOrigins').getAttribute('aria-labelledby')).textContent"));
+        Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#embedCard input, #embedCard textarea, #embedCard button').length"));
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "document.getElementById('styleOrigins').closest('.settingcard').nextElementSibling === document.getElementById('embedCard')"),
+            "The embed sites are not shown beside the style sources.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     [Fact]
     public async Task The_map_ground_is_an_ordered_list_top_first_and_the_services_do_not_move()
     {

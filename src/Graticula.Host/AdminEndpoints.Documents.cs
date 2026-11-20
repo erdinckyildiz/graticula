@@ -76,6 +76,8 @@ internal static partial class AdminEndpoints
             mayCreate = current.Authorization.Allows(Privilege.ContentCreate),
             accepted = Documents.Accepted.Select(kind => kind.Extension).Distinct().ToArray(),
             maximumBytes = MaximumDocumentBytes(context),
+            // ADR-274: a scene layer package or a 3D Tiles archive may be larger, up to its own limit, kept as a file.
+            packageMaximumBytes = MaximumReplacementBytes(context, Documents.Named("slpk")!),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -320,13 +322,19 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        if (await ReadDocumentUploadAsync(context, cancellation).ConfigureAwait(false) is not { } upload)
+        // ADR-274 condition 3: a scene layer package above the document limit replaces a file through the same streaming
+        // path an upload takes — kept as a file under its hash, never held in memory — and the row then names it.
+        if (await ReadDocumentUploadAsync(context, cancellation, mayBeLargePackage: true).ConfigureAwait(false) is not { } upload)
         {
             return;
         }
 
-        if (!await documents.ReplaceAsync(id, upload.FileName, upload.Kind, upload.Content, cancellation).ConfigureAwait(false)
-            || await documents.FindAsync(id, cancellation).ConfigureAwait(false) is not { } after)
+        bool replaced = upload.File is { } kept
+            ? await documents.ReplaceFileAsync(id, upload.FileName, upload.Kind, kept.Size, kept.Recorded, kept.Sha256, cancellation)
+                .ConfigureAwait(false)
+            : await documents.ReplaceAsync(id, upload.FileName, upload.Kind, upload.Content, cancellation).ConfigureAwait(false);
+
+        if (!replaced || await documents.FindAsync(id, cancellation).ConfigureAwait(false) is not { } after)
         {
             await Refuse(context, 404, NoDocument(id)).ConfigureAwait(false);
             return;
@@ -818,6 +826,26 @@ internal static partial class AdminEndpoints
     private static async Task<(DocumentKind Kind, (string Recorded, string Sha256, long Size) Kept)?> KeepLargePackageAsync(
         HttpContext context, IFormFile file, CancellationToken cancellation)
     {
+        (DocumentKind? kind, (string Recorded, string Sha256, long Size)? kept, string? refusal) =
+            await KeepLargePackageAsync(context.RequestServices, file, cancellation).ConfigureAwait(false);
+
+        if (refusal is not null)
+        {
+            await Refuse(context, 415, refusal).ConfigureAwait(false);
+            return null;
+        }
+
+        return (kind!, kept!.Value);
+    }
+
+    /// <summary>
+    /// Streams a scene layer package or 3D Tiles archive above the document limit to the server directories (ADR-274),
+    /// and checks it is one; the kind and where it was kept, or the refusal in a sentence. The console's upload and
+    /// Replace file and the portal's item update all take this one path (ADR-274 condition 3).
+    /// </summary>
+    internal static async Task<(DocumentKind? Kind, (string Recorded, string Sha256, long Size)? Kept, string? Refusal)> KeepLargePackageAsync(
+        IServiceProvider services, IFormFile file, CancellationToken cancellation)
+    {
         byte[] head = new byte[(int)Math.Min(4096, file.Length)];
         await using (Stream peek = file.OpenReadStream())
         {
@@ -826,11 +854,10 @@ internal static partial class AdminEndpoints
 
         if (Documents.Recognise(file.FileName, head, out string? why) is not { } kind || !Documents.IsThreeDPackage(kind))
         {
-            await Refuse(context, 415, why ?? "Only a scene layer package (.slpk) or a 3D Tiles archive (.3tz) may be larger than a document.").ConfigureAwait(false);
-            return null;
+            return (null, null, why ?? "Only a scene layer package (.slpk) or a 3D Tiles archive (.3tz) may be larger than a document.");
         }
 
-        ScenePackageFiles files = (ScenePackageFiles)context.RequestServices.GetService(typeof(ScenePackageFiles))!;
+        ScenePackageFiles files = (ScenePackageFiles)services.GetService(typeof(ScenePackageFiles))!;
         (string Recorded, string Sha256, long Size) kept;
 
         await using (Stream stream = file.OpenReadStream())
@@ -845,20 +872,27 @@ internal static partial class AdminEndpoints
                 : !entries.ContainsKey("3dscenelayer.json.gz") && !entries.ContainsKey("3dscenelayer.json")
                     && !entries.ContainsKey("layer.json.gz") && !entries.ContainsKey("layer.json"))
             {
-                await Refuse(context, 415, Documents.IsTilesArchive(kind)
+                return (null, null, Documents.IsTilesArchive(kind)
                     ? "The file is a zip, but not a 3D Tiles archive: it has no tileset.json at its root."
-                    : "The file is a zip, but not a scene layer package: it has no layer document (3dSceneLayer.json).").ConfigureAwait(false);
-                return null;
+                    : "The file is a zip, but not a scene layer package: it has no layer document (3dSceneLayer.json).");
             }
         }
         catch (InvalidDataException e)
         {
-            await Refuse(context, 415, $"The file is not a readable scene layer package: {e.Message}").ConfigureAwait(false);
-            return null;
+            return (null, null, $"The file is not a readable scene layer package: {e.Message}");
         }
 
-        return (kind, kept);
+        return (kind, kept, null);
     }
+
+    /// <summary>
+    /// The largest file a document's update may carry: the document limit, or for a scene layer package or a 3D Tiles
+    /// archive the package limit (ADR-274), which is never below it.
+    /// </summary>
+    internal static long MaximumReplacementBytes(HttpContext context, DocumentKind kind) =>
+        Documents.IsThreeDPackage(kind) && context.RequestServices?.GetService(typeof(HostSettings)) is HostSettings settings
+            ? Math.Max(MaximumDocumentBytes(context), settings.ScenePackageMaximumBytes)
+            : MaximumDocumentBytes(context);
 
     internal static string? DescribedRefusal(string title, string? snippet) =>
         title.Length > WebMaps.MaximumTitleLength ? $"A title is at most {WebMaps.MaximumTitleLength} characters."

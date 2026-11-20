@@ -203,6 +203,9 @@ internal static partial class PortalEndpoints
         // Read once the item is known: a document's file may be as large as a document may be (ADR-188), past the
         // request body's ordinary limit.
         long documentLimit = AdminEndpoints.MaximumDocumentBytes(context);
+
+        // ADR-274 condition 3: a scene layer package's file may be replaced by one up to the package limit.
+        long readLimit = item.Document is { } replacing ? AdminEndpoints.MaximumReplacementBytes(context, replacing.Kind) : documentLimit;
         IFormCollection form;
 
         if (!context.Request.HasFormContentType)
@@ -214,7 +217,7 @@ internal static partial class PortalEndpoints
             if (item.Document is not null
                 && context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bodyLimit)
             {
-                bodyLimit.MaxRequestBodySize = documentLimit + (1024 * 1024);
+                bodyLimit.MaxRequestBodySize = readLimit + (1024 * 1024);
             }
 
             try
@@ -222,7 +225,7 @@ internal static partial class PortalEndpoints
                 form = await context.Request.ReadFormAsync(
                     new Microsoft.AspNetCore.Http.Features.FormOptions
                     {
-                        MultipartBodyLengthLimit = item.Document is not null ? documentLimit + (1024 * 1024) : 128L * 1024 * 1024,
+                        MultipartBodyLengthLimit = item.Document is not null ? readLimit + (1024 * 1024) : 128L * 1024 * 1024,
                     },
                     cancellation).ConfigureAwait(false);
             }
@@ -311,7 +314,7 @@ internal static partial class PortalEndpoints
 
         if (item.Document is { } file)
         {
-            if (await UpdateDocumentAsync(file, Given, form, documentLimit, documents, context.RequestServices, cancellation).ConfigureAwait(false) is { } why)
+            if (await UpdateDocumentAsync(file, Given, form, documentLimit, readLimit, documents, context.RequestServices, cancellation).ConfigureAwait(false) is { } why)
             {
                 return why;
             }
@@ -485,7 +488,7 @@ internal static partial class PortalEndpoints
     /// whole before any is written, by the console's own rules (ADR-188). Null when it is done, or the refusal.
     /// </summary>
     private static async Task<IResult?> UpdateDocumentAsync(
-        Document document, Func<string, string?> given, IFormCollection form, long limit, IDocumentStore documents,
+        Document document, Func<string, string?> given, IFormCollection form, long limit, long packageLimit, IDocumentStore documents,
         IServiceProvider services, CancellationToken cancellation)
     {
         string title = given("title") is { Length: > 0 } named ? named : document.Title;
@@ -511,8 +514,25 @@ internal static partial class PortalEndpoints
         }
 
         (string FileName, DocumentKind Kind, byte[] Content)? replacement = null;
+        (string Recorded, string Sha256, long Size)? replacementFile = null;
 
-        if (form.Files.GetFile("file") is { } file)
+        // ADR-274 condition 3: a scene layer package above the document limit is streamed to a file, as an upload is.
+        if (form.Files.GetFile("file") is { } large && large.Length > limit && large.Length <= packageLimit
+            && (large.FileName.EndsWith(".slpk", StringComparison.OrdinalIgnoreCase)
+                || large.FileName.EndsWith(".3tz", StringComparison.OrdinalIgnoreCase)))
+        {
+            (DocumentKind? kind, (string Recorded, string Sha256, long Size)? kept, string? refusal) =
+                await AdminEndpoints.KeepLargePackageAsync(services, large, cancellation).ConfigureAwait(false);
+
+            if (refusal is not null)
+            {
+                return PortalError(415, $"'{document.Title}' was not changed: {refusal}");
+            }
+
+            replacement = (Documents.CleanFileName(large.FileName, kind!), kind!, []);
+            replacementFile = kept;
+        }
+        else if (form.Files.GetFile("file") is { } file)
         {
             if (file.Length == 0 || file.Length > limit)
             {
@@ -614,8 +634,12 @@ internal static partial class PortalEndpoints
 
         if (replacement is { } replaced)
         {
-            await documents.ReplaceAsync(document.Id, replaced.FileName, replaced.Kind, replaced.Content, cancellation)
-                .ConfigureAwait(false);
+            _ = replacementFile is { } keptFile
+                ? await documents.ReplaceFileAsync(
+                    document.Id, replaced.FileName, replaced.Kind, keptFile.Size, keptFile.Recorded, keptFile.Sha256, cancellation)
+                    .ConfigureAwait(false)
+                : await documents.ReplaceAsync(document.Id, replaced.FileName, replaced.Kind, replaced.Content, cancellation)
+                    .ConfigureAwait(false);
 
             // ADR-268, before the owner's own picture below, which then takes the slot as an owner's.
             await DocumentPictures.DrawAsync(services, document with { Kind = replaced.Kind }, replaced.Content,

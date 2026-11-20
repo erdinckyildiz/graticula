@@ -238,8 +238,11 @@ public sealed class PostgresDocumentStore : IDocumentStore
             return false;
         }
 
+        // ADR-274: a document that was a package kept as a file holds its bytes again, so the row stops naming the file;
+        // left naming it, `document_file_is_whole` refused the update and the replace answered 500.
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update document set file_name = @file, kind = @kind, size = @size, content = @content, modified_at = now() "
+            "update document set file_name = @file, kind = @kind, size = @size, content = @content, "
+            + "content_file = null, content_sha256 = null, modified_at = now() "
             + "where item_id = @id::uuid");
 
         command.Parameters.AddWithValue("id", id);
@@ -247,6 +250,36 @@ public sealed class PostgresDocumentStore : IDocumentStore
         command.Parameters.AddWithValue("kind", kind.Name);
         command.Parameters.AddWithValue("size", (long)content.Length);
         command.Parameters.AddWithValue("content", content);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ReplaceFileAsync(
+        string id, string fileName, DocumentKind kind, long size, string contentFile, string sha256, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentFile);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sha256);
+
+        if (!WebMaps.IsId(id))
+        {
+            return false;
+        }
+
+        // ADR-274 condition 3: the row names the new file and holds no bytes, as CreateFileAsync's does.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update document set file_name = @file, kind = @kind, size = @size, content = ''::bytea, "
+            + "content_file = @path, content_sha256 = @sha, modified_at = now() "
+            + "where item_id = @id::uuid");
+
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("file", fileName);
+        command.Parameters.AddWithValue("kind", kind.Name);
+        command.Parameters.AddWithValue("size", size);
+        command.Parameters.AddWithValue("path", contentFile);
+        command.Parameters.AddWithValue("sha", sha256);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }

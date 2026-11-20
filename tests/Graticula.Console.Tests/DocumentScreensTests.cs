@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -154,6 +155,58 @@ public sealed class DocumentScreensTests : ConsoleTest
     }
 
     /// <summary>D-321: a picture is its own thumbnail on its page, fetched with the reader's credential.</summary>
+    /// <summary>The levels a screen reader announces for a view's visible headings, in order.</summary>
+    private const string Levels = """
+        ((id) => [...document.getElementById(id).querySelectorAll('h1, h2, h3, h4, h5, h6')]
+          .filter(h => h.offsetParent !== null && !h.closest('dialog'))
+          .map(h => Number(h.getAttribute('aria-level') || h.tagName.substring(1))))
+        """;
+
+    private static void InOrder(int[] levels, string page)
+    {
+        Assert.True(levels.Length > 1 && levels[0] == 1, $"{page}: the headings do not start at the item's title ({string.Join(",", levels)}).");
+        for (int i = 1; i < levels.Length; i++)
+        {
+            Assert.True(levels[i] <= levels[i - 1] + 1, $"{page}: heading level {levels[i]} follows {levels[i - 1]} ({string.Join(",", levels)}).");
+        }
+    }
+
+    /// <summary>
+    /// D-396: an item page's headings go down one level at a time — a document's and a service's, Overview and Settings —
+    /// where every section was announced at level 4 under the level-1 title.
+    /// </summary>
+    [Fact]
+    public async Task An_item_pages_headings_go_down_one_level_at_a_time()
+    {
+        string title = $"zz_doc_{Guid.NewGuid():N}"[..20];
+        string id = await FileDocumentAsync(title);
+
+        try
+        {
+            (string token, _) = await SignInAsync();
+            await OpenAsync($"/studio/#/item/{id}", token);
+            await WaitForAsync($"(document.getElementById('docTitle')?.textContent || '').includes('{title}')", "The document's page did not open.");
+            InOrder(await Browser.EvaluateAsync<int[]>($"({Levels})('view-document')") ?? [], "A document's Overview");
+
+            await OpenAsync($"/studio/#/item/{id}?tab=settings", token);
+            await WaitForAsync(Shown("#docSettings h4"), "The document's Settings tab did not open.");
+            Assert.Equal("2", await Browser.EvaluateAsync<string>("document.querySelector('#docSettings h4').getAttribute('aria-level')"));
+            InOrder(await Browser.EvaluateAsync<int[]>($"({Levels})('view-document')") ?? [], "A document's Settings");
+
+            string service = (await FoldersWithServicesAsync()).SelectMany(f => f.Services).First();
+            await OpenAsync("/server/#/service/" + string.Join("/", Array.ConvertAll(service.Split('/'), Uri.EscapeDataString)) + "?tab=settings", token);
+            await WaitForAsync("[...document.querySelectorAll('#view-service h1')].some(h => h.offsetParent !== null) && [...document.querySelectorAll('#view-service h4')].some(h => h.offsetParent !== null)",
+                "The service's Settings drew no section.");
+            InOrder(await Browser.EvaluateAsync<int[]>($"({Levels})('view-service')") ?? [], "A service's Settings");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await RemoveAsync(id);
+        }
+    }
+
     [Fact]
     public async Task A_picture_document_shows_itself_as_its_thumbnail()
     {
@@ -330,6 +383,18 @@ public sealed class DocumentScreensTests : ConsoleTest
             })()
             """);
         Assert.Equal("zz-annual-report", await Browser.EvaluateAsync<string>("document.getElementById('docNewTitle').value"));
+
+        // ADR-274: a scene layer package above the document limit is not refused before it is sent — the server keeps
+        // it as a file, up to its own limit, for an upload and a Replace file alike — and the hint says how large.
+        Assert.Contains("scene layer package or a 3D Tiles archive up to",
+            await Browser.EvaluateAsync<string>("document.getElementById('docFileSays').textContent") ?? string.Empty, StringComparison.Ordinal);
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "docRefusedBeforeSending({ name: 'zz-mesh.slpk', size: docRules.maximumBytes + 1 }) === null"),
+            "A scene layer package above the document limit is refused before it is sent.");
+        Assert.Contains("takes documents up to", await Browser.EvaluateAsync<string>(
+            "docRefusedBeforeSending({ name: 'zz-big.pdf', size: docRules.maximumBytes + 1 })") ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains("scene layer package or a 3D Tiles archive up to", await Browser.EvaluateAsync<string>(
+            "docRefusedBeforeSending({ name: 'zz-huge.3tz', size: docRules.packageMaximumBytes + 1 })") ?? string.Empty, StringComparison.Ordinal);
 
         await ClickAsync("#docUpload");
         await WaitForAsync("window.__writes.some(w => w.startsWith('POST /content/documents [file,sharing,title]'))",
