@@ -542,6 +542,22 @@ public interface IDocumentStore
     /// <returns>Whether the document exists.</returns>
     Task<bool> ReplaceAsync(string id, string fileName, DocumentKind kind, byte[] content, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Replaces a document's file with a scene layer package already kept as a file in the server directories (ADR-274
+    /// condition 3), keeping everything else; the bytes the row held, if any, go. False when there is no such document.
+    /// The file a replaced package named is left to the sweep, which removes it once nothing names it.
+    /// </summary>
+    /// <param name="id">Its id.</param>
+    /// <param name="fileName">The new name, already cleaned.</param>
+    /// <param name="kind">What the new file is.</param>
+    /// <param name="size">Its size in bytes.</param>
+    /// <param name="contentFile">Its name relative to the server directories.</param>
+    /// <param name="sha256">Its SHA-256, in lower-case hex.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the document exists.</returns>
+    Task<bool> ReplaceFileAsync(
+        string id, string fileName, DocumentKind kind, long size, string contentFile, string sha256, CancellationToken cancellationToken);
+
     /// <summary>Replaces a document's tags.</summary>
     /// <param name="id">The document.</param>
     /// <param name="tags">The tags, already normalised.</param>

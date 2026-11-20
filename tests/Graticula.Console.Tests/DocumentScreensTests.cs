@@ -331,6 +331,18 @@ public sealed class DocumentScreensTests : ConsoleTest
             """);
         Assert.Equal("zz-annual-report", await Browser.EvaluateAsync<string>("document.getElementById('docNewTitle').value"));
 
+        // ADR-274: a scene layer package above the document limit is not refused before it is sent — the server keeps
+        // it as a file, up to its own limit, for an upload and a Replace file alike — and the hint says how large.
+        Assert.Contains("scene layer package or a 3D Tiles archive up to",
+            await Browser.EvaluateAsync<string>("document.getElementById('docFileSays').textContent") ?? string.Empty, StringComparison.Ordinal);
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "docRefusedBeforeSending({ name: 'zz-mesh.slpk', size: docRules.maximumBytes + 1 }) === null"),
+            "A scene layer package above the document limit is refused before it is sent.");
+        Assert.Contains("takes documents up to", await Browser.EvaluateAsync<string>(
+            "docRefusedBeforeSending({ name: 'zz-big.pdf', size: docRules.maximumBytes + 1 })") ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains("scene layer package or a 3D Tiles archive up to", await Browser.EvaluateAsync<string>(
+            "docRefusedBeforeSending({ name: 'zz-huge.3tz', size: docRules.packageMaximumBytes + 1 })") ?? string.Empty, StringComparison.Ordinal);
+
         await ClickAsync("#docUpload");
         await WaitForAsync("window.__writes.some(w => w.startsWith('POST /content/documents [file,sharing,title]'))",
             "Upload did not send the file, its title and its sharing.");

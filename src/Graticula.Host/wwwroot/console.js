@@ -5577,7 +5577,10 @@ async function loadMyContent() {
   // ADR-223: toolboxes too, optional as the documents are; read here so New item knows whether to offer one.
   toolboxAnswer = await api("/content/toolboxes").catch(() => ({ toolboxes: [], mayPublish: false })) || toolboxAnswer;
   if (docs.accepted) {
-    docRules = { accepted: docs.accepted, maximumBytes: docs.maximumBytes || docRules.maximumBytes, mayCreate: docs.mayCreate !== false };
+    docRules = {
+      accepted: docs.accepted, maximumBytes: docs.maximumBytes || docRules.maximumBytes, mayCreate: docs.mayCreate !== false,
+      packageMaximumBytes: docs.packageMaximumBytes || docs.maximumBytes || docRules.maximumBytes,
+    };
   }
 
   // ADR-114: the caller's folders. Optional like the maps: a failure leaves the list as it was.
@@ -27997,6 +28000,7 @@ async function loadSettings() {
   $("groundEveryone").hidden = !isMultiTenant();
   await drawGround(settings.ground || {});
   drawGroundDirty();
+  drawEmbedOrigins(settings.embed);
 
   // Whether the ground is what new maps start on is a question about one organization's default basemap, so it is
   // answered only on a server of one; with several, each organization chooses for itself.
@@ -28584,6 +28588,26 @@ async function saveGround(services) {
  * <b>The box holds what is stored, normalised by the server</b> — lower case, punycode, no default port —
  * so what is on screen after Save is exactly what styles are checked against.
  */
+/**
+ * ADR-275 condition 1: the sites that may frame a scene's embed address, read-only — they are the deployment's
+ * (`Graticula:EmbedOrigins`), checked when the server starts — shown beside the style sources so an operator sees
+ * what may frame a scene without reading the configuration.
+ */
+function drawEmbedOrigins(embed) {
+  const list = $("embedOrigins"), says = $("embedOriginsSays");
+  if (!list || !says) return;
+  const origins = embed?.origins || [];
+  list.innerHTML = origins.map(o => `<li><code>${h(o)}</code></li>`).join("");
+  list.hidden = origins.length === 0;
+  const setting = `<code>${h(embed?.setting || "Graticula:EmbedOrigins")}</code>`;
+  const address = `<code>${h(embed?.address || "/studio/scene-embed.html")}</code>`;
+  says.innerHTML = origins.length
+    ? `${origins.length === 1 ? "This site" : `These ${origins.length} sites`} may show a scene through ${address}, and no other
+      page. Change the list with ${setting} and a restart.`
+    : `None listed: no website may frame a scene, and Studio does not offer the embed code. List sites with ${setting} and a
+      restart.`;
+}
+
 async function loadStyleOrigins() {
   styleOriginsSay("");
 
@@ -36101,6 +36125,13 @@ function docRefusedBeforeSending(file) {
   if (!known.includes(extension) && !(extension === ".jpeg" && known.includes(".jpg"))) {
     return `${file.name} is not a kind this server keeps as a document. It takes ${docKindsSaid()}.`;
   }
+  // ADR-274: a scene layer package or a 3D Tiles archive above the document limit is kept as a file, up to its own limit.
+  const packageLimit = Math.max(docRules.maximumBytes, docRules.packageMaximumBytes || 0);
+  if ((extension === ".slpk" || extension === ".3tz") && file.size > docRules.maximumBytes) {
+    return file.size > packageLimit
+      ? `${file.name} is ${fileSize(file.size)}, and this server takes a scene layer package or a 3D Tiles archive up to ${docLimitSaid(packageLimit)}.`
+      : null;
+  }
   if (file.size > docRules.maximumBytes) {
     return `${file.name} is ${fileSize(file.size)}, and this server takes documents up to ${docLimitSaid(docRules.maximumBytes)}.`;
   }
@@ -36396,7 +36427,8 @@ function drawDocumentForm() {
       layer instead.</p>
     <div class="stacked"><label for="docFile">File</label>
       <input type="file" id="docFile" accept="${h(docRules.accepted.join(","))}" aria-describedby="docFileSays docNewSays"></div>
-    <p class="hint" id="docFileSays">${h(docKindsSaid())}, up to ${h(max)}.</p>
+    <p class="hint" id="docFileSays">${h(docKindsSaid())}, up to ${h(max)}${docRules.packageMaximumBytes > docRules.maximumBytes
+      ? h(`; a scene layer package or a 3D Tiles archive up to ${docLimitSaid(docRules.packageMaximumBytes)}`) : ""}.</p>
     <p class="hint" id="docNewSays" role="status" aria-live="polite"></p>
     <div class="stacked"><label for="docNewTitle">Title</label>
       <input type="text" id="docNewTitle" maxlength="250" autocomplete="off" aria-describedby="docNewTitleSays"></div>
