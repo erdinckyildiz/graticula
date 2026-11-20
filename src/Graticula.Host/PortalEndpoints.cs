@@ -740,12 +740,13 @@ internal static partial class PortalEndpoints
             // every deployment that did not turn HTTPS off, which is the value this always had.
             allSSL = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
 
-            // <b>False although the server has OAuth, until Pro has signed in with it on</b> —
+            // <b>False although the server has OAuth, until Pro has signed in with it on</b> — `Graticula:AdvertiseOAuth`,
+            // off unless a deployment turns it on —
             // ADR-076 §6 and its condition 3. The flow is served and the Maps SDK completes it
             // without reading this flag; what the flag changes in Pro's sign-in is not known, and Pro
             // is the client this server lost three times to a capability it advertised. The cost is
             // named rather than hidden: Field Maps and Survey123 read it too (condition 4).
-            supportsOAuth = false,
+            supportsOAuth = context.RequestServices.GetRequiredService<HostSettings>().AdvertiseOAuth,
             supportsHostedServices = true,
 
             // An Enterprise portal says whether its members may share with everyone; Pro greys *Everyone* without

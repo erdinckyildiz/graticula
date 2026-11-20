@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>2f68413b</code> · 2026-11-20 13:01</p>
+<p class="stamp">Şu commit’ten üretildi: <code>dffacf02</code> · 2026-11-20 14:24</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">292</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">722/776</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">43 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">723/776</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">42 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">244 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">açık borç</div><div class="kpi-n">351 ödendi · 23 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">24</div><div class="kpi-l">açık borç</div><div class="kpi-n">348 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">7162</div><div class="kpi-l">test</div><div class="kpi-n">758 kaynak dosya, 336,204 satır</div></div>
+<div class="kpi good"><div class="kpi-v">7184</div><div class="kpi-l">test</div><div class="kpi-n">757 kaynak dosya, 336,352 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">66 madde</span></div><p><b>43 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">70 madde</span></div><p><b>42 ADR conditions</b> outstanding across 31 decisions — the largest commitment on this page.</p><p><b>24 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -139,12 +139,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-280 · A 3D object feature layer holds me</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -163,7 +162,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-284 · Contributor and Mobile Worker, as </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -258,13 +256,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">074</td><td>Z and M are read, said out loud, and not served</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/3</td></tr>
 <tr><td class="id">075</td><td>A layer is edited by its owner, an administrator, and the group its owner shares it with</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">076</td><td>OAuth 2.0 authorization code with PKCE, for registered apps</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
-<tr><td class="id">077</td><td>Z and M ride beside x and y, and a flat geometry pays nothing for it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/5</td></tr>
+<tr><td class="id">077</td><td>Z and M ride beside x and y, and a flat geometry pays nothing for it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">5/5</td></tr>
 <tr><td class="id">078</td><td>A hosted layer can keep its history, and the database keeps it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH that the database keeps it · MEDIUM on the write cost, which is measured once on one…</td><td class="num">6/6</td></tr>
 <tr><td class="id">079</td><td>A web map is a saved document, and ArcGIS clients can open it</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH on the format · MEDIUM on the viewer&#x27;s shape until the owner has used it</td><td class="num">3/4</td></tr>
 <tr><td class="id">080</td><td>Hosted tables keep the Z and M their data carries</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">081</td><td>Migration publishes an ArcGIS Server&#x27;s layer definitions over the tables they already read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/1</td></tr>
 <tr><td class="id">082</td><td>Offline sync is not in v1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
-<tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
+<tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
 <tr><td class="id">084</td><td>The page size is one number, and the server&#x27;s is set from the console</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">085</td><td>A tile leaves out what it cannot draw</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">086</td><td>The operator chooses the map ground, and it is the portal&#x27;s default basemap</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
@@ -473,7 +471,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">299</td><td>ArcGIS Pro publishes a map image layer by reference to a registered database</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">300</td><td>A form&#x27;s Inbox is a view, and each reader sees their own rows of it</td><td><span class="pill cond">ACCEPTED</span><div class="muted-t">every condition discharged by 2026-11-16 (§9); ACCEPTED WITH CONDITIONS until then</div></td><td class="muted-t">MEDIUM — the shape is the owner&#x27;s (Q-232 (a), 2026-11-09) and the mechanism is one this…</td><td class="num">4/4</td></tr>
 <tr><td class="id">301</td><td>A feature report is a Word template filled per record, by the server&#x27;s own engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the syntax is Survey123&#x27;s public documentation and every part of it built is…</td><td class="num">3/5</td></tr>
-<tr><td class="id">302</td><td>A feature report is also a PDF, laid out by OfficeIMO in a child process</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — thirteen public Survey123 templates, filled and laid out on Windows and on the…</td><td class="num">2/3</td></tr>
+<tr><td class="id">302</td><td>A feature report is also a PDF, laid out by OfficeIMO in a child process</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — thirteen public Survey123 templates, filled and laid out on Windows and on the…</td><td class="num">1/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -507,13 +505,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-373</td><td>What a comparison with ArcGIS Pro has not settled about grapy&#x27;s parcel fabric, tracked rather than chased, by owner decision.</td><td class="muted-t">Esri publishes the fabric&#x27;s shared-line direction and record assignment rule; or a user&#x27;s toolbox is seen to relate…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-374</td><td>An admitted request can wait in two bounded queues, one after the other, so ADR-046&#x27;s admitted median is bounded rather than flat.</td><td class="muted-t">A deployment that needs a flat admitted median under overload more than it needs one slow source isolated, or a second…</td><td><span class="pill muted">PARKED</span></td></tr>
 <tr class=""><td class="id">D-391</td><td>A host reboot leaves the server stopped.</td><td class="muted-t">The owner&#x27;s choice between (a) unless-stopped and accepting the loop on a refused start, (b) keeping on-failure and…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-393</td><td>The quickstart rehearsal does not stop when its build fails.</td><td class="muted-t">The next rehearsal edit, or the next time a rehearsal failure is diagnosed as a schema mismatch.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-394</td><td>addToDefinition refuses the task layer ArcGIS Field Maps Designer defines, at seven points.</td><td class="muted-t">A client that defines task layers by addToDefinition and is refused, or an owner decision on any of the seven.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-395</td><td>A portal search by a word inside a title finds nothing.</td><td class="muted-t">The next portal-search change, or a report that a map cannot be found in Field Maps by a word of its title.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-396</td><td>An item&#x27;s Settings tab jumps from the page&#x27;s h1 to h4.</td><td class="muted-t">The next change to the item page&#x27;s structure, or any one item Settings tab being re-levelled — then all of them…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-397</td><td>grapy&#x27;s buffer tools are planar only, and until 2026-11-08 a GEODESIC request was answered planar.</td><td class="muted-t">A user tool that passes GEODESIC, or a Pro comparison of a buffer at high latitude</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-397</td><td>grapy&#x27;s buffer tools are planar only, and until 2026-11-08 a GEODESIC request was answered planar.</td><td class="muted-t">A user tool that passes GEODESIC, or a Pro comparison of a buffer at high latitude</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-398</td><td>The console suite does not run in CI.</td><td class="muted-t">The owner asks for it back, the first console defect that reaches a release, or the console suite rebalanced so its…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-400</td><td>Replica jobs and their files live in one process.</td><td class="muted-t">A site of two nodes serving Field Maps, or the first offline download lost to a restart</td><td><span class="pill muted">PARKED</span></td></tr>
-<tr class=""><td class="id">D-401</td><td>A replica&#x27;s generation is a moment, not a transaction, and an upload-only sync is echoed.</td><td class="muted-t">ADR-288 condition 1 or 5 on the device, a duplicate-GlobalID refusal from Field Maps or Pro after a sync, or a missing…</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-399</td><td>A replica receives no attachment change made after it was created, and its attachments&#x27; GlobalIDs are derived, not kept.</td><td class="muted-t">ADR-288 condition 1&#x27;s attachments both ways on the device, or an attachment table given a GlobalID and a history</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-400</td><td>Replica jobs and their files live in one process.</td><td class="muted-t">A site of two nodes serving Field Maps, or the first offline download lost to a restart</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-401</td><td>A replica&#x27;s generation is a moment, not a transaction, and an upload-only sync is echoed.</td><td class="muted-t">ADR-288 condition 1 or 5 on the device, a duplicate-GlobalID refusal from Field Maps or Pro after a sync, or a missing…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-409</td><td>grapy&#x27;s message model and environments are not Pro&#x27;s.</td><td class="muted-t">The owner&#x27;s choice whether scripts should see Pro&#x27;s per-tool messages; or a user&#x27;s script that parses the start and end…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-410</td><td>grapy&#x27;s GeoPackage tables are named the GeoPackage way, Pro&#x27;s the geodatabase way.</td><td class="muted-t">The owner&#x27;s choice between Pro&#x27;s names and the GeoPackage&#x27;s; or a script that hard-codes OBJECTID or Shape against a…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-411</td><td>grapy keys attachments on global IDs where Pro keys them on object IDs.</td><td class="muted-t">The owner&#x27;s choice; or a script reading RELOBJECTID</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -525,8 +525,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-417</td><td>Utility network schema details and one trace differ from Pro&#x27;s.</td><td class="muted-t">Next grapy utility network work; the trace defect first</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-418</td><td>EQUIVALENT algorithms whose results differ from Pro&#x27;s.</td><td class="muted-t">Esri publishes a rule, or a user reports a result that matters</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-419</td><td>Pro sweep names not compared on this machine.</td><td class="muted-t">A fixture, licence or environment that makes one comparable</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-429</td><td>A user tool fails on a layer of a few thousand features with unable to open database file.</td><td class="muted-t">Set TMPDIR and SQLITETMPDIR to the run directory before the fence goes up, and prove it with the 4,515-polygon layer on…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-430</td><td>A grouped expression&#x27;s column is Expr1 here and EXPR1 in ArcGIS Online.</td><td class="muted-t">A client observed reading the grouped column by name, or an Enterprise 11.x/12 hosted layer&#x27;s answer</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">351 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">348 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -628,18 +630,18 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2542</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:39.0%"></div></div><div class="bar-n">992</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:38.8%"></div></div><div class="bar-n">987</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2543</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:39.8%"></div></div><div class="bar-n">1011</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:38.9%"></div></div><div class="bar-n">990</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.4%"></div></div><div class="bar-n">645</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:23.9%"></div></div><div class="bar-n">608</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.3%"></div></div><div class="bar-n">464</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.3%"></div></div><div class="bar-n">465</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:9.6%"></div></div><div class="bar-n">245</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:5.2%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:4.9%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.2%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">59</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.2%"></div></div><div class="bar-n">57</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Offline.Sqlite</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">43</div></div>
@@ -691,20 +693,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>2f68413b</code><time>2026-11-20</time><span>An upload-only sync is no longer echoed by the next download (D-401 partly); D-399 closed, D-400 parked</span></li>
-<li><code>8a7c22c0</code><time>2026-11-20</time><span>grapy&#x27;s buffer tools build geodesic buffers, measured against ArcGIS Pro 3.7 (D-397, partly)</span></li>
-<li><code>f835d417</code><time>2026-11-20</time><span>The quickstart rehearsal stops at the step that failed, not two steps later (D-393)</span></li>
-<li><code>0faedb45</code><time>2026-11-20</time><span>A user tool&#x27;s temporary files go to its run directory, so SQLite no longer spills outside the fence (D-429)</span></li>
+<li><code>dffacf02</code><time>2026-11-20</time><span>A grouped expression may be ordered by as written, as ArcGIS Online answers it (ADR-083 condition 2)</span></li>
+<li><code>8118097f</code><time>2026-11-20</time><span>A count of 1 is a count of rows, as Map Viewer counts a histogram&#x27;s buckets (ADR-083 condition 2)</span></li>
+<li><code>9b73bcfb</code><time>2026-11-20</time><span>CASE WHEN ... THEN ... ELSE ... END is an expression, as Map Viewer buckets a date histogram (ADR-083 condition 2)</span></li>
+<li><code>a4865fd5</code><time>2026-11-20</time><span>PostgreSQL&#x27;s days between two dates are a double, so Map Viewer&#x27;s date variance does not overflow (ADR-083 condition 2)</span></li>
+<li><code>42789bb5</code><time>2026-11-20</time><span>A date minus a date is the days between them, as ArcGIS&#x27;s standardized SQL has it (ADR-083 condition 2)</span></li>
+<li><code>6b177a24</code><time>2026-11-20</time><span>Layer documents say useStandardizedQueries, which the where clause has always been (ADR-083 condition 2)</span></li>
+<li><code>dff3cf7c</code><time>2026-11-20</time><span>Pro checks of 2026-11-20: ADR-077 c5 discharged, ADR-214 c2 partly; ADR-076 c3, ADR-201 c1, ADR-270 c2 not driven (screen in use)</span></li>
+<li><code>bb9a7808</code><time>2026-11-20</time><span>A date field a geodatabase or shapefile declares is stored as a date, not text</span></li>
+<li><code>70ab6b23</code><time>2026-11-20</time><span>A share form that names no group leaves an item in its groups, as ArcGIS does (ADR-214 condition 2, group half)</span></li>
+<li><code>b329dbe6</code><time>2026-11-20</time><span>Graticula:AdvertiseOAuth turns supportsOAuth on for a trial deployment, off by default (ADR-076 condition 3)</span></li>
 <li><code>c4bc8b60</code><time>2026-11-18</time><span>The report PDF engine&#x27;s fonts stay out of /usr/share/fonts, which killed the server&#x27;s map drawing on arm64 (D-428, ADR-302)</span></li>
 <li><code>c466ebed</code><time>2026-11-17</time><span>A feature report can also be a PDF, laid out by OfficeIMO in a child process (ADR-302); Q-240 answered</span></li>
 <li><code>f51d428d</code><time>2026-11-17</time><span>Forms: feature reports, the question types real forms still needed, and scripts in a sandbox (ADR-301, ADR-287 sections 5.26-5.29)</span></li>
 <li><code>bd7a0958</code><time>2026-11-17</time><span>Forms: the Inbox, barcode, search() and pulldata(&quot;@layer&quot;), and annotate (ADR-300, ADR-287 sections 5.22-5.25)</span></li>
-<li><code>79d90218</code><time>2026-11-16</time><span>A view&#x27;s attachments answer only for the rows it shows, and only where it offers Query (ADR-113)</span></li>
-<li><code>fe24dd41</code><time>2026-11-16</time><span>Forms: the work Survey123 does, in Graticula&#x27;s own browser client (ADR-287)</span></li>
-<li><code>f9b1b49a</code><time>2026-11-15</time><span>D-425 is Pro&#x27;s, not this server&#x27;s: a control with Esri&#x27;s sample sync service and Esri&#x27;s basemap stops the same way (ADR-288 condition 4)</span></li>
-<li><code>55ae5329</code><time>2026-11-15</time><span>Linux builds with the .NET 10 SDK too, and global.json pins it everywhere</span></li>
-<li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
-<li><code>c1a637ee</code><time>2026-11-15</time><span>Offline editing for hosted layers: Field Maps and Pro take Graticula maps offline and sync both ways, preplanned map areas, attachments that keep their GlobalID; Pro publishes by reference from its Share pane (ADR-288, ADR-290, ADR-299)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

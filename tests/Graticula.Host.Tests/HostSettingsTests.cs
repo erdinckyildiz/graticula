@@ -319,4 +319,26 @@ public sealed class HostSettingsTests
         // A context with no settings registered — a test host, a tool — keeps the default rather than failing.
         Assert.Equal(HostedDataEndpoints.DefaultMaximumBytes, HostedDataEndpoints.MaximumBytes(new Microsoft.AspNetCore.Http.DefaultHttpContext()));
     }
+
+    /// <summary>
+    /// ADR-076 condition 3: the portal says <c>supportsOAuth</c> only where a deployment turned it on.
+    /// </summary>
+    [Fact]
+    public void Supports_oauth_is_off_unless_a_deployment_turns_it_on()
+    {
+        HostSettings plain = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+        }));
+        HostSettings trial = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:AdvertiseOAuth"] = "true",
+        }));
+
+        Assert.False(plain.AdvertiseOAuth);
+        Assert.True(trial.AdvertiseOAuth);
+    }
 }

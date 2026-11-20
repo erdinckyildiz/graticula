@@ -214,6 +214,7 @@ public static class MapServerMetadataWriter
             maxRecordCount,
             supportsStatistics = true,
             supportsAdvancedQueries = true,
+            useStandardizedQueries = true, // FeatureServerMetadataWriter says why (2026-11-20).
             supportedQueryFormats = "JSON, geoJSON, PBF",
             isDataVersioned = false,
 
@@ -272,6 +273,7 @@ public static class MapServerMetadataWriter
             maxRecordCount,
             supportsStatistics = true,
             supportsAdvancedQueries = true,
+            useStandardizedQueries = true, // FeatureServerMetadataWriter says why (2026-11-20).
             supportedQueryFormats = "JSON, geoJSON, PBF",
         };
     }

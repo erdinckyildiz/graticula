@@ -781,6 +781,7 @@ internal sealed record HostSettings(
             // under it stays inside.
             ScenePackageMaximumBytes = Math.Max(1L, keys.Value("ScenePackageMaxMB", DefaultScenePackageMaximumBytes / 1048576)) * 1048576,
             EmbedOrigins = ParseEmbedOrigins(keys.Text("EmbedOrigins")),
+            AdvertiseOAuth = keys.Value("AdvertiseOAuth", false),
         };
     }
 
@@ -789,6 +790,14 @@ internal sealed record HostSettings(
     /// and then nothing may frame anything of this server's, as before (<c>Graticula:EmbedOrigins</c>).
     /// </summary>
     public IReadOnlyList<string> EmbedOrigins { get; init; } = [];
+
+    /// <summary>
+    /// Whether the portal document says <c>supportsOAuth: true</c> — ADR-076 condition 3 (<c>Graticula:AdvertiseOAuth</c>).
+    /// Off by default: the flow is served either way, and the flag is turned on for every deployment only after ArcGIS
+    /// Pro has signed in with it on. A setting rather than a constant so that a trial deployment (dev) can turn it on
+    /// without a build of its own; first written on the 2026-10-16 trial branch and brought here 2026-11-20.
+    /// </summary>
+    public bool AdvertiseOAuth { get; init; }
 
     /// <summary>
     /// <c>Graticula:EmbedOrigins</c>, a list of origins separated by commas or spaces. Each must be an http or https

@@ -233,6 +233,11 @@ internal static partial class PortalEndpoints
             scope = SharingScope.AllOrganizations;
         }
 
+        PublishedService? published = (await context.RequestServices.GetRequiredService<PostgresLayerCatalog>()
+                .ListServicesAsync(cancellation).ConfigureAwait(false))
+            .FirstOrDefault(s => s.Id == found.Id);
+        scope = KeptInItsGroups(scope, published is { } held ? held.SharedWith.Length : 0);
+
         Privilege needed = SharingPrivileges.ToShareAt(scope) ?? Privilege.ContentPublishFeatures;
 
         bool administrator = current.Authorization.Allows(Privilege.AdminManageAllContent);
@@ -268,6 +273,21 @@ internal static partial class PortalEndpoints
     }
 
     /// <summary>
+    /// <b>A share form adds groups and takes none away</b> — so neither everyone nor the organisation, with no group named,
+    /// leaves an item that is in a group shared with that group (ArcGIS's <c>shared</c>), not private.
+    /// </summary>
+    /// <remarks>
+    /// Found 2026-11-20 by ArcGIS Pro's own sharing engine (ADR-214 condition 2, the group half): an overwrite through
+    /// <c>UploadServiceDefinition</c> with no group sends <c>shareItems</c> with <c>groups=</c>, <c>everyone=false</c>
+    /// and <c>account=false</c>. ArcGIS Enterprise 2025.2, sent the same form for an item in a group, kept the item in
+    /// the group and answered <c>access: shared</c>; this server kept the group's row and made the item private, so the
+    /// group's members lost it while the portal still listed the group. Taking an item out of a group is
+    /// <c>unshare</c>/<c>unshareItems</c>.
+    /// </remarks>
+    internal static SharingScope KeptInItsGroups(SharingScope scope, int groupsItIsIn) =>
+        scope == SharingScope.Private && groupsItIsIn > 0 ? SharingScope.Group : scope;
+
+    /// <summary>
     /// A document shared by the portal's share form — its scope and its groups, by the rules a service's share keeps. Null
     /// when <paramref name="id"/> is no document this caller can read.
     /// </summary>
@@ -291,6 +311,8 @@ internal static partial class PortalEndpoints
         {
             scope = SharingScope.AllOrganizations;
         }
+
+        scope = KeptInItsGroups(scope, document.SharedWith?.Count ?? 0);
 
         // Studio's rule for a document's or a map's scope (AdminEndpoints.MayShareAsync): no privilege to keep it or to
         // make it private, and the scope's own privilege otherwise, a group's being the organisation's.

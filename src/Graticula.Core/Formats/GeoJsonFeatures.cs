@@ -45,6 +45,8 @@ public sealed class InferredColumn
     private bool _sawInteger;
     private bool _sawBoolean;
     private bool _tooBigForInt;
+    private bool _allTextIsOgrDate = true;
+    private bool _declaredDate;
 
     /// <summary>The property name as it appeared in the file.</summary>
     public required string Name { get; init; }
@@ -60,6 +62,12 @@ public sealed class InferredColumn
     {
         get
         {
+            // A date the source declared, kept a date when every value it held reads as one (DeclareDates).
+            if (_declaredDate && _allTextIsOgrDate && !_sawBoolean && !_sawInteger && !_sawFractional)
+            {
+                return FieldType.Date;
+            }
+
             if (_sawText)
             {
                 return FieldType.Text;
@@ -80,6 +88,9 @@ public sealed class InferredColumn
             return _tooBigForInt ? FieldType.BigInteger : FieldType.Integer;
         }
     }
+
+    /// <summary>Says the source declared this column a date (<see cref="DeclaredDates"/>).</summary>
+    public void DeclareDate() => _declaredDate = true;
 
     /// <summary>Folds one value into what is known about the column.</summary>
     /// <param name="value">The value.</param>
@@ -115,6 +126,12 @@ public sealed class InferredColumn
             case JsonValueKind.String:
                 _sawText = true;
                 LongestText = Math.Max(LongestText, value.GetString()?.Length ?? 0);
+
+                if (_allTextIsOgrDate && !OgrDateText.TryParse(value.GetString(), out _))
+                {
+                    _allTextIsOgrDate = false;
+                }
+
                 break;
 
             default:
@@ -122,8 +139,112 @@ public sealed class InferredColumn
                 // than dropped: the alternative is silently losing data the
                 // caller believes they uploaded.
                 _sawText = true;
+                _allTextIsOgrDate = false;
                 LongestText = Math.Max(LongestText, value.GetRawText().Length);
                 break;
+        }
+    }
+}
+
+/// <summary>Whether the source said this column holds dates — the import reader's header, a field typed <c>Date</c> or <c>DateTime</c>.</summary>
+public static class DeclaredDates
+{
+    /// <summary>
+    /// Marks every column the import reader's header types <c>Date</c> or <c>DateTime</c>, so it is created as a date
+    /// when every value it held reads as one, and as text otherwise.
+    /// </summary>
+    /// <param name="header">The reader's header line: <c>{ "fields": [ { "name", "type" } ] }</c>.</param>
+    /// <param name="columns">The columns inferred from the rows, by name.</param>
+    /// <remarks>
+    /// <b>Found 2026-11-20 by ArcGIS Pro (ADR-083 condition 2's check):</b> a file geodatabase date field Pro published
+    /// landed as a text column, because the reader hands every value it does not type as OGR's text
+    /// (<c>2026/11/20 08:48:03+00</c>) and the columns were inferred from the values alone; ArcGIS Map Viewer then
+    /// offered string operators for it. A shapefile's <c>Date</c> field came in the same way.
+    /// </remarks>
+    public static void DeclareDates(JsonElement header, IReadOnlyDictionary<string, InferredColumn> columns)
+    {
+        ArgumentNullException.ThrowIfNull(columns);
+
+        if (header.ValueKind != JsonValueKind.Object
+            || !header.TryGetProperty("fields", out JsonElement fields)
+            || fields.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (JsonElement field in fields.EnumerateArray())
+        {
+            if (field.ValueKind == JsonValueKind.Object
+                && field.TryGetProperty("name", out JsonElement name) && name.GetString() is { } named
+                && field.TryGetProperty("type", out JsonElement type) && type.GetString() is "Date" or "DateTime"
+                && columns.TryGetValue(named, out InferredColumn? column))
+            {
+                column.DeclareDate();
+            }
+        }
+    }
+}
+
+/// <summary>
+/// OGR's text form of a date — <c>YYYY/MM/DD</c>, then optionally <c> HH:MM:SS[.fff]</c>, then optionally a zone
+/// <c>+HH</c>, <c>+HHMM</c> or <c>+HH:MM</c> — as an instant. A value with no zone is read as UTC, the reference every
+/// layer document states (ADR-077 §10, <c>StoredTime.Utc</c>).
+/// </summary>
+public static class OgrDateText
+{
+    /// <summary>Reads <paramref name="text"/> as OGR writes a date, or says it is not one.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="value">The instant.</param>
+    /// <returns>Whether it was one.</returns>
+    public static bool TryParse(string? text, out DateTimeOffset value)
+    {
+        value = default;
+
+        if (text is not { Length: >= 10 } || text[4] != '/' || text[7] != '/')
+        {
+            return false;
+        }
+
+        string body = text;
+        TimeSpan offset = TimeSpan.Zero;
+        int zone = text.Length > 10 ? text.IndexOfAny(['+', '-'], 10) : -1;
+
+        if (zone > 0)
+        {
+            string z = text[(zone + 1)..].Replace(":", string.Empty, StringComparison.Ordinal);
+
+            if (z.Length is not (2 or 4) || !int.TryParse(z.AsSpan(0, 2), NumberStyles.None, CultureInfo.InvariantCulture, out int hours))
+            {
+                return false;
+            }
+
+            int minutes = 0;
+
+            if (z.Length == 4 && !int.TryParse(z.AsSpan(2, 2), NumberStyles.None, CultureInfo.InvariantCulture, out minutes))
+            {
+                return false;
+            }
+
+            offset = new TimeSpan(hours, minutes, 0);
+            offset = text[zone] == '-' ? -offset : offset;
+            body = text[..zone];
+        }
+
+        string[] formats = ["yyyy/MM/dd", "yyyy/MM/dd HH:mm:ss", "yyyy/MM/dd HH:mm:ss.FFFFFFF"];
+
+        if (!DateTime.TryParseExact(body, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime local))
+        {
+            return false;
+        }
+
+        try
+        {
+            value = new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), offset);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
         }
     }
 }

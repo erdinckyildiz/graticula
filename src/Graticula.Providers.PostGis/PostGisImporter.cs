@@ -1756,6 +1756,9 @@ public sealed partial class PostGisImporter
         FieldType.BigInteger => "bigint",
         FieldType.Double => "double precision",
 
+        // Only where the source declared a date and every value read as one (DeclaredDates, 2026-11-20).
+        FieldType.Date => "timestamptz",
+
         // <b>text, not varchar(n).</b> Sizing from the longest value in this file
         // guarantees the next import of the same data fails on a longer one, and
         // PostgreSQL stores them identically.
@@ -1937,6 +1940,13 @@ public sealed partial class PostGisImporter
 
             case FieldType.Double:
                 await writer.WriteAsync(value.GetDouble(), NpgsqlDbType.Double, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+
+            // A date the source declared and every value read as (DeclaredDates, 2026-11-20): the instant, in UTC.
+            case FieldType.Date when value.ValueKind == JsonValueKind.String
+                && OgrDateText.TryParse(value.GetString(), out DateTimeOffset instant):
+                await writer.WriteAsync(instant.UtcDateTime, NpgsqlDbType.TimestampTz, cancellationToken)
                     .ConfigureAwait(false);
                 break;
 

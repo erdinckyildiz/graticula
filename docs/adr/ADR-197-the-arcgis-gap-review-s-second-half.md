@@ -38,7 +38,7 @@ how: the expression is parsed by the where grammar as the operand of one `IS NUL
 whole tree, and written through the same emitter with every literal bound. It needs an `outStatisticFieldName`, and
 only `count`, `min` and `max` take a value that is not a number. GeoParquet layers say `false` and refuse it in their
 own words. **`groupByFieldsForStatistics` takes one too since D-301 was repaid**, answered as `Expr1`, `Expr2`… as Esri's
-server answers it; **`orderByFields` refuses one**, as Esri's server does ([D-301](../architecture-debt.md)).
+server answers it; ~~**`orderByFields` refuses one**, as Esri's server does~~ **`orderByFields` takes one of the query's own group expressions since 2026-11-20**, as ArcGIS Online's hosted layers do and Map Viewer asks ([D-301](../architecture-debt.md)).
 
 ### Alternative — leave both flags false
 
@@ -73,7 +73,7 @@ result-type flag waits for a measurement.
 
 **Positive.** Four keys a client reads are present and true to the server; a statistic over arithmetic answers.
 
-**Negative.** An expression in `orderByFields` is refused, as Esri's server refuses it (D-301). The page figures say plainly that a
+**Negative.** An expression in `orderByFields` is refused, as Esri's server refuses it (D-301) — *except, since 2026-11-20, one of the query's own group expressions, which ArcGIS Online answers and Map Viewer sends.* The page figures say plainly that a
 tile query gets no more than a standard one.
 
 **State.** None: an expression is parsed per request and nothing is stored.

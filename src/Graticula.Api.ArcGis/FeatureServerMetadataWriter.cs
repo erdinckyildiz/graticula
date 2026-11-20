@@ -1071,6 +1071,11 @@ public static class FeatureServerMetadataWriter
             // orders by the identity column whenever an offset is given
             // (PostGisFeatureSource), which is what makes the claim true rather
             // than merely convenient.
+            // <b>Standardized queries only — measured 2026-11-20 (ADR-083 condition 2).</b> The where clause is this server's
+            // own grammar, ArcGIS's standardized list and nothing passed to the database, which is what the flag says; an
+            // ArcGIS client reads it (the Maps SDK's `supportsStandardizedQueriesOnly`), and Map Viewer offered no date
+            // field to filter on a layer without it. Esri's sample server says it on every layer.
+            useStandardizedQueries = true,
             supportsAdvancedQueries = true,
             supportsStatistics = true,
             supportsPagination = true,
