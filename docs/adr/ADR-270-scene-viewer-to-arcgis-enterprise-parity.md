@@ -283,6 +283,13 @@ viewer authors lives in the web scene item ADR-269 keeps.
    stays deferred, §5.11.)*
 2. **A web scene authored here — a styled layer, a pop-up, slides — opens in Pro as it was authored.** Owed by the owner:
    it needs the desktop.
+   *(2026-11-20: no headless route exists, measured; not driven. `Map.addDataFromPath` on a web scene item — this server's
+   only one on dev, by its item page and by its `content/items` address — answered *Failed to add data* after Pro had read
+   the item's JSON; **the control**, Esri's own public web scene on ArcGIS Online (*Linz, Austria Scene*,
+   `6c7a0d4f03d2444fb1f4fa9e85a96044`), was refused the same way. So opening a web scene is Pro's *Add and Open*, its
+   window only, and the owner was using the machine all session. A person: author a scene in Studio on dev with a styled
+   layer, a pop-up and two slides, then in Pro Catalog › Portal › the scene › Add and Open, and compare the renderer, the
+   pop-up and Pro's bookmarks (Pro makes slides bookmarks) with what was authored.)*
 3. **The parity with ArcGIS Online and Enterprise is written down**, item by item, with what is built, what is not and
    why, in [3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md). *(Discharged 2026-11-06: written from ArcGIS Online's
    pages and Enterprise 11.4's Scene Viewer page, every row cited; the gaps it found are each built, owed, or listed for
