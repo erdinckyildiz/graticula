@@ -244,6 +244,30 @@ public sealed class WhereClauseStandardFunctionsTests
         Assert.Contains("'founded' holds a date", Refused("founded * 2 > 1"), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// <c>CASE WHEN … THEN … ELSE … END</c>, as ArcGIS Map Viewer buckets a date field's histogram (dev, 2026-11-20).
+    /// </summary>
+    [Fact]
+    public void A_case_expression_is_the_value_of_its_first_branch_that_holds()
+    {
+        const string MapViewer =
+            "CASE WHEN ((((founded - TIMESTAMP'1970-01-01 00:00:00') * 86400000) >= 1000) AND "
+            + "(((founded - TIMESTAMP'1970-01-01 00:00:00') * 86400000)  <  2000)) THEN 1 "
+            + "WHEN population > 5 THEN 2 ELSE 0 END = 1";
+
+        ParsedWhere parsed = Ok(MapViewer);
+        Assert.StartsWith("(case when ", parsed.Sql, StringComparison.Ordinal);
+        Assert.Contains(" then @w", parsed.Sql, StringComparison.Ordinal);
+        Assert.Contains(" when \"population\" > @w", parsed.Sql, StringComparison.Ordinal);
+        Assert.Contains(" else @w", parsed.Sql, StringComparison.Ordinal);
+        Assert.Contains(" end) = @w", parsed.Sql, StringComparison.Ordinal);
+        Assert.StartsWith("(case when ", Duck(MapViewer), StringComparison.Ordinal);
+
+        Assert.Contains("THEN", Refused("CASE WHEN population > 5 2 END = 1"), StringComparison.Ordinal);
+        Assert.Contains("END", Refused("CASE WHEN population > 5 THEN 2 = 1"), StringComparison.Ordinal);
+        Assert.Contains("WHEN", Refused("CASE ELSE 1 END = 1"), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("SUBSTRING(population, 1, 2) = '12'", "'population' holds a number")]
     [InlineData("CHAR_LENGTH(area) > 1", "'area' holds a number")]

@@ -643,6 +643,40 @@ public static class PredicateSql
                 sql.Append(')');
                 return true;
 
+            case ScalarExpression.Choice choice:
+                // The same spelling in every engine this server writes for (ScalarExpression.Choice, 2026-11-20).
+                sql.Append("(case");
+
+                foreach (ScalarExpression.CaseBranch branch in choice.Branches)
+                {
+                    sql.Append(" when ");
+
+                    if (!Write(branch.When, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                    {
+                        return false;
+                    }
+
+                    sql.Append(" then ");
+
+                    if (!Inner(branch.Then, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                if (choice.Else is { } otherwise)
+                {
+                    sql.Append(" else ");
+
+                    if (!Inner(otherwise, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                sql.Append(" end)");
+                return true;
+
             case ScalarExpression.DaysBetween days:
             {
                 // The days between two moments, with the fraction, in each engine's own spelling (2026-11-20).

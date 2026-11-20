@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Graticula.Features;
 
@@ -261,6 +262,42 @@ public abstract record ScalarExpression
     {
         /// <inheritdoc />
         public override ExpressionKind Kind => ExpressionKind.Real;
+    }
+
+    /// <summary>One <c>WHEN … THEN …</c> of a <see cref="Choice"/>.</summary>
+    /// <param name="When">The test.</param>
+    /// <param name="Then">The value when it holds.</param>
+    public sealed record CaseBranch(AttributePredicate When, ScalarExpression Then);
+
+    /// <summary><c>CASE WHEN … THEN … [ELSE …] END</c> — the value of the first branch whose test holds.</summary>
+    /// <param name="Branches">The branches, in order.</param>
+    /// <param name="Else">The value when none holds, or null for SQL's null.</param>
+    /// <remarks>
+    /// Measured 2026-11-20 (ADR-083 condition 2): ArcGIS Map Viewer draws a date field's histogram with
+    /// <c>groupByFieldsForStatistics</c> holding thirty <c>WHEN … THEN n</c> buckets and <c>ELSE 0 END</c>. The layer says
+    /// <c>supportsSqlExpression</c>, and <c>CASE</c> is the expression ArcGIS's own query reference shows for it; it was
+    /// refused as <i>'CASE' is not a field</i>. The spelling is the same in every engine this server writes for.
+    /// </remarks>
+    public sealed record Choice(IReadOnlyList<CaseBranch> Branches, ScalarExpression? Else) : ScalarExpression
+    {
+        /// <inheritdoc />
+        public override ExpressionKind Kind
+        {
+            get
+            {
+                List<ExpressionKind> kinds = [.. Branches.Select(b => b.Then.Kind)];
+
+                if (Else is not null && !(Else is Constant { Value: null }))
+                {
+                    kinds.Add(Else.Kind);
+                }
+
+                return kinds.All(k => k == ExpressionKind.Integer) ? ExpressionKind.Integer
+                    : kinds.All(k => k is ExpressionKind.Integer or ExpressionKind.Real) ? ExpressionKind.Real
+                    : kinds.Distinct().Count() == 1 ? kinds[0]
+                    : ExpressionKind.Unknown;
+            }
+        }
     }
 
     /// <summary><c>-operand</c>.</summary>
