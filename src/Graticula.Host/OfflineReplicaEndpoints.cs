@@ -723,7 +723,14 @@ internal static partial class OfflineReplicaEndpoints
 
         // The new generation is taken after the upload, so the client's own edits are inside this download's window and
         // are left out of it by GlobalID (`uploaded`).
-        DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
+        DateTimeOffset afterUpload = jobs.Now;
+        DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(afterUpload.ToUnixTimeMilliseconds());
+
+        // D-401: an upload-only sync's GlobalIDs are remembered at the first whole millisecond at or after the upload
+        // ended, not at the generation. The generation is floored to a millisecond, so the upload's own writes can sit
+        // later in that same millisecond; read back from the floor they looked like the server's change and were sent to
+        // the device again. CI's faster runner did that (AnUploadOnlySyncIsNotEchoedTests); this machine never had.
+        DateTimeOffset uploadedBy = afterUpload > generation ? generation.AddMilliseconds(1) : generation;
 
         async Task WorkAsync(IServiceProvider scoped, CancellationToken stopping)
         {
@@ -803,7 +810,7 @@ internal static partial class OfflineReplicaEndpoints
                 // What it uploaded is remembered instead, so the next download does not send it back (D-401).
                 advanced.Add(
                     down ? stored with { ServerGeneration = generation.ToUnixTimeMilliseconds(), Own = null }
-                    : up && uploaded.Count > 0 ? stored with { Own = Remember(stored.Own, uploaded, generation) }
+                    : up && uploaded.Count > 0 ? stored with { Own = Remember(stored.Own, uploaded, uploadedBy) }
                     : stored);
             }
 
