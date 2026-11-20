@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from . import _gpkg, _units, da
+from . import _geodesic, _gpkg, _units, da
 from ._result import Result
 from ._runtime import NotBuiltError
 from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
@@ -46,6 +46,42 @@ def _distance(value, srid):
     return metres
 
 
+def _linear(value):
+    """The metres in one of a distance's unit, or None when it names no linear unit (a bare number, a field)."""
+    parts = str(value).split() if isinstance(value, str) else []
+    if len(parts) != 2 or parts[1].upper() in ("UNKNOWN", "DECIMALDEGREES"):
+        return None
+    return _units.linear(parts[1])
+
+
+def _geodesic_metres(value, srid=None):
+    """A geodesic buffer's distance in metres: a linear unit as named, and a bare number as metres whatever the data's
+    reference — Pro 3.7 buffered "1000" on a US-feet reference (EPSG 2229) and "100000" on WGS 84 as that many metres
+    and wrote them so in BUFF_DIST (measured 2026-11-20)."""
+    per = _linear(value)
+    if per is not None:
+        return float(str(value).split()[0]) * per
+    return float(value)
+
+
+def _geodesic_wanted(tool, method, distance, srid, line_side="FULL", line_end_type="ROUND"):
+    """Whether a buffer is geodesic (D-397): GEODESIC asks for it, and PLANAR on geographic data with a linear distance
+    gets it, as Pro's Buffer page says and Pro 3.7 answered (2026-11-20). What the geodesic path does not build is
+    refused by name."""
+    from ._reference import SpatialReference
+    geographic = srid > 0 and SpatialReference(srid).type == "Geographic"
+    asked = _is_given(method) and str(method).upper() == "GEODESIC"
+    if not asked and not (geographic and _linear(distance) is not None):
+        return False
+    if srid <= 0:
+        _refuse(tool, "method", method, "the input has no coordinate system to measure on")
+    if str(line_side or "FULL").upper() in ("LEFT", "RIGHT"):
+        _refuse(tool, "line_side", line_side, "a geodesic buffer is built on both sides of a line")
+    if str(line_end_type or "ROUND").upper() == "FLAT":
+        _refuse(tool, "line_end_type", line_end_type, "a geodesic buffer is built with round ends")
+    return True
+
+
 def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="FULL", line_end_type="ROUND",
            dissolve_option="NONE", dissolve_field=None, method="PLANAR", *_, **__):
     """Each feature buffered by a distance or a field's value, in the data's own plane.
@@ -55,11 +91,13 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
     fields, ``BUFF_DIST`` (the distance in the data's units) and ``ORIG_FID`` — measured in ArcGIS Pro 3.7,
     2026-11-08, for Buffer and PairwiseBuffer alike.
 
-    Refused: ``method`` GEODESIC — this buffer is planar, and answering a planar shape for a geodesic request would
-    be a wrong answer rather than a missing one (found 2026-11-08: it was accepted and ignored)."""
-    if _is_given(method) and str(method).upper() == "GEODESIC":
-        _refuse("Buffer", "method", method, "geodesic buffers are not built; this buffer is planar")
+    ``method`` GEODESIC buffers on the ellipsoid (``_geodesic``, D-397), and so does PLANAR on geographic data given
+    a linear distance, as the page says Pro does; BUFF_DIST is then metres under GEODESIC and the number as given
+    under PLANAR, and a bare number is metres under GEODESIC whatever the reference (measured in ArcGIS Pro 3.7,
+    2026-11-20). Refused under geodesic: ``line_side`` LEFT and RIGHT, ``line_end_type`` FLAT, and a buffer crossing
+    the antimeridian or reaching a pole, all of which Pro builds."""
     columns, _, srid, _ = _schema(in_features)
+    geodesic = _geodesic_wanted("Buffer", method, buffer_distance_or_field, srid, line_side, line_end_type)
     names = [c.name for c in columns]
     by_field = isinstance(buffer_distance_or_field, str) and buffer_distance_or_field in names
     dissolve = str(dissolve_option or "NONE").upper()
@@ -85,6 +123,16 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
             if row[-1] is None:
                 continue
             if by_field and row[names.index(buffer_distance_or_field)] is None:
+                continue
+            if geodesic:
+                # A field's value is metres, as a bare number is (INFERRED: measured for a number, not for a field).
+                metres = (float(row[names.index(buffer_distance_or_field)]) if by_field
+                          else _geodesic_metres(buffer_distance_or_field))
+                written = metres if str(method).upper() == "GEODESIC" else float(str(buffer_distance_or_field).split()[0])
+                shape = _geodesic.buffer(row[-1]._shape, metres, srid)
+                if line_side.upper() == "OUTSIDE_ONLY":
+                    shape = shape.difference(row[-1]._shape)
+                shapes.append((row[:-1], shape, written, oid))
                 continue
             distance = float(row[names.index(buffer_distance_or_field)]) if by_field else _distance(buffer_distance_or_field, srid)
             written_distance = distance
@@ -610,12 +658,13 @@ def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_u
     distance in ``field_name``; under ``dissolve_option`` NONE each ring also keeps its feature's fields and
     ``ORIG_FID`` (measured in ArcGIS Pro 3.7, 2026-11-08).
 
-    Refused: ``method`` GEODESIC, as Buffer refuses it — the rings are planar."""
+    ``method`` GEODESIC builds the rings on the ellipsoid, and so does PLANAR on geographic data given a linear
+    ``buffer_unit``, as Buffer does (D-397)."""
     import shapely
-    if _is_given(method) and str(method).upper() == "GEODESIC":
-        _refuse("MultipleRingBuffer", "method", method, "geodesic buffers are not built; these rings are planar")
     columns, _, srid, _ = _schema(input_features)
-    scale = _distance(f"1 {buffer_unit}", srid) if buffer_unit else 1.0
+    geodesic = _geodesic_wanted("MultipleRingBuffer", method, f"1 {buffer_unit}" if buffer_unit else 1.0, srid)
+    scale = (_geodesic_metres(f"1 {buffer_unit}" if buffer_unit else 1.0) if geodesic
+             else _distance(f"1 {buffer_unit}", srid) if buffer_unit else 1.0)
     steps = sorted(float(d) for d in _list(distances))
     features = _read(input_features)
     dissolve = str(dissolve_option).upper() == "ALL"
@@ -629,7 +678,7 @@ def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_u
         for values, shape, oid in groups:
             inner = shape if str(outside_polygons_only).upper() == "OUTSIDE_ONLY" and _dimension(shape) == 2 else None
             for step in steps:
-                ring = shape.buffer(step * scale)
+                ring = _geodesic.buffer(shape, step * scale, srid) if geodesic else shape.buffer(step * scale)
                 band = ring.difference(inner) if inner is not None else ring
                 written.insertRow((*values, step, *([] if dissolve else [oid]), band))
                 inner = ring
