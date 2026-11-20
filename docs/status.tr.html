@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>be59b49d</code> · 2026-11-20 12:54</p>
+<p class="stamp">Şu commit’ten üretildi: <code>e9309cfc</code> · 2026-11-20 13:04</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">292</div><div class="kpi-l">ADR</div><div class="kpi-n">94 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">725/776</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">40 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">244 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">349 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">350 ödendi · 22 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">7186</div><div class="kpi-l">test</div><div class="kpi-n">757 kaynak dosya, 336,301 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">66 madde</span></div><p><b>40 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">65 madde</span></div><p><b>40 ADR conditions</b> outstanding across 30 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -506,7 +506,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-391</td><td>A host reboot leaves the server stopped.</td><td class="muted-t">The owner&#x27;s choice between (a) unless-stopped and accepting the loop on a refused start, (b) keeping on-failure and…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-393</td><td>The quickstart rehearsal does not stop when its build fails.</td><td class="muted-t">The next rehearsal edit, or the next time a rehearsal failure is diagnosed as a schema mismatch.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-394</td><td>addToDefinition refuses the task layer ArcGIS Field Maps Designer defines, at seven points.</td><td class="muted-t">A client that defines task layers by addToDefinition and is refused, or an owner decision on any of the seven.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-396</td><td>An item&#x27;s Settings tab jumps from the page&#x27;s h1 to h4.</td><td class="muted-t">The next change to the item page&#x27;s structure, or any one item Settings tab being re-levelled — then all of them…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-397</td><td>grapy&#x27;s buffer tools are planar only, and until 2026-11-08 a GEODESIC request was answered planar.</td><td class="muted-t">A user tool that passes GEODESIC, or a Pro comparison of a buffer at high latitude</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-398</td><td>The console suite does not run in CI.</td><td class="muted-t">The owner asks for it back, the first console defect that reaches a release, or the console suite rebalanced so its…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-399</td><td>A replica receives no attachment change made after it was created, and its attachments&#x27; GlobalIDs are derived, not kept.</td><td class="muted-t">ADR-288 condition 1&#x27;s attachments both ways on the device, or an attachment table given a GlobalID and a history</td><td><span class="pill cond">PARTLY</span></td></tr>
@@ -525,7 +524,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-419</td><td>Pro sweep names not compared on this machine.</td><td class="muted-t">A fixture, licence or environment that makes one comparable</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-429</td><td>A user tool fails on a layer of a few thousand features with unable to open database file.</td><td class="muted-t">Set TMPDIR and SQLITETMPDIR to the run directory before the fence goes up, and prove it with the 4,515-polygon layer on…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">349 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">350 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -690,6 +689,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>e9309cfc</code><time>2026-11-20</time><span>migrate plan pairs layers with their service manifest&#x27;s datasets where it can read them, and narrows a tie by geometry kind (D-385, narrowed)</span></li>
 <li><code>be59b49d</code><time>2026-11-20</time><span>An empty-q box search costs 13 s cold and 0.2-0.4 s warm at 1,000 services (ADR-271 condition 2)</span></li>
 <li><code>acb916bf</code><time>2026-11-20</time><span>A portal search finds an item by a word inside its title, as an ArcGIS portal does (D-395)</span></li>
 <li><code>b6c3dee5</code><time>2026-11-20</time><span>Status page in Turkish, regenerated with ADR-274 and ADR-275</span></li>
@@ -703,7 +703,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>fe24dd41</code><time>2026-11-16</time><span>Forms: the work Survey123 does, in Graticula&#x27;s own browser client (ADR-287)</span></li>
 <li><code>f9b1b49a</code><time>2026-11-15</time><span>D-425 is Pro&#x27;s, not this server&#x27;s: a control with Esri&#x27;s sample sync service and Esri&#x27;s basemap stops the same way (ADR-288 condition 4)</span></li>
 <li><code>55ae5329</code><time>2026-11-15</time><span>Linux builds with the .NET 10 SDK too, and global.json pins it everywhere</span></li>
-<li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

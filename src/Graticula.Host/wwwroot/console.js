@@ -26764,6 +26764,36 @@ new MutationObserver(changes => {
 pickrowNames(document);
 
 /**
+ * D-396: an item page's sections are its title's second level. Every item page — a service's or layer's, a map's, a
+ * document's — titles the item with `h1` and draws each section of its Overview and Settings with `h4` (and a
+ * sub-part with `h5`), and the console's stylesheet styles those elements by name in several hundred places, so the
+ * elements stay and the level a screen reader announces is set instead: `aria-level` 2 on an `h3` or `h4`, 3 on an
+ * `h5`, 4 on an `h6`. One rule for the three item views together, as the debt asked, and whatever draws into them —
+ * the observer below — so no tab can be the one that differs. A heading that already names its level is left alone.
+ */
+const ITEM_VIEWS = ["view-service", "view-map", "view-document"];
+const ITEM_HEADING_LEVEL = { H3: "2", H4: "2", H5: "3", H6: "4" };
+
+function levelItemHeadings(root) {
+  if (!(root instanceof Element) || !root.closest(ITEM_VIEWS.map(id => `#${id}`).join(","))) return;
+  const all = root.matches("h3, h4, h5, h6") ? [root] : [];
+  for (const heading of [...all, ...root.querySelectorAll("h3, h4, h5, h6")]) {
+    if (heading.closest("dialog")) continue;
+    if (!heading.hasAttribute("aria-level")) heading.setAttribute("aria-level", ITEM_HEADING_LEVEL[heading.tagName]);
+  }
+}
+
+new MutationObserver(changes => {
+  for (const change of changes) {
+    for (const node of change.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) levelItemHeadings(node);
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
+
+for (const id of ITEM_VIEWS) levelItemHeadings(document.getElementById(id));
+
+/**
  * Says something in the dialog's own result line.
  *
  * @param {string} tone the class: `ok`, `warn`, `alert` or empty
