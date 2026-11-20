@@ -48,9 +48,20 @@ internal static class Program
 
             byte[] pdf;
 
-            using (WordDocument document = WordDocument.Load(input))
+            // ADR-302 condition 1: what Word tolerates and the engine refuses is made into what Word does with it, on a copy.
+            (MemoryStream prepared, WordTolerances.Changes changed) = WordTolerances.Prepare(input);
+
+            using (prepared)
+            using (WordDocument document = WordDocument.Load(prepared))
             {
                 pdf = document.ToPdfBytes(new WordToPdfOptions());
+            }
+
+            if (changed.Any)
+            {
+                Console.Error.WriteLine(
+                    $"Laid out as Word would: {changed.SectionsRaised} section(s) given room for a footer below their margin, "
+                    + $"{changed.BookmarksRenamed} repeated bookmark(s) renamed.");
             }
 
             using (FileStream file = new(output, FileMode.CreateNew, FileAccess.Write, FileShare.None))

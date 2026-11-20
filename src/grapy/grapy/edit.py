@@ -78,10 +78,15 @@ def Densify(in_features, densification_method="DISTANCE", distance=None, max_dev
     if _is_given(max_vertex_per_segment) and int(max_vertex_per_segment) > 0:
         _refuse("Densify", "max_vertex_per_segment", max_vertex_per_segment,
                 "the documentation allows the count to be met within one either way and does not say how")
+    from . import _gpkg, _zm
+    dimensions = _zm.of(in_features)
     with da.UpdateCursor(in_features, ["SHAPE@"]) as rows:
         for row in rows:
             if row[0] is not None:
-                rows.updateRow([shapely.segmentize(row[0]._shape, step)])
+                # A new vertex takes the z and m interpolated along its segment (D-412; Pro 3.7, measured 2026-11-20).
+                shape = row[0]._shape
+                dense = shapely.segmentize(_gpkg.conform(shape, False, False), step)
+                rows.updateRow([_zm.carry(dense, [shape], dimensions)])
     return Result(in_features)
 
 

@@ -864,6 +864,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
         if (header is not null)
         {
+            // A date field the archive declares stays a date (DeclaredDates, 2026-11-20).
+            DeclaredDates.DeclareDates(header.RootElement, columns);
+
             if (header.RootElement.TryGetProperty("fields", out JsonElement fields)
                 && fields.ValueKind == JsonValueKind.Array)
             {

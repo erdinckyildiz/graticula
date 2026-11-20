@@ -17,6 +17,7 @@ namespace Graticula.Platform.Postgres.Tests;
 /// may use the whole pool rather than a share of it.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection("organisation count")]
 public sealed class ATenantIsSentAheadOfEachStatementTests : PostgresFixture
 {
     private static readonly Guid First = new("a0000000-0000-0000-0000-00000000000a");

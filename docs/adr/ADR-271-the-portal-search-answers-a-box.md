@@ -46,8 +46,8 @@ than a slow right one.
 ## 3. Counterarguments to the preferred option
 
 - **An empty-`q` box on a large server.** Every service's extent is read once per layer and cached after; at the scale
-  target (100–1,000 services, CLAUDE.md §7) the first such search is the slow one. This is a revisit trigger, not a
-  measured cost: **no benchmark has been run** (§9).
+  target (100–1,000 services, CLAUDE.md §7) the first such search is the slow one. This is a revisit trigger. *(Measured 2026-11-20, §9 condition 2: 13 s cold, 0.2–0.4 s warm,
+  at 1,000 services.)*
 
 ## 4. Evidence
 
@@ -93,7 +93,19 @@ than a slow right one.
 1. **The owner confirms §5.2 and §7**: that an item with no extent is not found by a box, and that the box is in
    degrees. *(Discharged 2026-11-07: confirmed by the owner, ADR-272 §5.8.)*
 2. **The cost of an empty-`q` box is measured** on a catalogue at the scale target, cold and warm, before any viewer
-   sends one without a `q`. The scene viewer always sends a type clause. *(Open.)*
+   sends one without a `q`. The scene viewer always sends a type clause. **DISCHARGED 2026-11-20 — measured:** a
+   fixture catalogue at the top of the scale target, 1,000 registered layers published as 1,000 services (each a
+   PostGIS table of 2,000 points with a spatial index, over a grid of places) beside the conformance fixture's own,
+   2,014 items in all, on the local PostgreSQL 16 with the host a Debug build on the same machine. *Cold* is a host just
+   started, so the per-layer cache is empty; PostgreSQL's buffers were not emptied. A box over a few of the layers, as
+   the administrator, `num=10`: **empty `q`, cold 12.9 s and 13.1 s (two starts), warm 0.19–0.37 s**; with
+   `q=type:"Feature Service"` cold 13.3 s, warm 0.29–0.31 s — no cheaper, because a feature service and its map service
+   read the same layers; a world box warm 0.34 s; no box at all 0.39 s. So the cost is about 13 ms per layer once per
+   node start, and a type clause helps only when it excludes the types whose layers are many (the scene viewer's
+   `Scene Service`/`Web Scene` clause does). **Verdict:** at 1,000 services the first empty-`q` box after a start is a
+   13-second answer; acceptable for an occasional search, not for a viewer that sends one on every camera move, so no
+   viewer may send an empty-`q` box until Alternative B or a warm-up exists — which is what §3 already says, now with
+   the number.
 
 ## 10. Revisit triggers
 

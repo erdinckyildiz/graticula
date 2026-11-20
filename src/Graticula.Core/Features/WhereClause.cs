@@ -619,6 +619,10 @@ public static class WhereClause
             ScalarExpression.Constant => false,
             ScalarExpression.Arithmetic arithmetic => Mentions(arithmetic.Left) || Mentions(arithmetic.Right),
             ScalarExpression.Negated negated => Mentions(negated.Operand),
+            ScalarExpression.DaysBetween days => Mentions(days.Later) || Mentions(days.Earlier),
+
+            // Every test in it is a predicate the grammar only builds over a field of the layer.
+            ScalarExpression.Choice => true,
             ScalarExpression.FunctionCall call => call.Arguments.Any(Mentions),
             ScalarExpression.Cast cast => Mentions(cast.Operand),
             ScalarExpression.Extract extract => Mentions(extract.Operand),
@@ -982,6 +986,13 @@ public static class WhereClause
             value = null;
             error = null;
 
+            // A date minus a date is the days between them (ScalarExpression.DaysBetween, 2026-11-20).
+            if (op == ArithmeticOperator.Subtract && left.Kind == ExpressionKind.Date && right.Kind == ExpressionKind.Date)
+            {
+                value = new ScalarExpression.DaysBetween(left, right);
+                return true;
+            }
+
             foreach (ScalarExpression side in (ScalarExpression[])[left, right])
             {
                 if (side.Kind is not (ExpressionKind.Unknown or ExpressionKind.Integer or ExpressionKind.Real))
@@ -1088,6 +1099,11 @@ public static class WhereClause
 
             string word = Word();
 
+            if (word == "case")
+            {
+                return CaseExpression(out value, out error);
+            }
+
             if (word == "current_user")
             {
                 error = "CURRENT_USER is not evaluated here: a where clause is parsed without knowing who "
@@ -1126,6 +1142,67 @@ public static class WhereClause
             }
 
             value = new ScalarExpression.ColumnValue(column!, KindOf(column!));
+            return true;
+        }
+
+        // case := CASE ( WHEN or THEN expression )+ [ ELSE expression ] END — ScalarExpression.Choice, 2026-11-20.
+        private bool CaseExpression(out ScalarExpression? value, out string? error)
+        {
+            value = null;
+            error = null;
+            Keyword("case");
+
+            if (++_depth > MaximumDepth)
+            {
+                error = $"The where clause nests more than {MaximumDepth} levels deep. The limit exists because parsing "
+                    + "is recursive and a deep enough input would exhaust the stack, which cannot be caught.";
+                return false;
+            }
+
+            List<ScalarExpression.CaseBranch> branches = [];
+
+            while (Keyword("when"))
+            {
+                if (!Or(out AttributePredicate? when, out error))
+                {
+                    return false;
+                }
+
+                if (!Keyword("then"))
+                {
+                    error = Unexpected("THEN");
+                    return false;
+                }
+
+                if (!Expression(out ScalarExpression? then, out error))
+                {
+                    return false;
+                }
+
+                branches.Add(new ScalarExpression.CaseBranch(when!, then!));
+            }
+
+            if (branches.Count == 0)
+            {
+                error = Unexpected("WHEN");
+                return false;
+            }
+
+            ScalarExpression? otherwise = null;
+
+            if (Keyword("else") && !Expression(out otherwise, out error))
+            {
+                return false;
+            }
+
+            if (!Keyword("end"))
+            {
+                error = Unexpected("END");
+                return false;
+            }
+
+            _depth--;
+            value = new ScalarExpression.Choice(branches, otherwise);
             return true;
         }
 

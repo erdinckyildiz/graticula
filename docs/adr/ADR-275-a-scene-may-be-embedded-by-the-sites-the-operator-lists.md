@@ -84,7 +84,14 @@ ADR-020 (the console's policy), ADR-094 (the policy's other operator list, style
 ## 9. Conditions
 
 1. **Server › Settings shows the list**, as it shows the style origins, so an operator sees what may frame a scene
-   without reading the configuration. *(Open.)*
+   without reading the configuration. **DISCHARGED 2026-11-20:** System › General (where the style sources are since
+   ADR-221) draws *Sites that may embed a scene* directly after *Style sources*: each listed origin, or *None listed: no
+   website may frame a scene, and Studio does not offer the embed code*, with the embed address and the setting that
+   changes it. Read-only, because the list is the deployment's and checked at start; `/admin/settings` carries it as
+   `embed`. `SettingsScreenTests.Settings_names_the_sites_that_may_embed_a_scene_or_says_none_may` passed on the
+   fixture with no site named and again with `EmbedOrigins=https://maps.example.org, https://intranet.example.com:8443`
+   (beside it, `SceneViewerToolsTests.The_embed_address_shows_the_scene_alone_and_only_it_may_be_framed` passed with
+   the same list), and the card was looked at in Chrome at 1280 and 390 px wide.
 2. **Studio's scene page offers the embed code** (`<iframe src=…>`) when a site is listed, as Scene Viewer's *Share*
    does. *(Discharged 2026-11-07: *Embed in a website* in the scene's details, for a saved scene whose reader may change
    it, naming the sites; hidden when none is listed. Both ways are in the console test of §4.)*

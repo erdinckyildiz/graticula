@@ -59,8 +59,8 @@ does not gate apps* — true: a Contributor collects in Field Maps here exactly 
 
 | Claim | Evidence | Source |
 |---|---|---|
-| ArcGIS's Contributor and Mobile Worker make and share nothing | *"Contributors cannot analyze, create, or share items or data."* *"Mobile Workers cannot analyze, create, or share items or data."* | ArcGIS Online help, *User types*, doc.arcgis.com, read 2026-11-08 (the Enterprise page refused the connection twice) |
-| They differ by apps | *"Mobile Workers … have access to a selection of apps … ideal for users who primarily interact with ArcGIS content through field apps"* | same page |
+| ArcGIS's Contributor and Mobile Worker make and share nothing | *"Contributors cannot analyze, create, or share items or data."* *"Mobile Workers cannot analyze, create, or share items or data."* | ArcGIS Online help, *User types*, doc.arcgis.com, read 2026-11-08; and the ArcGIS Enterprise documentation's own *User types* page (https://enterprise.arcgis.com/en/portal/latest/administer/windows/user-types-orgs.htm, which now redirects to https://doc.esri.com/en/arcgis-enterprise/latest/administer/user-types-orgs.html, version 12.2), read 2026-11-20: *"Contributors cannot analyze, create, or share items or data."* and *"Mobile Workers can’t analyze, create, or share items or data."* — the same two sentences, the second spelled with a contraction |
+| They differ by apps | *"Mobile Workers … have access to a selection of apps … ideal for users who primarily interact with ArcGIS content through field apps"* | same pages; the Enterprise one says *"ideal for users who primarily interact with ArcGIS content through Esri field apps"* |
 | A real Enterprise names `editorUT` *Contributor* and `fieldWorkerUT` *Mobile Worker* | `portals/self/userLicenseTypes` | Aecon's ArcGIS Enterprise 2025.2 QA portal and 2026.1 production portal, 2026-11-08 |
 | …and gives both the same role | 79 Contributors and 248 Mobile Workers, every one in the role *Data Editor* (`features:user:edit` and viewing) | production portal, read only, aggregates only |
 | Neither can be created without a licence seat | eight `createUser` attempts on QA refused, `maxUsers: 0` for both types | QA portal, nothing left behind |
@@ -93,4 +93,6 @@ existing `principal.user_type`. Nothing held at runtime beyond the ceilings comp
 ## 7. Conditions
 
 1. **The Enterprise *User types* page is read** for the same two sentences (the ArcGIS Online page is the evidence
-   today; the Enterprise one refused the connection), and §4 cites it.
+   today; the Enterprise one refused the connection), and §4 cites it. **DISCHARGED 2026-11-20:** the Enterprise page
+   loaded (it now lives at doc.esri.com, version 12.2) and carries both sentences, Mobile Worker's as *"can’t"*; §4
+   cites it beside the ArcGIS Online page.

@@ -49,6 +49,14 @@ public sealed class OfflineSyncStoreTests : PostgresFixture
         Assert.Equal(1794286430989, advanced.Layers[0].ServerGeneration);
         Assert.Equal(1794286130989, advanced.Layers[1].ServerGeneration);
         Assert.Equal(synced, advanced.LastSynced);
+        Assert.Null(advanced.Layers[0].Own);
+
+        // D-401: what an upload-only sync applied is kept with the layer, and read back as it was written.
+        OwnUpload own = new(Guid.NewGuid(), 1794286500000);
+        Assert.True(await store.AdvanceAsync(replica.Id, [advanced.Layers[0], advanced.Layers[1] with { Own = [own] }], synced, CancellationToken.None));
+        ReplicaRecord remembered = (await store.FindAsync(replica.Id, CancellationToken.None))!;
+        Assert.Null(remembered.Layers[0].Own);
+        Assert.Equal(own, Assert.Single(remembered.Layers[1].Own!));
 
         // Turning sync off unregisters every replica of the service with it.
         Assert.Equal(1, await store.SetEnabledAsync(service, false, CancellationToken.None));

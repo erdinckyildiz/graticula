@@ -211,6 +211,10 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
             Assert.Equal("esriFieldTypeInteger", fields["count"]);
             Assert.Equal("esriFieldTypeDouble", fields["area"]);
 
+            // <b>And the date a date</b> — 2026-11-20: the archive declares `seen` a date, every value read as text and
+            // the column was inferred from the values, so it was served as a string until DeclaredDates.
+            Assert.Equal("esriFieldTypeDate", fields["seen"]);
+
             // <b>The archive's own label reaches the served layer — ADR-063.</b> The fixture gives
             // `count` the alias *Visit count* and the other three none, so this asserts a label
             // carried and a label not invented: a field without an alias is labelled with its own

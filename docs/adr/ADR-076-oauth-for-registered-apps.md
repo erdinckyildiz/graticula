@@ -196,6 +196,17 @@ signing Pro in afterwards.
    as the person. **Control**: with the row removed the test fails on that sentence. The flag stays off on every
    deployment; a trial branch on the dev server turns it on with a setting, and it stays a trial until Pro has been
    seen to sign in through its own window — which an automated session was not allowed to drive on 2026-10-16.
+   *(2026-11-20: the setting is on the branch and the trial is on dev; Pro's window was not driven.* `Graticula:AdvertiseOAuth`
+   (`HostSettings`, off by default, `HostSettingsTests`) is the 2026-10-16 trial's switch brought to the branch alone,
+   b329dbe6; dev already carried `Graticula__AdvertiseOAuth=true` and has run the `night-pro` branch since 09:35 UTC, so
+   `https://dev.graticula.com/studio/sharing/rest/portals/self` answers `supportsOAuth: true`. **Measured with it on:** Pro's
+   own engine still signs in by name and password through arcpy — `generateToken` answered 200 and a publish, two
+   overwrites and their `shareItems` went through as before — so the flag does not take arcpy's sign-in away. **Not
+   driven:** the sign-in through Pro's window, because the owner was at the machine all session (input within the
+   last minute at 12:10 and 12:40 local) and the run's rule is not to take the screen. **Still owed, and the
+   showcase's switch stays the owner's** — this condition names the showcase; dev is where it can be tried first. A
+   person on dev: Pro › Settings › Portals › sign in to `https://dev.graticula.com/studio`; Pro should open this server's
+   OAuth page in its own window, and the request should be the one migration 88 serves.)*
 4. **Field Maps signs in on a device** against the showcase; and the owner supplies Survey123's
    client id, or confirms it, so it can ship registered too. *(Open — needs a device and the owner.)*
 5. **The console gets a screen for registered apps**, reviewed like every other screen. Until then

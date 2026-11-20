@@ -264,6 +264,19 @@ public sealed class FeatureServerMetadataWriterTests
         }
     }
 
+    /// <summary>
+    /// 2026-11-20, ADR-083 condition 2: the where clause takes ArcGIS's standardized SQL only, and the layer says so — the
+    /// Maps SDK reads it, and ArcGIS Map Viewer offered no date field to filter on a layer that did not.
+    /// </summary>
+    [Fact]
+    public void The_layer_document_says_it_takes_standardized_queries_only()
+    {
+        JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query"));
+
+        Assert.True(layer.GetProperty("useStandardizedQueries").GetBoolean());
+    }
+
     [Fact]
     public void The_object_id_field_is_declared_as_the_OID_type_not_merely_named()
     {

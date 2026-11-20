@@ -198,6 +198,16 @@ the binding constraint (A-037). Times overlap the baseline's.
    for this condition:** a portal search lists web maps without reading their documents, so a search result does not
    carry the two keywords and Field Maps' *Editing* filter does not list these maps
    ([D-392](../architecture-debt.md)); Collect itself reads the item.
+   **DISCHARGED 2026-11-20 — both clients the condition names have now edited a Z layer and the table holds what they
+   sent; D-392 is a portal search defect and stays open on its own row.** Read again today, on dev (v1.0.525 with the
+   `night-pro` branch): the Field Maps point is still `ST_Z = 5` in `gis_dev`, read with `psql` rather than through this
+   server. **Pro, a third time**, through its own editing engine (`arcpy.da.InsertCursor`, then `UpdateCursor`, on
+   `hosted/zz_fieldmaps_z` signed in at `https://dev.graticula.com/studio/`): dev's Pro capture recorded a service-level
+   `applyEdits` whose point carried `"z":777.125` and no `hasZ`, then an update to `"z":888.375`; `psql` read `ST_Z`
+   888.375 and Pro's search cursor read 888.375 back. The row was deleted through Pro's cursor and the table left as it
+   was (one row, the Field Maps point). *Why D-392 does not hold this open*: the condition asks what a client sends and what
+   the table keeps; that the *Editing* filter of a portal search does not list a map is about finding the map, and
+   Collect on the map itself works. **Confirmed by the owner 2026-11-20**, as written; it was INFERRED until then.
 
 ## 7. Consequences
 

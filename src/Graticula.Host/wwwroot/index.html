@@ -1405,6 +1405,19 @@
     </div>
 
     <!--
+      <b>ADR-275 condition 1:</b> the sites that may frame a scene's embed address, shown beside the style sources
+      so an operator sees what may frame a scene without reading the configuration. Read-only: the list is the
+      deployment's (Graticula:EmbedOrigins), checked at start, and every other page keeps frame-ancestors 'none'.
+    -->
+    <div class="panel pad settingcard" id="embedCard">
+      <h4 id="embedOriginsHead">Sites that may embed a scene</h4>
+      <p class="hint">Websites allowed to show a scene in a frame, through the scene's embed address. Every other
+        page of this server refuses to be framed. The list is set where the server is deployed, not here.</p>
+      <ul id="embedOrigins" aria-labelledby="embedOriginsHead" hidden></ul>
+      <p class="hint" id="embedOriginsSays" role="status" aria-live="polite"></p>
+    </div>
+
+    <!--
       <b>Q-110, the owner's answer of 2026-09-24 (ADR-086):</b> "Yönetici seçer, yoksa OSM karoları
       kalır." The operator picks this server's own tile services as the ground under every map; with none
       picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.

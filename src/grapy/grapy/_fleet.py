@@ -117,7 +117,12 @@ def moment(value, default_date):
 
 
 def stamp(minutes):
-    return None if minutes is None else EPOCH + datetime.timedelta(minutes=minutes)
+    """A time of the plan as a date. ArcGIS Pro 3.7 writes a vehicle routing solve's times to the whole second (measured
+    2026-11-12, na.md 1; D-416). Rounded to the nearest second, not cut — one measurement does not tell; INFERRED
+    until confirmed by the owner 2026-11-20."""
+    if minutes is None:
+        return None
+    return EPOCH + datetime.timedelta(seconds=round(minutes * 60.0))
 
 
 def time_factor(units):
@@ -1554,7 +1559,9 @@ def fleet_outputs(fleet, line_shape="ALONG_NETWORK", schema="Two", sequence_gap=
                           "CumulDistance": dist(visit.get("cumul_distance", 0.0)) if fleet.matrix.distance_attribute
                           else None,
                           "CumulTime": t(visit["depart"] - plan["start"]), "ArriveTime": stamp(visit["arrive"]),
-                          "DepartTime": stamp(visit["depart"]), "ArriveTimeUTC": None, "DepartTimeUTC": None,
+                          "DepartTime": stamp(visit["depart"]),
+                          # A network with no time zone — every grapy network — writes UTC as local (Pro 3.7, D-416).
+                          "ArriveTimeUTC": stamp(visit["arrive"]), "DepartTimeUTC": stamp(visit["depart"]),
                           "WaitTime": t(visit["wait"]), "CumulWaitTime": t(cumulative_wait),
                           "CumulViolationTime": t(cumulative_violation)}
                 if visit["kind"] in ("start", "end", "renewal"):
@@ -1590,8 +1597,12 @@ def fleet_outputs(fleet, line_shape="ALONG_NETWORK", schema="Two", sequence_gap=
                         "RouteName": route["name"], "Sequence": seq * (sequence_gap if lmd else 1), **common,
                         "ViolationTime": t(visit["violation"]), **_violations(codes),
                         "Status": 6 if visit["violation"] > 1e-9 else 0,
-                        "ArriveCurbApproach": _curb(fleet, previous_place, visit["place"], True, side),
-                        "DepartCurbApproach": _curb(fleet, visit["place"], following, False, side)})
+                        # An order Pro may reach from either side (CurbApproach 0) is written 0 both ways (Pro 3.7,
+                        # na.md 1, D-416); a side is derived only for an order that asks for one.
+                        "ArriveCurbApproach": 0 if get(order["row"], "CurbApproach") in (0, None) else
+                        _curb(fleet, previous_place, visit["place"], True, side),
+                        "DepartCurbApproach": 0 if get(order["row"], "CurbApproach") in (0, None) else
+                        _curb(fleet, visit["place"], following, False, side)})
                     previous_place = visit["place"]
                 seq += 1
             else:
@@ -1607,7 +1618,8 @@ def fleet_outputs(fleet, line_shape="ALONG_NETWORK", schema="Two", sequence_gap=
                                    "FromPrevDistance": None, "CumulTravelTime": t(brk["cumul_travel"]),
                                    "CumulDistance": dist(brk["cumul_distance"]),
                                    "CumulTime": t(brk["depart"] - plan["start"]), "ArriveTime": stamp(brk["arrive"]),
-                                   "DepartTime": stamp(brk["depart"]), "ArriveTimeUTC": None, "DepartTimeUTC": None,
+                                   "DepartTime": stamp(brk["depart"]), "ArriveTimeUTC": stamp(brk["arrive"]),
+                                   "DepartTimeUTC": stamp(brk["depart"]),
                                    "WaitTime": t(brk["wait"]), "ViolationTime": t(brk["violation"]),
                                    "CumulWaitTime": t(cumulative_wait + brk["wait"]),
                                    "CumulViolationTime": t(cumulative_violation + brk["violation"]), "SHAPE": shape})
@@ -1626,7 +1638,8 @@ def fleet_outputs(fleet, line_shape="ALONG_NETWORK", schema="Two", sequence_gap=
                     "TotalViolationTime": t(plan["violation"]), "SHAPE": shape})
         out["_legs"] = list(legs)                                     # what the route traversed (ADR-246)
         if not lmd:
-            out.update({"TotalBreakServiceTime": t(plan["break_service"]), "StartTimeUTC": None, "EndTimeUTC": None,
+            out.update({"TotalBreakServiceTime": t(plan["break_service"]), "StartTimeUTC": stamp(plan["start"]),
+                        "EndTimeUTC": stamp(plan["end"]),
                         "RenewalCount": len(plan["segments"] or [1]) - 1,
                         "TotalRenewalServiceTime": t(plan["renewal_service"])})
         route_rows.append(out)

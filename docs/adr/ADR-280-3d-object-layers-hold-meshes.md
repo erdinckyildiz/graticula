@@ -168,7 +168,26 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
    - draws the edit over the cache.
 
    It also records every request the SDK sends. *(Partly discharged 2026-11-07, §4: placing, moving and deleting are
-   measured and every request is recorded. The Editor widget's offer, and drawing over the cache, are not.)*
+   measured and every request is recorded. The Editor widget's offer, and drawing over the cache, are not.)* **DISCHARGED 2026-11-20**, on SDK 5.2, which replaced 4.34 by owner decision
+   ([ADR-281](ADR-281-owner-decisions-on-what-3d-left-partly-built.md) §5.2), against the layer itself rather than a stub:
+   - **The Editor's offer** is condition 5's measurement: the Editor lists the layer under *Create features* and a person
+     places a model through it (`SceneLayerSourceTests.A_person_places_a_model_with_the_editor_and_the_layer_keeps_it`).
+   - **Drawing over the cache**, `SceneLayerSourceTests.A_model_is_drawn_before_a_rebuild_and_moved_into_its_scene_layer`,
+     by the SDK's own hit test at the model's place on the screen, in a scene layer made empty:
+     - a model **added** is drawn at once, before any rebuild, from what the SDK sent;
+     - a model **moved** (an update with a new geometry) is no longer drawn where it was, **and is not drawn where it
+       went** until the scene layer is rebuilt: twenty seconds of hit tests found nothing there, and the SDK asked the
+       server for nothing after the update. Whether ArcGIS's own server answers the update with something that makes
+       the SDK draw it is not known from public pages; this server's answer carries the feature and asset map results
+       the reference describes. Recorded, not asserted.
+   - **What the move sends**, recorded by wrapping the SDK's request interceptors: `uploads/info`, `uploads/register`,
+     `uploadAssets` (the model again), then `applyEdits` with `updates` (the transform attributes, the new origin) and
+     `assetMaps.adds` naming the new upload, **and no delete of the old asset map**. Before this date every move left one
+     more asset map on the feature, each answered by `query3D` and the asset map table. A feature given new asset maps
+     by an edit now loses the ones it had, read from the reference's *"the existing geometry and the new assetMaps are
+     mutually exclusive"* ([applyEdits](https://developers.arcgis.com/rest/services-reference/enterprise/apply-edits-feature-service-layer/)).
+     The reference does not say in so many words that the old maps are removed; that reading was INFERRED until
+     **confirmed by the owner 2026-11-20**, as written. The same test asserts one map after the move.
 2. **The mesh scene layer**: the writer makes I3S 3D object nodes from glb assets and their transforms, and a rebuild
    picks up an edited model. *(Discharged 2026-11-07: the writer's half below, and the layer's (§5.4):
    `SceneLayerSourceTests.A_3d_object_layer_takes_a_model_from_the_scene_and_its_scene_layer_is_rebuilt_with_it` makes a
@@ -209,7 +228,14 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-274, ADR-276, ADR-277.
    [ADR-254](ADR-254-gdal-without-poppler.md) (no GPL linked), and run where a malformed file cannot take the server
    down. Its own ADR. *(The ADR is [ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md),
    2026-11-07: Assimp's command-line tool in a process of its own, prototyped for OBJ, COLLADA and FBX. Its conditions
-   carry the rest.)*
+   carry the rest.)* **DISCHARGED 2026-11-20**, every part now standing: the port is `IModelConverter`; OBJ, COLLADA and
+   FBX go through Assimp (BSD-3-Clause), IFC through IfcConvert (LGPL-3.0, run and not linked, its CGAL kernels left
+   out as ADR-254 left Poppler out of GDAL) and USD through our own usd2glb (tinyusdz, Apache-2.0), each in a process of
+   its own per file under 90 s and 2 GB ([ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md)
+   conditions 1, 3 and 4; [ADR-283](ADR-283-owner-decisions-on-conversion-and-one-writer-per-site.md) conditions 2 and
+   3; the licences in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md)). What is still owed is measurement, not
+   construction, and is carried there: the arm64 IFC conversion (ADR-283 condition 2) and real files on the image's own
+   tools (ADR-282 condition 2).
 
 ## 10. For the owner
 

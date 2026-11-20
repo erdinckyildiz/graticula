@@ -99,16 +99,15 @@ internal static class ToolSandbox
     /// <summary>What a run answered: the runner's document, or why there is none.</summary>
     internal sealed record Outcome(JsonObject? Result, int ExitCode, bool TimedOut, string ErrorTail);
 
-    /// <summary>Runs the runner over a directory holding <c>run.json</c> and the toolbox.</summary>
-    public static async Task<Outcome> RunAsync(string directory, ToolSettings settings, CancellationToken cancellation)
+    /// <summary>
+    /// Every variable a library in a run reads for where its temporary files go: SQLite's (SQLITE_TMPDIR, TMPDIR),
+    /// Python's tempfile (TMPDIR, TEMP, TMP) and GDAL's (CPL_TMPDIR).
+    /// </summary>
+    internal static readonly string[] TemporaryVariables = ["SQLITE_TMPDIR", "TMPDIR", "TEMP", "TMP", "CPL_TMPDIR"];
+
+    /// <summary>The runner's process as it is started: the command, and the only environment it is given.</summary>
+    internal static ProcessStartInfo StartInfo(string directory, ToolSettings settings)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-
-        if (settings.Refusal is { } refusal)
-        {
-            return new Outcome(new JsonObject { ["ok"] = false, ["fence"] = false, ["error"] = refusal }, -1, false, string.Empty);
-        }
-
         string grapy = settings.Grapy.Replace("\\", "/", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal);
         string folder = directory.Replace("\\", "/", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal);
 
@@ -145,10 +144,36 @@ internal static class ToolSandbox
         start.Environment["MALLOC_ARENA_MAX"] = "2";
         start.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
 
+        // <b>Temporary files in the run's directory, the only one the fence lets the run write</b> (D-429). Without them
+        // SQLite falls back to /var/tmp or /tmp once a statement journal or a sort outgrows memory — a GeoPackage write of
+        // a few thousand polygons — Landlock refuses the open, and the run fails as "unable to open database file". They
+        // are set here, in the process's starting environment, because SQLite reads them once, when it is first
+        // initialised, and importing grapy initialises it before the runner's own code could set them. Measured
+        // 2026-11-20 in the 1.0.525 image, fenced: 4,515 polygons failed without them and passed with them.
+        foreach (string temporary in TemporaryVariables)
+        {
+            start.Environment[temporary] = directory;
+        }
+
         if (settings.Unfenced)
         {
             start.Environment["GRAPY_UNFENCED"] = "1";
         }
+
+        return start;
+    }
+
+    /// <summary>Runs the runner over a directory holding <c>run.json</c> and the toolbox.</summary>
+    public static async Task<Outcome> RunAsync(string directory, ToolSettings settings, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (settings.Refusal is { } refusal)
+        {
+            return new Outcome(new JsonObject { ["ok"] = false, ["fence"] = false, ["error"] = refusal }, -1, false, string.Empty);
+        }
+
+        ProcessStartInfo start = StartInfo(directory, settings);
 
         using Process process = new() { StartInfo = start };
         List<string> errors = [];

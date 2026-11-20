@@ -76,7 +76,49 @@ def _shape_distance(a, b):
                                             shapely.make_valid(shapely.force_2d(b))).area / area / POLY_TOL
     else:
         flat = shapely.hausdorff_distance(a, b) / LINE_TOL
-    return max(flat, _z_distance(a, b))
+    return max(flat, _z_distance(a, b), _m_distance(a, b))
+
+
+def _segments(q, which):
+    """A shape's lines, rings and points apart, each as rows of (x, y, ``which``) — "z" or "m"."""
+    out = []
+    for part in shapely.get_parts(q):
+        rings = [part.exterior, *part.interiors] if part.geom_type == "Polygon" else [part]
+        for ring in rings:
+            out.append(shapely.get_coordinates(ring, include_z=which == "z", include_m=which == "m"))
+    return out
+
+
+def _along(arrays, x, y):
+    """The third column's values where (x, y) projects onto the nearest of ``arrays``' segments, interpolated along
+    them — every segment as near as the nearest, to a micrometre, since where two parts meet each has its own value;
+    at the nearest point when an array is one point."""
+    found = []
+    for c in arrays:
+        if len(c) == 1:
+            found.append((math.hypot(c[0, 0] - x, c[0, 1] - y), c[0, 2]))
+            continue
+        p0, p1 = c[:-1], c[1:]
+        v = p1[:, :2] - p0[:, :2]
+        l2 = (v * v).sum(axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            t = np.clip(np.where(l2 > 0, ((x - p0[:, 0]) * v[:, 0] + (y - p0[:, 1]) * v[:, 1]) / l2, 0.0), 0, 1)
+        d = np.hypot(p0[:, 0] + t * v[:, 0] - x, p0[:, 1] + t * v[:, 1] - y)
+        for k in range(len(d)):
+            value = p0[k, 2] if t[k] == 0 else (p1[k, 2] if t[k] == 1 else p0[k, 2] + t[k] * (p1[k, 2] - p0[k, 2]))
+            found.append((float(d[k]), value))
+    if not found:
+        return [math.nan]
+    best = min(d for d, _ in found)
+    return [v for d, v in found if d <= best + 1e-6]
+
+
+def _gap(value, candidates):
+    """The smallest difference between a value and any of the candidates, NaN equal to NaN and infinitely far from a
+    number."""
+    gaps = [0.0 if (value != value and c != c) else (math.inf if (value != value) != (c != c) else abs(value - c))
+            for c in candidates]
+    return min(gaps)
 
 
 def _z_distance(a, b):
@@ -95,11 +137,11 @@ def _z_distance(a, b):
         if not len(cp):
             continue
         if q.geom_type.endswith(("LineString", "Polygon")):
-            line = q if q.geom_type.endswith("LineString") else q.boundary
+            # Each part's lines and rings apart (2026-11-20, D-412): projecting onto a multipart boundary as one
+            # line took a vertex where two parts meet in the list to the wrong part's z.
+            arrays = _segments(q, "z")
             for x, y, z in cp:
-                at = line.interpolate(line.project(shapely.Point(x, y)))
-                if at.has_z:
-                    worst = max(worst, abs(np.nan_to_num(z) - np.nan_to_num(at.z)))
+                worst = max(worst, min(abs(np.nan_to_num(z) - np.nan_to_num(v)) for v in _along(arrays, x, y)))
             continue
         cq = shapely.get_coordinates(q, include_z=True)
         if not len(cq):
@@ -109,6 +151,24 @@ def _z_distance(a, b):
             d, _ = tree.query((x, y))
             near = tree.query_ball_point((x, y), d + 1e-6)
             worst = max(worst, min(abs(np.nan_to_num(z) - np.nan_to_num(cq[k, 2])) for k in near))
+    return float(worst) / LINE_TOL
+
+
+def _m_distance(a, b):
+    """M as ``_z_distance`` compares z (added 2026-11-20 for D-412): a shape with m against one without is infinitely
+    far; otherwise, both ways, each vertex's m against the other shape's m where the vertex projects onto its lines
+    or rings (interpolated along the segment), or at its nearest point among points; NaN equals NaN. The largest
+    difference over LINE_TOL."""
+    if bool(shapely.has_m(a)) != bool(shapely.has_m(b)):
+        return math.inf
+    if not shapely.has_m(a):
+        return 0.0
+
+    worst = 0.0
+    for p, q in ((a, b), (b, a)):
+        arrays = _segments(q, "m")
+        for x, y, m in shapely.get_coordinates(p, include_m=True):
+            worst = max(worst, _gap(m, _along(arrays, x, y)))
     return float(worst) / LINE_TOL
 
 

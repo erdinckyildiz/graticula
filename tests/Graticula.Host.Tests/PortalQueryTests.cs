@@ -140,7 +140,8 @@ public sealed class PortalQueryTests
     [InlineData("owner:root NOT type:\"Feature Service\"", false)]
     [InlineData("owner:root -(type:\"Shapefile\" OR type:\"CSV\")", true)]
     [InlineData("title:tr*", true)]
-    [InlineData("title:il*", false)]
+    [InlineData("title:il*", true)] // D-395: a title is matched by its words, as ArcGIS Enterprise 2025.2 answered
+    [InlineData("title:l*", false)]
     [InlineData("tags:host*", true)]
     [InlineData("tr_*", true)]
     [InlineData("typekeywords:\"Hosted Service\"", true)]
@@ -160,6 +161,37 @@ public sealed class PortalQueryTests
         };
 
         Assert.Equal(expected, PortalQuery.Matches(item, query));
+    }
+
+    /// <summary>
+    /// D-395: a title is matched word by word. ArcGIS Field Maps searches <c>((title:"hydrant*") OR (title:"hydrant"))</c>
+    /// and found nothing here for a map whose title's second word it was. The expectations are what an ArcGIS Enterprise
+    /// 2025.2 portal answered for the same forms on 2026-11-20, read-only: a word anywhere, quoted or not, with or without
+    /// the wildcard, after a space or an underscore; the start of a word; not the middle of one; a quoted run of words in
+    /// order and not reversed; any case.
+    /// </summary>
+    [Theory]
+    [InlineData("((title:\"hydrant*\") OR (title:\"hydrant\"))", true)]
+    [InlineData("title:hydrant", true)]
+    [InlineData("title:\"hydrant\"", true)]
+    [InlineData("title:hydrant*", true)]
+    [InlineData("title:\"hydrant*\"", true)]
+    [InlineData("title:HYDRANT", true)]
+    [InlineData("title:hyd", true)]
+    [InlineData("title:\"hyd\"", true)]
+    [InlineData("title:drant", false)]
+    [InlineData("title:drant*", false)]
+    [InlineData("title:\"hydrant tasks\"", true)]
+    [InlineData("title:\"tasks hydrant\"", false)]
+    [InlineData("title:\"graticula-test hydrant tasks\"", true)]
+    [InlineData("title:inspections", true)]
+    [InlineData("title:valves", false)]
+    public void A_title_is_matched_by_its_words(string query, bool expected)
+    {
+        object tasks = new { title = "graticula-test hydrant tasks", type = "Web Map", owner = "root" };
+        object underscored = new { title = "Hydrant_Inspections", type = "Feature Service", owner = "root" };
+
+        Assert.Equal(expected, PortalQuery.Matches(query.Contains("inspections", StringComparison.Ordinal) ? underscored : tasks, query));
     }
 
     [Theory]

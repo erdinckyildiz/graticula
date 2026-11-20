@@ -643,6 +643,76 @@ public static class PredicateSql
                 sql.Append(')');
                 return true;
 
+            case ScalarExpression.Choice choice:
+                // The same spelling in every engine this server writes for (ScalarExpression.Choice, 2026-11-20).
+                sql.Append("(case");
+
+                foreach (ScalarExpression.CaseBranch branch in choice.Branches)
+                {
+                    sql.Append(" when ");
+
+                    if (!Write(branch.When, sql, parameters, columns, quote, dialect, depth + 1, out error))
+                    {
+                        return false;
+                    }
+
+                    sql.Append(" then ");
+
+                    if (!Inner(branch.Then, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                if (choice.Else is { } otherwise)
+                {
+                    sql.Append(" else ");
+
+                    if (!Inner(otherwise, out error))
+                    {
+                        return false;
+                    }
+                }
+
+                sql.Append(" end)");
+                return true;
+
+            case ScalarExpression.DaysBetween days:
+            {
+                // The days between two moments, with the fraction, in each engine's own spelling (2026-11-20).
+                (string open, string between, string close) = dialect.SqlServerForms
+                    ? ("(datediff_big(millisecond, ", ", ", ") / 86400000.0)")
+                    : dialect.MySqlForms
+                        ? ("(timestampdiff(microsecond, ", ", ", ") / 86400000000.0)")
+                        : dialect.OracleForms
+                            ? ("(cast(", " as date) - cast(", " as date))")
+                            : ReferenceEquals(dialect, SqlDialect.DuckDb)
+                                ? ("((epoch(", ") - epoch(", ")) / 86400.0)")
+                                // A double, not PostgreSQL's numeric: a variance of numeric days overflowed .NET's
+                                // decimal on the first Map Viewer histogram (dev, 2026-11-20).
+                                : ("(cast(extract(epoch from (cast(", " as timestamptz) - cast(", " as timestamptz))) as double precision) / 86400.0)");
+
+                // SQL Server's and MySQL's functions take the earlier moment first.
+                bool earlierFirst = dialect.SqlServerForms || dialect.MySqlForms;
+
+                sql.Append(open);
+
+                if (!Inner(earlierFirst ? days.Earlier : days.Later, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(between);
+
+                if (!Inner(earlierFirst ? days.Later : days.Earlier, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(close);
+                return true;
+            }
+
             case ScalarExpression.Cast cast:
                 return WriteCast(cast, sql, dialect, Inner, out error);
 

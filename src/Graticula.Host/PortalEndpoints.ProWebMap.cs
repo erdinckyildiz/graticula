@@ -169,6 +169,9 @@ internal static partial class PortalEndpoints
             scope = SharingScope.AllOrganizations;
         }
 
+        // A share form takes no group away (KeptInItsGroups, 2026-11-20), for a map as for a service.
+        scope = KeptInItsGroups(scope, map.SharedWith?.Count ?? 0);
+
         Privilege needed = SharingPrivileges.ToShareAt(scope) ?? Privilege.ContentCreate;
 
         bool administrator = current.Authorization.Allows(Privilege.AdminManageAllContent);

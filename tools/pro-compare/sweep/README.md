@@ -20,4 +20,8 @@ GRAPY=D:/temp/grapy-env/Scripts/python.exe
 - `results/<module>.md` — each name's verdict and what was done about it: fixed (with the test that pins Pro's
   answer), or why the difference stands.
 
-Not compared on this machine: `arcpy.locref` and `arcpy.topographic` (their extensions are not licensed here).
+`cases/zm.py` (2026-11-20, D-412) is not a module of arcpy but a cut across the general tools: the same tools on
+inputs with z and m, compared with z and m (`compare._z_distance`, `_m_distance`).
+
+Not compared on this machine: `arcpy.locref` and `arcpy.topographic` (their extensions are not licensed here). Checked
+again 2026-11-20: both still fail with ERROR 000824.

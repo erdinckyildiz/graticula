@@ -490,7 +490,7 @@ jobs:
       - name: host and geometry worker
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild'
+            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild&Needs!=ModelConverter'
 
   conformance:
     name: conformance (${{ matrix.part }})
@@ -705,6 +705,13 @@ jobs:
           usd2glb tests/Graticula.Console.Tests/corpus/box.usda "$RUNNER_TEMP/box.glb" && test -s "$RUNNER_TEMP/box.glb"
           IfcConvert -y -q tests/Graticula.Console.Tests/corpus/wall.ifc "$RUNNER_TEMP/wall.glb" && test -s "$RUNNER_TEMP/wall.glb"
 
+      # ADR-282 condition 2: real models from real tools, converted by the same three converters, each converted or
+      # refused with its reason: a 3ds Max and a Blender FBX, a Revit IFC and two USDZ files from the USD Working Group.
+      # Fetched at pinned commits and checked by SHA-256, never committed (they are other people's, under the licences
+      # tools/real-models.py names). Measured on Windows on 2026-11-20; this is the same on the image's own tools.
+      - name: real 3D models through the converters
+        run: python tools/real-models.py
+
       # ADR-266: the webhook tests post to a listener inside the test on 127.0.0.1, which a webhook refuses unless the
       # deployment allows its own network. On here only so that receiver can be reached; off is the default.
       # ADR-277: the scene rebuild sweep looks every five seconds here, rather than five minutes, so its test is quick.
@@ -792,11 +799,13 @@ jobs:
       #
       # <b>It runs even when a step before it failed, and that is the same argument.</b>
       # See the `console` step below for what not doing this cost.
+      # `Needs=ModelConverter` too: ADR-282 §5.5's FBX unit scale runs the server's converter on Assimp's command-line
+      # tool, which this job installs (`the 3D model converter`) and the datastore job does not.
       - name: the tests that need a running host
         if: "!cancelled() && matrix.part == 'suites'"
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs=RunningHost'
+            --filter 'Needs=RunningHost|Needs=ModelConverter'
 
       # <b>The console, in a real browser, in this job because this is the job with
       # a server.</b> D-59: four console defects in two days, every one found by the

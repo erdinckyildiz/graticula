@@ -249,7 +249,10 @@ def SimplifyLine(in_features, out_feature_class, algorithm="POINT_REMOVE", toler
     flagged = str(error_option).upper() == "FLAG_ERRORS"
     extra = [_gpkg.Column("InLine_FID", "Integer"), *([_gpkg.Column("SimLnFlag", "SmallInteger")] if flagged else []),
              _gpkg.Column("MaxSimpTol", "Double"), _gpkg.Column("MinSimpTol", "Double")]  # Pro 3.7's order
-    _gpkg.create(out, "Polyline", srid, [*columns, *extra])
+    from . import _zm
+    dimensions = _zm.output(in_features)
+    _gpkg.create(out, "Polyline", srid, [*columns, *extra], *dimensions)
+    after = [_zm.carry(a, [f[2]], dimensions) if a is not None else None for a, f in zip(after, features)]
     collapsed = []
     with da.InsertCursor(out, [*names, *[c.name for c in extra], "SHAPE@"]) as written:
         for (oid, values, shape), simplified, flag in zip(features, after, flags):

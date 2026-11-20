@@ -83,7 +83,15 @@ ADR-272 §5.6, ADR-273 (SDK 4.34), ADR-023 §4c.
    scene layer. This needs its own ADR. *(Partly discharged 2026-11-07 by [ADR-280](ADR-280-3d-object-layers-hold-meshes.md)
    §5.4: a 3D object layer made from the scene takes glb models through its scene layer, keeps them, and is rebuilt
    with them. Other formats wait on ADR-282's converter, and a person's own placing through the Editor widget is
-   ADR-280 condition 5.)*
+   ADR-280 condition 5.)* **DISCHARGED 2026-11-20**: every part is now built and tested elsewhere, and this condition had not
+   been told. A 3D object layer holds models (ADR-280 §5.4). A person places one with the Editor (ADR-280 condition 5,
+   `SceneLayerSourceTests.A_person_places_a_model_with_the_editor_and_the_layer_keeps_it`). A model is moved and the
+   rebuilt scene layer holds it at its new place
+   (`SceneLayerSourceTests.A_model_is_drawn_before_a_rebuild_and_moved_into_its_scene_layer`), and deleted
+   (`…takes_a_model_from_the_scene_and_its_scene_layer_is_rebuilt_with_it`). The other formats are converted: OBJ,
+   COLLADA and FBX by Assimp, IFC by IfcConvert and USD by usd2glb
+   ([ADR-282](ADR-282-3d-models-are-converted-by-assimp-in-its-own-process.md),
+   [ADR-283](ADR-283-owner-decisions-on-conversion-and-one-writer-per-site.md) conditions 2 and 3).
 2. **An empty 3D object or 3D point layer is created from the scene**, ready to edit, as Scene Viewer's *Create layer*
    does. *(Partly discharged 2026-11-07: the Add panel's *Create a layer to draw in* makes an empty hosted layer of 3D
    points, lines or polygons, with heights and a label field, through the portal's own `createService`. It adds the

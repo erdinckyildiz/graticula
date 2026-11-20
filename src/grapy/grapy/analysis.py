@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from . import _gpkg, _units, da
+from . import _geodesic, _gpkg, _units, _zm, da
 from ._result import Result
 from ._runtime import NotBuiltError
 from ._runtime import _is_given  # noqa: E402 — a Raster is never compared with ==
@@ -46,6 +46,42 @@ def _distance(value, srid):
     return metres
 
 
+def _linear(value):
+    """The metres in one of a distance's unit, or None when it names no linear unit (a bare number, a field)."""
+    parts = str(value).split() if isinstance(value, str) else []
+    if len(parts) != 2 or parts[1].upper() in ("UNKNOWN", "DECIMALDEGREES"):
+        return None
+    return _units.linear(parts[1])
+
+
+def _geodesic_metres(value, srid=None):
+    """A geodesic buffer's distance in metres: a linear unit as named, and a bare number as metres whatever the data's
+    reference — Pro 3.7 buffered "1000" on a US-feet reference (EPSG 2229) and "100000" on WGS 84 as that many metres
+    and wrote them so in BUFF_DIST (measured 2026-11-20)."""
+    per = _linear(value)
+    if per is not None:
+        return float(str(value).split()[0]) * per
+    return float(value)
+
+
+def _geodesic_wanted(tool, method, distance, srid, line_side="FULL", line_end_type="ROUND"):
+    """Whether a buffer is geodesic (D-397): GEODESIC asks for it, and PLANAR on geographic data with a linear distance
+    gets it, as Pro's Buffer page says and Pro 3.7 answered (2026-11-20). What the geodesic path does not build is
+    refused by name."""
+    from ._reference import SpatialReference
+    geographic = srid > 0 and SpatialReference(srid).type == "Geographic"
+    asked = _is_given(method) and str(method).upper() == "GEODESIC"
+    if not asked and not (geographic and _linear(distance) is not None):
+        return False
+    if srid <= 0:
+        _refuse(tool, "method", method, "the input has no coordinate system to measure on")
+    if str(line_side or "FULL").upper() in ("LEFT", "RIGHT"):
+        _refuse(tool, "line_side", line_side, "a geodesic buffer is built on both sides of a line")
+    if str(line_end_type or "ROUND").upper() == "FLAT":
+        _refuse(tool, "line_end_type", line_end_type, "a geodesic buffer is built with round ends")
+    return True
+
+
 def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="FULL", line_end_type="ROUND",
            dissolve_option="NONE", dissolve_field=None, method="PLANAR", *_, **__):
     """Each feature buffered by a distance or a field's value, in the data's own plane.
@@ -55,11 +91,13 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
     fields, ``BUFF_DIST`` (the distance in the data's units) and ``ORIG_FID`` — measured in ArcGIS Pro 3.7,
     2026-11-08, for Buffer and PairwiseBuffer alike.
 
-    Refused: ``method`` GEODESIC — this buffer is planar, and answering a planar shape for a geodesic request would
-    be a wrong answer rather than a missing one (found 2026-11-08: it was accepted and ignored)."""
-    if _is_given(method) and str(method).upper() == "GEODESIC":
-        _refuse("Buffer", "method", method, "geodesic buffers are not built; this buffer is planar")
+    ``method`` GEODESIC buffers on the ellipsoid (``_geodesic``, D-397), and so does PLANAR on geographic data given
+    a linear distance, as the page says Pro does; BUFF_DIST is then metres under GEODESIC and the number as given
+    under PLANAR, and a bare number is metres under GEODESIC whatever the reference (measured in ArcGIS Pro 3.7,
+    2026-11-20). Refused under geodesic: ``line_side`` LEFT and RIGHT, ``line_end_type`` FLAT, and a buffer crossing
+    the antimeridian or reaching a pole, all of which Pro builds."""
     columns, _, srid, _ = _schema(in_features)
+    geodesic = _geodesic_wanted("Buffer", method, buffer_distance_or_field, srid, line_side, line_end_type)
     names = [c.name for c in columns]
     by_field = isinstance(buffer_distance_or_field, str) and buffer_distance_or_field in names
     dissolve = str(dissolve_option or "NONE").upper()
@@ -77,7 +115,7 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
     kept = [c for c in columns if c.name.upper() not in ("BUFF_DIST", "ORIG_FID")]
     out_columns = [] if dissolve == "ALL" else listed if dissolve == "LIST" else         [*kept, _gpkg.Column("BUFF_DIST", "Double"), _gpkg.Column("ORIG_FID", "Integer")]
     out = _out(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, out_columns)
+    _gpkg.create(out, "Polygon", srid, out_columns, False, False)  # 2D whatever the input (Pro 3.7, D-412)
     keep = [names.index(c.name) for c in kept]
     shapes = []
     with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
@@ -85,6 +123,17 @@ def Buffer(in_features, out_feature_class, buffer_distance_or_field, line_side="
             if row[-1] is None:
                 continue
             if by_field and row[names.index(buffer_distance_or_field)] is None:
+                continue
+            if geodesic:
+                # A field's value is metres, as a bare number is (measured for a number, not for a field; INFERRED until
+                # confirmed by the owner 2026-11-20, D-397).
+                metres = (float(row[names.index(buffer_distance_or_field)]) if by_field
+                          else _geodesic_metres(buffer_distance_or_field))
+                written = metres if str(method).upper() == "GEODESIC" else float(str(buffer_distance_or_field).split()[0])
+                shape = _geodesic.buffer(row[-1]._shape, metres, srid)
+                if line_side.upper() == "OUTSIDE_ONLY":
+                    shape = shape.difference(row[-1]._shape)
+                shapes.append((row[:-1], shape, written, oid))
                 continue
             distance = float(row[names.index(buffer_distance_or_field)]) if by_field else _distance(buffer_distance_or_field, srid)
             written_distance = distance
@@ -123,14 +172,15 @@ def _overlay(in_features, other, out_feature_class, operation):
     with da.SearchCursor(other, ["SHAPE@"]) as rows:
         from shapely import union_all
         mask = union_all([r[0]._shape for r in rows if r[0] is not None])
-    _gpkg.create(out, shape, srid, columns)
+    has_z, has_m = _zm.output(in_features, other)
+    _gpkg.create(out, shape, srid, columns, has_z, has_m)
     with da.SearchCursor(in_features, [*names, "SHAPE@"]) as rows, da.InsertCursor(out, [*names, "SHAPE@"]) as written:
         for row in rows:
             if row[-1] is None:
                 continue
             cut = operation(row[-1]._shape, mask)
             if not cut.is_empty:
-                written.insertRow((*row[:-1], cut))
+                written.insertRow((*row[:-1], _zm.restore(cut, _zm.Sources([row[-1]._shape]), has_z, has_m)))
     return Result(out)
 
 
@@ -264,11 +314,25 @@ def _planar_overlay(paths, out_feature_class, combinations, join_attributes="ALL
             key = (tuple(tuple(f[0] for f in c) for c in covers), tuple(f[0] if f else None for f in row))
             groups.setdefault(key, (row, []))[1].append(face)
     out = _out(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, columns)
+    has_z, has_m = _zm.output(*paths)
+    _gpkg.create(out, "Polygon", srid, columns, has_z, has_m)
+    # Each face's vertices take z and m from the input shapes they lie on, the row's own features first (D-412).
+    sources = _zm.Sources(every) if has_z or has_m else None
+    position = {}
+    for k, features in enumerate(inputs):
+        for f in features:
+            position[(k, f[0])] = len(position)
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for row, pieces in groups.values():
             values = [v for k, f in enumerate(row) for v in _values(layout[k], schemas[k][0], f)]
-            written.insertRow((*values, shapely.union_all(pieces)))
+            merged = shapely.union_all(pieces)
+            # A row of no feature is Union's NO_GAPS gap: each enclosed area its own feature, as Pro writes them
+            # (measured 2026-11-20: a frame's hole and a polygon's hole are two features).
+            for shape in (shapely.get_parts(merged) if all(f is None for f in row) else [merged]):
+                if sources is not None:
+                    shape = _zm.restore(shape, sources, has_z, has_m,
+                                        [position[(k, f[0])] for k, f in enumerate(row) if f is not None])
+                written.insertRow((*values, shape))
     return Result(out)
 
 
@@ -308,12 +372,20 @@ def _pairwise_overlay(a_path, b_path, out_feature_class, pieces, output_type="IN
     layout = _layout(join_attributes, 2, identity)
     columns = _joined_columns((_stem(a_path), a_columns), (_stem(b_path), b_columns), layout=layout)
     out = _out(out_feature_class)
-    _gpkg.create(out, _KIND_OF[dimension], srid, columns)
+    has_z, has_m = _zm.output(a_path, b_path)
+    _gpkg.create(out, _KIND_OF[dimension], srid, columns, has_z, has_m)
+    # A piece's vertices take z and m from the inputs they lie on, the piece's own features first: SymDiff's piece of
+    # a 2D input alone still takes a 3D input's values where it runs along that input's edge (Pro 3.7, D-412).
+    sources = _zm.Sources([f[2] for f in a] + [f[2] for f in b]) if has_z or has_m else None
+    index = {id(f): i for i, f in enumerate([*a, *b])}
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for left, right, shape in pieces(a, b, STRtree([s for _, _, s in b]) if b else None):
             kept = _of_dimension(shape, dimension)
             if kept is None:
                 continue
+            if sources is not None:
+                kept = _zm.restore(kept, sources, has_z, has_m,
+                                   [index[id(f)] for f in (left, right) if f is not None and id(f) in index])
             written.insertRow((*_values(layout[0], a_columns, left), *_values(layout[1], b_columns, right), kept))
     return Result(out)
 
@@ -370,12 +442,19 @@ def Intersect(in_features, out_feature_class, join_attributes="ALL", cluster_tol
 def Union(in_features, out_feature_class, join_attributes="ALL", cluster_tolerance=None, gaps="GAPS"):
     """Every piece of either polygon input: the overlaps with both inputs' attributes, the rest with one side's and
     ``FID_`` -1 and 0 or '' in the fields for the other, as arcpy writes them. Overlaps within one input are cut apart
-    as Intersect's are; one input alone is cut by its own overlaps (measured in ArcGIS Pro 3.7, 2026-11-08)."""
+    as Intersect's are; one input alone is cut by its own overlaps (measured in ArcGIS Pro 3.7, 2026-11-08).
+
+    ``NO_GAPS`` writes, as documented, a feature for each area the polygons enclose — a face of their boundaries no
+    input covers, a polygon's hole included — with ``FID_`` -1 and blanks for every input (D-415, 2026-11-20; it was
+    accepted and ignored)."""
+    option = str(gaps or "GAPS").upper()
+    if option not in ("GAPS", "NO_GAPS"):
+        raise ValueError(f"gaps '{gaps}' is not GAPS or NO_GAPS.")
     paths = _list(in_features)
     if _polygon_inputs(paths):
         def rows(covers, itertools):
             if not any(covers):
-                return []
+                return [tuple(None for _ in covers)] if option == "NO_GAPS" else []
             return list(itertools.product(*[c if c else (None,) for c in covers]))
         return _planar_overlay(paths, out_feature_class, rows, join_attributes)
 
@@ -427,7 +506,7 @@ def Select(in_features, out_feature_class, where_clause=None):
     columns, shape, srid, _ = _schema(in_features)
     names = [c.name for c in columns]
     out = _out(out_feature_class)
-    _gpkg.create(out, shape, srid, columns)
+    _gpkg.create(out, shape, srid, columns, *_zm.output(in_features))
     with da.SearchCursor(in_features, [*names, "SHAPE@"], where_clause) as rows, \
             da.InsertCursor(out, [*names, "SHAPE@"]) as written:
         for row in rows:
@@ -486,7 +565,7 @@ def SpatialJoin(target_features, join_features, out_feature_class, join_operatio
     extra = [_gpkg.Column(distance_field_name, "Double")] if distance_field_name else []
     columns = [*lead, *t_columns, *renamed, *extra]
     out = _out(out_feature_class)
-    _gpkg.create(out, t_kind, srid, columns)
+    _gpkg.create(out, t_kind, srid, columns, *_zm.output(target_features))
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for oid, values, shape in targets:
             if closest:
@@ -610,12 +689,13 @@ def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_u
     distance in ``field_name``; under ``dissolve_option`` NONE each ring also keeps its feature's fields and
     ``ORIG_FID`` (measured in ArcGIS Pro 3.7, 2026-11-08).
 
-    Refused: ``method`` GEODESIC, as Buffer refuses it — the rings are planar."""
+    ``method`` GEODESIC builds the rings on the ellipsoid, and so does PLANAR on geographic data given a linear
+    ``buffer_unit``, as Buffer does (D-397)."""
     import shapely
-    if _is_given(method) and str(method).upper() == "GEODESIC":
-        _refuse("MultipleRingBuffer", "method", method, "geodesic buffers are not built; these rings are planar")
     columns, _, srid, _ = _schema(input_features)
-    scale = _distance(f"1 {buffer_unit}", srid) if buffer_unit else 1.0
+    geodesic = _geodesic_wanted("MultipleRingBuffer", method, f"1 {buffer_unit}" if buffer_unit else 1.0, srid)
+    scale = (_geodesic_metres(f"1 {buffer_unit}" if buffer_unit else 1.0) if geodesic
+             else _distance(f"1 {buffer_unit}", srid) if buffer_unit else 1.0)
     steps = sorted(float(d) for d in _list(distances))
     features = _read(input_features)
     dissolve = str(dissolve_option).upper() == "ALL"
@@ -623,13 +703,13 @@ def MultipleRingBuffer(input_features, output_feature_class, distances, buffer_u
     kept = [] if dissolve else [c for c in columns if c.name.upper() != "ORIG_FID" and c.name.lower() != field_name.lower()]
     keep = [[c.name for c in columns].index(c.name) for c in kept]
     out_columns = kept + [_gpkg.Column(field_name, "Double")] + ([] if dissolve else [_gpkg.Column("ORIG_FID", "Integer")])
-    _gpkg.create(out, "Polygon", srid, out_columns)
+    _gpkg.create(out, "Polygon", srid, out_columns, False, False)  # 2D whatever the input (Pro 3.7, D-412)
     groups = [([], shapely.union_all([s for _, _, s in features]), None)] if dissolve else         [([v[i] for i in keep], s, oid) for oid, v, s in features]
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         for values, shape, oid in groups:
             inner = shape if str(outside_polygons_only).upper() == "OUTSIDE_ONLY" and _dimension(shape) == 2 else None
             for step in steps:
-                ring = shape.buffer(step * scale)
+                ring = _geodesic.buffer(shape, step * scale, srid) if geodesic else shape.buffer(step * scale)
                 band = ring.difference(inner) if inner is not None else ring
                 written.insertRow((*values, step, *([] if dissolve else [oid]), band))
                 inner = ring
@@ -1037,8 +1117,14 @@ def CountOverlappingFeatures(in_features, out_feature_class, min_overlap_count=1
         pieces = [((MultiPoint([xy]) if len(paths) > 1 else Point(xy)), covering) for xy, covering in at.items()]
     pieces.sort(key=lambda piece: (len(piece[1]), [(k, oid) for k, oid, _ in piece[1]]))
     out = _out(out_feature_class)
+    dimensions = _zm.output(*paths)
     _gpkg.create(out, "Multipoint" if kind == "Point" and len(paths) > 1 else kind, srid,
-                 [_gpkg.Column("COUNT_", "Integer"), _gpkg.Column("COUNT_FC", "Integer")])
+                 [_gpkg.Column("COUNT_", "Integer"), _gpkg.Column("COUNT_FC", "Integer")], *dimensions)
+    if any(dimensions):
+        sources = _zm.Sources([s for _, _, s in features])
+        index = {(k, oid): i for i, (k, oid, _) in enumerate(features)}
+        pieces = [(_zm.carry(shape, sources, dimensions, [index[(k, oid)] for k, oid, _ in covering]), covering)
+                  for shape, covering in pieces]
     links = []
     with da.InsertCursor(out, ["COUNT_", "COUNT_FC", "SHAPE@"]) as written:
         for shape, covering in pieces:
@@ -1080,12 +1166,14 @@ def Update(in_features, update_features, out_feature_class, keep_borders="BORDER
     mask = shapely.union_all([s for _, _, s in updates])
     u_names = [c.name.lower() for c in u_columns]
     out = _out(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, columns)
+    has_z, has_m = _zm.output(in_features, update_features)
+    _gpkg.create(out, "Polygon", srid, columns, has_z, has_m)
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for _, values, shape in _read(in_features):
             rest = _of_dimension(shape.difference(mask), 2)
             if rest is not None:
-                written.insertRow((*values, rest))
+                written.insertRow((*values, _zm.restore(rest, _zm.Sources([shape, *[s for _, _, s in updates]]), has_z,
+                                                        has_m)))
         for _, values, shape in updates:
             written.insertRow((*[values[u_names.index(c.name.lower())] if c.name.lower() in u_names else _blank(c)
                                  for c in columns], shape))
@@ -1141,10 +1229,12 @@ def Split(in_features, split_features, split_field, out_workspace, cluster_toler
         if not pieces:
             continue
         out = _output_in(out_workspace, _valid_name(value))
-        _gpkg.create(out, kind, srid, columns)
+        has_z, has_m = _zm.output(in_features)
+        _gpkg.create(out, kind, srid, columns, has_z, has_m)
+        sources = _zm.Sources([f[2] for f in features]) if has_z or has_m else None
         with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
             for values, shape in pieces:
-                written.insertRow((*values, shape))
+                written.insertRow((*values, _zm.restore(shape, sources, has_z, has_m) if sources else shape))
         outputs.append(out)
     return Result(out_workspace)
 
@@ -1208,7 +1298,7 @@ def GraphicBuffer(in_features, out_feature_class, buffer_distance_or_field, line
     kept = [c for c in columns if c.name.upper() not in ("BUFF_DIST", "ORIG_FID")]
     out_columns = [*kept, _gpkg.Column("BUFF_DIST", "Double"), _gpkg.Column("ORIG_FID", "Integer")]
     out = _out(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, out_columns)
+    _gpkg.create(out, "Polygon", srid, out_columns, False, False)  # 2D whatever the input (Pro 3.7, D-412)
     keep = [names.index(c.name) for c in kept]
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         for oid, values, shape in _read(in_features):

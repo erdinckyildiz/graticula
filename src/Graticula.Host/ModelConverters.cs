@@ -20,7 +20,7 @@ namespace Graticula.Host;
 /// <b>Three tools, each for the formats measured to convert with it</b>:
 /// <list type="bullet">
 /// <item>the Open Asset Import Library's <c>assimp</c> (BSD-3) for OBJ, alone or zipped with its materials, COLLADA and
-/// FBX (ADR-282 §4);</item>
+/// FBX (ADR-282 §4), an FBX scaled from its own units to metres by its <c>UnitScaleFactor</c> (ADR-282 §5.5);</item>
 /// <item>IfcOpenShell's <c>IfcConvert</c> (LGPL-3.0), with its Open CASCADE kernel and without its CGAL ones, for IFC
 /// (ADR-283 §5.2);</item>
 /// <item>our own <c>usd2glb</c>, built against tinyusdz (Apache-2.0), for USD in its text, binary and zipped forms
@@ -40,7 +40,10 @@ internal sealed class ModelConverters : IModelConverter
     {
         ["3D_obj"] = new(".obj", "assimp", "export \"$1\" \"$2\" -fglb2"),
         ["3D_dae"] = new(".dae", "assimp", "export \"$1\" \"$2\" -fglb2"),
-        ["3D_fbx"] = new(".fbx", "assimp", "export \"$1\" \"$2\" -fglb2"),
+        // -gs: Assimp's global-scale step, which multiplies by the scale the importer read from the file. For FBX that is
+        // the file's UnitScaleFactor (centimetres per unit) times 0.01, so the glb is in metres (ADR-282 §5.5, owner
+        // decision 2026-11-20). Only FBX: the other importers' units are not routed through this step.
+        ["3D_fbx"] = new(".fbx", "assimp", "export \"$1\" \"$2\" -fglb2 -gs"),
         ["3D_ifc"] = new(".ifc", "IfcConvert", "-y -q \"$1\" \"$2\""),
         ["3D_usdz"] = new(".usdz", "usd2glb", "\"$1\" \"$2\""),
         ["3D_usdc"] = new(".usdc", "usd2glb", "\"$1\" \"$2\""),
@@ -118,10 +121,7 @@ internal sealed class ModelConverters : IModelConverter
             string all = (await said.ConfigureAwait(false)) + "\n" + (await errors.ConfigureAwait(false));
             if (process.ExitCode != 0 || !File.Exists(output))
             {
-                string why = all.Split('\n').Select(l => l.Trim())
-                    .LastOrDefault(l => l.StartsWith("ERROR", StringComparison.Ordinal) || l.StartsWith("[error]", StringComparison.Ordinal) || l.StartsWith("The ", StringComparison.Ordinal))
-                    ?? "the converter could not read it";
-                return new(null, $"The model could not be converted: {why}.");
+                return new(null, $"The model could not be converted: {Reason(all)}.");
             }
 
             byte[] glb = await File.ReadAllBytesAsync(output, cancellation).ConfigureAwait(false);
@@ -150,6 +150,20 @@ internal sealed class ModelConverters : IModelConverter
                 // A scratch directory left behind is the temporary directory's to clear.
             }
         }
+    }
+
+    /// <summary>The line of a converter's output that says why it failed.</summary>
+    /// <remarks>
+    /// usd2glb's own sentence first ("The file is not a USD stage this converter reads: ..."): the tinyusdz
+    /// <c>[error]</c> lines printed after it name the source files tinyusdz was built from, which is no reason a person
+    /// can use (measured 2026-11-20 on a real USDZ, ADR-282 condition 2). Otherwise Assimp's or IfcConvert's last error.
+    /// </remarks>
+    internal static string Reason(string output)
+    {
+        string[] lines = [.. (output ?? string.Empty).Split('\n').Select(l => l.Trim())];
+        return lines.FirstOrDefault(l => l.StartsWith("The ", StringComparison.Ordinal))
+            ?? lines.LastOrDefault(l => l.StartsWith("ERROR", StringComparison.Ordinal) || l.StartsWith("[error]", StringComparison.Ordinal))
+            ?? "the converter could not read it";
     }
 
     private static string Write(byte[] content, string scratch, string extension)

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -137,6 +138,36 @@ public sealed class ALayerWithTimeSaysSoTests : ArcGisClient
             $"/rest/services/{service}/MapServer/export?bbox={bbox}&size=64,64&f=json&time=yesterday");
 
         Assert.Contains("epoch milliseconds", refused, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ArcGIS Map Viewer's own range query for a date field, sent to dev on 2026-11-20 (ADR-083 condition 2): the date's
+    /// milliseconds as <c>(field - TIMESTAMP'1970-01-01 00:00:00') * 86400000</c>, in every statistic it asks. It was
+    /// refused, then answered 500 when PostgreSQL's numeric variance overflowed a decimal.
+    /// </summary>
+    [Fact]
+    public async Task Map_Viewers_range_of_a_date_field_is_answered_in_milliseconds()
+    {
+        await RequireServerAsync();
+        string service = (Environment.GetEnvironmentVariable(TemporalVariable)
+            ?? throw new InvalidOperationException($"{TemporalVariable} is not set.")).Trim('/');
+
+        JsonElement timeInfo = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0")).GetProperty("timeInfo");
+        string field = timeInfo.GetProperty("startTimeField").GetString()!;
+        long from = timeInfo.GetProperty("timeExtent")[0].GetInt64();
+        long until = timeInfo.GetProperty("timeExtent")[1].GetInt64();
+
+        string expression = $"(({field} - TIMESTAMP'1970-01-01 00:00:00') * 86400000)";
+        string statistics = "[" + string.Join(",", new[]
+            { ("min", "min_value"), ("max", "max_value"), ("avg", "avg_value"), ("stddev", "stddev_value"), ("var", "variance_value") }
+            .Select(s => $"{{\"onStatisticField\":\"{expression}\",\"outStatisticFieldName\":\"{s.Item2}\",\"statisticType\":\"{s.Item1}\"}}")) + "]";
+
+        JsonElement answer = await GetJsonAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where=1%3D1&sqlFormat=standard&outStatistics={Uri.EscapeDataString(statistics)}");
+
+        JsonElement values = answer.GetProperty("features")[0].GetProperty("attributes");
+        Assert.Equal(from, values.GetProperty("min_value").GetDouble(), 1.0);
+        Assert.Equal(until, values.GetProperty("max_value").GetDouble(), 1.0);
     }
 
     private async Task<byte[]> ImageAsync(string root, string path)
