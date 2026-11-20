@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — thirteen public Survey123 templates, filled and laid out on Windows and on the showcase's own image on arm64, compared page by page with the PDF Microsoft Word 16 exported of the same documents (§4); two of the thirteen are refused by the engine, and none of the documents is a customer's |
+| **Confidence** | `MEDIUM` — thirteen public Survey123 templates, filled and laid out on Windows and on the showcase's own image on arm64, compared page by page with the PDF Microsoft Word 16 exported of the same documents (§4); two of the thirteen were refused by the engine until 2026-11-20, when both were worked around (condition 1), and none of the documents is a customer's |
 | **Decided** | 2026-11-17, evening, by the owner: *"bence pdf'i de ekleyelim"*, reversing the morning's *"Yalnız Word kalsın"* ([ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md) §5.14). The engine was chosen with the owner in three steps the same evening: LibreOffice was set aside as too heavy (*"kullanabileceğimiz daha lightweight bir şey yok mu?"*), MigraDoc chosen and then dropped when its licence was read (§2 B), and *"başka bir şey bak. githubta falan yok mu?"* found OfficeIMO, measured before it was adopted (*"başla"*). |
 | **Supersedes** | [ADR-301](ADR-301-a-feature-report-is-a-word-template-filled-per-record.md) §5.7 and §5.9 (p), which said no PDF |
 | **Superseded by** | — |
@@ -64,7 +64,7 @@ above it. A deployment of this server cannot be told which it needs. Rejected.
 
 - **It is young and moves fast.** Ten releases between 2026-09-02 and 2026-11-10. §5.6 pins one two weeks old and the port
   makes the engine replaceable without touching the report.
-- **It is not Word.** Two templates of thirteen are refused, three lose something (§4). The Word document stays the report
+- **It is not Word.** Two templates of thirteen were refused (worked around since 2026-11-20, condition 1), three lose something (§4). The Word document stays the report
   and is offered beside every refusal (§5.4).
 - **A child process per document costs a process start** — about 0.2 s of a conversion measured at 0.4–14 s.
 
@@ -86,7 +86,8 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
   one moved its floating pictures and text boxes. Two came out shorter than Word's (9 pages for 12, 3 for 5): page breaks
   fall elsewhere.
 - **Refused by the engine:** *"PDF footer offset must not exceed the bottom margin when footer content is enabled"* and
-  *"PDF bookmark names must be unique"* — both inside OfficeIMO.
+  *"PDF bookmark names must be unique"* — both inside OfficeIMO. **Both laid out since 2026-11-20** (condition 1): the
+  engine's process gives the footer room and renames a repeated bookmark first, as Word does.
 - **Without fonts** the engine falls back to the PDF standard fonts, which cannot write ☒, and five more were refused.
   With Liberation, Carlito, Caladea and DejaVu installed the Linux output matched the Windows output.
 
@@ -133,7 +134,30 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
 ## 7. Conditions
 
 1. **The two refused templates are reported upstream or worked around**, each with what OfficeIMO said, and measured
-   again.
+   again. **DISCHARGED 2026-11-20** (branch night-server) — both worked around in the engine's own process
+   (`Graticula.Report.Pdf/WordTolerances.cs`), on the copy it lays out; the `.docx` the person downloads is untouched:
+   - *"PDF footer offset must not exceed the bottom margin when footer content is enabled"* — the SWPPP template
+     (`9c7598…`) has a 0.25 in bottom margin and a 0.5 in footer (`w:bottom="360" w:footer="720"`). Word pushes the body up
+     until the footer fits; the section's bottom margin is raised to the footer's distance plus 14 pt for each of the
+     footer's paragraphs (an approximation for a footer of plain lines, said in the code). Laid out: 23 pages, as Word's 23,
+     with *Page n* where Word puts it (y = 729 pt on page 2 in both).
+   - *"PDF bookmark names must be unique"* — the spill template (`d3c740…`) carries Word's `_GoBack` once, and a merged report
+     of three records carries it three times; the SWPPP merge repeats seven `_Hlk…` bookmarks the same way. Word keeps the
+     first of a name for every cross-reference; the later ones are renamed `name_2`, `name_3`. Laid out: 9 pages, as Word's
+     9; its green title band (a drawing) is not drawn, the "readable, not Word's" class of §4.
+   - **Measured again, all thirteen, on Windows with Office's fonts** (2026-11-20, the merged three-record document of
+     each, through the child exactly as the server starts it): **13 laid out, none refused**, 1.96–18.2 s each on a machine
+     running four other builds (the 2026-11-17 figures were 0.2–7.1 s on a quiet one); pages against Word's PDF of the same
+     document equal for ten, 9 for 12, 3 for 5 and 81 for 82 — the page-break differences §4 already named.
+   - Tests: `WhatWordToleratesIsLaidOutTests` (two documents written in the test, each refused with OfficeIMO's own sentence
+     when the tolerance is switched off, checked, and laid out with it).
+   - **Not reported upstream.** If the owner wants it sent, the text is: *"OfficeIMO.Word.Pdf 3.5.3: `ToPdfBytes` throws
+     'PDF footer offset must not exceed the bottom margin when footer content is enabled' for a section whose
+     `w:pgMar/@w:footer` exceeds `@w:bottom`, which Word lays out by extending the bottom margin to fit the footer; and
+     'PDF bookmark names must be unique' for a document with two `w:bookmarkStart` of one `w:name`, which Word accepts
+     (the first wins). Minimal reproductions: a one-paragraph document with `<w:pgMar w:bottom="360" w:footer="720"/>`
+     and a default footer; three paragraphs each wrapped in `<w:bookmarkStart w:name="_GoBack"/>`."* The arm64 image's
+     run of the thirteen is condition 3's.
 2. **The owner confirms §5.5** through [Q-240](../open-questions.md). **DISCHARGED 2026-11-17:** all three confirmed as written (*"Uygun"*).
 3. **Measured on the showcase after the image is built**, not in a container borrowed for the prototype: the thirteen
    templates again, and a 25-submission separate report with photographs — time and peak memory against §5.2's bounds.
