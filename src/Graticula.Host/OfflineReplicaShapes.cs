@@ -671,7 +671,7 @@ internal static class OfflineReplicaShapes
         return new AttachmentSelection(inserts, updates, deletes);
     }
 
-    private static Guid? GlobalIdOf(OfflineRow row, int at) => row.Values[at] switch
+    internal static Guid? GlobalIdOf(OfflineRow row, int at) => row.Values[at] switch
     {
         Guid id => id,
         string text when Guid.TryParse(text.Trim('{', '}'), out Guid parsed) => parsed,

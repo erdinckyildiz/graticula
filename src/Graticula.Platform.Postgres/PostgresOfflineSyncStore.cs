@@ -25,6 +25,12 @@ public sealed class PostgresOfflineSyncStore : IOfflineSyncStore
         "id, name, service_id, owner_principal_id, owner_name, sync_model, layers, return_attachments, "
         + "attachments_sync_direction, geometry, wkid, created_at, last_synced_at";
 
+    /// <summary>A layer's <c>own</c> is left out when it is empty, so a layer with none is written as before D-401.</summary>
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
     private readonly NpgsqlDataSource _root;
 
     /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
@@ -155,7 +161,8 @@ public sealed class PostgresOfflineSyncStore : IOfflineSyncStore
             queryOption = l.QueryOption,
             where = l.Where,
             useGeometry = l.UseGeometry,
-        }));
+            own = l.Own is { Count: > 0 } own ? own.Select(o => new { g = o.GlobalId, at = o.At }) : null,
+        }), Options);
 
     /// <summary>The layers as the column keeps them, read back.</summary>
     internal static IReadOnlyList<ReplicaLayer> ReadLayers(string json)
@@ -169,7 +176,10 @@ public sealed class PostgresOfflineSyncStore : IOfflineSyncStore
                 layer.GetProperty("serverGen").GetInt64(),
                 layer.TryGetProperty("queryOption", out JsonElement option) ? option.GetString() ?? "useFilter" : "useFilter",
                 layer.TryGetProperty("where", out JsonElement where) ? where.GetString() ?? string.Empty : string.Empty,
-                !layer.TryGetProperty("useGeometry", out JsonElement geometry) || geometry.GetBoolean()));
+                !layer.TryGetProperty("useGeometry", out JsonElement geometry) || geometry.GetBoolean(),
+                layer.TryGetProperty("own", out JsonElement own) && own.ValueKind == JsonValueKind.Array
+                    ? [.. own.EnumerateArray().Select(o => new OwnUpload(o.GetProperty("g").GetGuid(), o.GetProperty("at").GetInt64()))]
+                    : null));
         }
 
         return layers;

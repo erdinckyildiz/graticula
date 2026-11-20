@@ -746,18 +746,24 @@ internal static partial class OfflineReplicaEndpoints
                         continue;
                     }
 
+                    // D-401: what earlier upload-only syncs applied is this replica's own too, while the server has not
+                    // changed it since.
+                    IReadOnlySet<Guid> own = stored.Own is { Count: > 0 } remembered
+                        ? await StillOwnAsync(connections, p, shape, remembered, generation, uploaded, stopping).ConfigureAwait(false)
+                        : uploaded;
+
                     ReplicaChanges found = OfflineReplicaShapes.WithoutOwn(
                         await ChangesAsync(
                             connections, p, shape, DateTimeOffset.FromUnixTimeMilliseconds(from), generation, stopping).ConfigureAwait(false),
                         OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!),
-                        uploaded);
+                        own);
 
                     // ADR-290: the attachments the server changed, read from the attachment table's own record of changes, and
                     // only where the replica takes attachments down.
                     AttachmentDownload attached = request.ReturnAttachments && replica.ReturnAttachments
                         && replica.AttachmentsSyncDirection is "bidirectional" or "download"
                         && shape.HasAttachments && p.Layer.KeepsAttachments
-                        ? await AttachmentChangesAsync(connections, p, shape, DateTimeOffset.FromUnixTimeMilliseconds(from), generation, found, uploaded, stopping)
+                        ? await AttachmentChangesAsync(connections, p, shape, DateTimeOffset.FromUnixTimeMilliseconds(from), generation, found, own, stopping)
                             .ConfigureAwait(false)
                         : AttachmentDownload.Empty;
                     SyncAttachments(log, replica.Id, p.Id, attached.Inserts.Count, attached.Updates.Count, attached.Deletes.Count);
@@ -791,8 +797,14 @@ internal static partial class OfflineReplicaEndpoints
             {
                 bool down = covered.Any(c => c.Stored.Id == stored.Id && c.Direction is "download" or "bidirectional");
 
+                bool up = covered.Any(c => c.Stored.Id == stored.Id && c.Direction == "upload");
+
                 // A layer only uploaded keeps its generation: advancing it would skip the server's changes it has not had.
-                advanced.Add(down ? stored with { ServerGeneration = generation.ToUnixTimeMilliseconds() } : stored);
+                // What it uploaded is remembered instead, so the next download does not send it back (D-401).
+                advanced.Add(
+                    down ? stored with { ServerGeneration = generation.ToUnixTimeMilliseconds(), Own = null }
+                    : up && uploaded.Count > 0 ? stored with { Own = Remember(stored.Own, uploaded, generation) }
+                    : stored);
             }
 
             if (jsonSync && downloading && job.File is { } jsonFile)
@@ -1479,6 +1491,57 @@ internal static partial class OfflineReplicaEndpoints
                 }
             }
         }
+    }
+
+    /// <summary>The most GlobalIDs a layer remembers from upload-only syncs; past it the oldest are forgotten (D-401).</summary>
+    internal const int OwnLimit = 20000;
+
+    /// <summary>
+    /// A layer's remembered uploads with this sync's added — D-401. <paramref name="uploaded"/> holds every GlobalID the
+    /// request applied, across its layers; one of another layer never matches a row of this one, so it is kept rather than
+    /// sorted out. Past <see cref="OwnLimit"/> the oldest are dropped, and those rows are echoed as they were before D-401.
+    /// </summary>
+    internal static IReadOnlyList<OwnUpload> Remember(IReadOnlyList<OwnUpload>? remembered, IReadOnlySet<Guid> uploaded, DateTimeOffset at)
+    {
+        long moment = at.ToUnixTimeMilliseconds();
+        List<OwnUpload> kept = [.. (remembered ?? []).Where(o => !uploaded.Contains(o.GlobalId))];
+        kept.AddRange(uploaded.Select(g => new OwnUpload(g, moment)));
+        return kept.Count > OwnLimit ? kept.Skip(kept.Count - OwnLimit).ToList() : kept;
+    }
+
+    /// <summary>
+    /// D-401: of the GlobalIDs earlier upload-only syncs applied, those the server has not changed since — read as the
+    /// layer's own difference between the moment after each upload and <paramref name="to"/>, rows and attachments both —
+    /// with this request's own uploads. The rest are the server's changes now, and are sent.
+    /// </summary>
+    private static async Task<IReadOnlySet<Guid>> StillOwnAsync(
+        LayerConnections connections, Planned p, OfflineLayer shape, IReadOnlyList<OwnUpload> remembered, DateTimeOffset to,
+        IReadOnlySet<Guid> uploaded, CancellationToken cancellation)
+    {
+        HashSet<Guid> own = [.. uploaded];
+        int globalAt = OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!);
+        IAttachmentStore attachments = connections.AttachmentsFor(p.Layer);
+
+        foreach (IGrouping<long, OwnUpload> upload in remembered.GroupBy(o => o.At))
+        {
+            DateTimeOffset at = DateTimeOffset.FromUnixTimeMilliseconds(upload.Key);
+            ReplicaChanges since = await ChangesAsync(connections, p, shape, at, to, cancellation).ConfigureAwait(false);
+            HashSet<Guid> touched = [.. since.Inserts.Concat(since.Updates).Select(r => OfflineReplicaShapes.GlobalIdOf(r, globalAt)).OfType<Guid>()];
+            touched.UnionWith(since.Deletes.Select(d => d.GlobalId));
+            bool attachmentsVouched = true;
+
+            if (shape.HasAttachments && p.Layer.KeepsAttachments && attachments is IAttachmentSync sync)
+            {
+                AttachmentChanges log = await sync.ChangesAsync(at, to, cancellation).ConfigureAwait(false);
+                attachmentsVouched = log.Vouched;
+                touched.UnionWith(log.Changes.Select(c => OfflineReplicaShapes.AttachmentGlobalId(p.Layer.Id, c.AttachmentId, c.GlobalId)));
+            }
+
+            // A record that cannot vouch for the span keeps nothing as the replica's own: sending it again is the safe side.
+            own.UnionWith(upload.Select(o => o.GlobalId).Where(g => !touched.Contains(g) && attachmentsVouched));
+        }
+
+        return own;
     }
 
     /// <summary>
