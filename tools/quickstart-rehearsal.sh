@@ -44,6 +44,31 @@ clean() {
 }
 trap clean EXIT
 
+# <b>A step's output shortened, and its failure kept</b> -- [D-393](../docs/architecture-debt.md).
+# The three steps below used to be `cmd 2>&1 | tail -n`, and a pipeline's status is its last
+# command's: `tail` succeeded, so a failed build was not a failed step. On 2026-11-08 the image
+# build died on a network timeout, the next step migrated the store with the last *released*
+# image, and the rehearsal failed later as a schema mismatch it was not. `set -o pipefail`
+# would say it in bash; this is `sh`, so the output goes to a file and the status is the
+# command's own. On failure the last forty lines are shown, not the last one.
+#   step <lines to show> <command...>
+step() {
+  lines=$1
+  shift
+  log=$(mktemp)
+  if "$@" >"$log" 2>&1; then
+    tail -n "$lines" "$log"
+    rm -f "$log"
+  else
+    status=$?
+    tail -n 40 "$log"
+    rm -f "$log"
+    printf 'FAIL: `%s` exited %s, and the rehearsal stops here rather than run the next step on another build.
+' "$*" "$status"
+    exit 1
+  fi
+}
+
 clean
 
 # <b>Build both images before anything runs them, and `--build` on step 3 was not enough.</b>
@@ -58,7 +83,7 @@ clean
 # start against it -- *server is built for schema 38, and the platform store is at 37* -- and
 # the rehearsal reported that the README's four commands do not work. They do. What did not
 # work was testing two different builds and calling them one deployment.
-$COMPOSE build 2>&1 | tail -1
+step 1 $COMPOSE build
 
 printf '== 1. keygen ==\n'
 
@@ -80,14 +105,14 @@ esac
 printf '   a key was printed\n'
 
 printf '== 2. migrate --apply ==\n'
-$COMPOSE run --rm server migrate --apply 2>&1 | tail -2
+step 2 $COMPOSE run --rm server migrate --apply
 
 printf '== 3. up ==\n'
 
 # `--build` is redundant now that everything is built above, and it stays because it is what
 # that comment is about: without it, this pulls the last published image and tests that
 # instead of the tree it was run from, which is the one thing a rehearsal in CI must not do.
-$COMPOSE up -d --build 2>&1 | tail -2
+step 2 $COMPOSE up -d --build
 
 # <b>The server, not the datastore.</b> The whole point is that the datastore reporting itself
 # healthy proved nothing about whether the server could reach it.
