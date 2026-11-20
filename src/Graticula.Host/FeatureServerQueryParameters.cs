@@ -888,9 +888,41 @@ internal static class FeatureServerQueryParameters
 
         HashSet<string> known = [.. allFields.Select(f => f.Name), .. computed];
 
-        foreach (string clause in values[0]!.Split(
+        // <b>A group expression is ordered by as written — 2026-11-20 (ADR-083 condition 2).</b> ArcGIS Map Viewer orders a
+        // date histogram by the same CASE it groups by; the expression is answered as Expr1, Expr2… (D-301), so the text is
+        // matched to the group it names, in the order TryStatistics names them, and never passed on.
+        Dictionary<string, string> grouped = new(StringComparer.Ordinal);
+
+        if (parameters.TryGetValue("groupByFieldsForStatistics", out Microsoft.Extensions.Primitives.StringValues groups)
+            && !string.IsNullOrWhiteSpace(groups[0]))
+        {
+            HashSet<string> fieldNames = new(allFields.Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
+
+            foreach (string part in groups[0]!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!fieldNames.Contains(part) && StatisticExpression.IsExpression(part))
+                {
+                    string name = $"Expr{grouped.Count + 1}";
+                    grouped[Spaced(part)] = name;
+                    known.Add(name);
+                }
+            }
+        }
+
+        foreach (string written in values[0]!.Split(
             ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
+            string clause = written;
+            string[] words = clause.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            bool last = words.Length > 1 && words[^1] is { } tail
+                && (tail.Equals("asc", StringComparison.OrdinalIgnoreCase) || tail.Equals("desc", StringComparison.OrdinalIgnoreCase));
+            string body = last ? string.Join(' ', words[..^1]) : clause;
+
+            if (grouped.TryGetValue(Spaced(body), out string? expressionName))
+            {
+                clause = last ? $"{expressionName} {words[^1]}" : expressionName;
+            }
+
             string[] parts = clause.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
             bool descending = parts.Length > 1
@@ -917,6 +949,9 @@ internal static class FeatureServerQueryParameters
 
         return true;
     }
+
+    /// <summary>Text with every run of white space made one space, for matching an expression as written twice.</summary>
+    private static string Spaced(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>
     /// Whether two spatial-reference identifiers name the same system.

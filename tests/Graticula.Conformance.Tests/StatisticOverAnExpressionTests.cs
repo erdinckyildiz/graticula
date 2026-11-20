@@ -42,7 +42,9 @@ public sealed class StatisticOverAnExpressionTests : ArcGisClient
 
     /// <summary>
     /// D-301: an expression groups, answered as <c>Expr1</c> as Esri's server answers one (sampleserver6, 2026-10-18), and
-    /// the groups together hold every feature; an expression in the order is refused, as Esri's server refuses it.
+    /// the groups together hold every feature. An expression in the order was refused as sampleserver6 (10.9.1) refuses it,
+    /// until 2026-11-20: ArcGIS Map Viewer orders a histogram by the expression it groups by, and ArcGIS Online's hosted
+    /// layers (version 12, <c>useStandardizedQueries</c>) answer that order, DESC included — so it is ordered by now.
     /// </summary>
     [Fact]
     public async Task A_grouped_expression_is_answered_as_expr1_and_covers_every_feature()
@@ -63,10 +65,13 @@ public sealed class StatisticOverAnExpressionTests : ArcGisClient
         string root = await RequireServerAsync();
         string? token = await TokenAsync(root);
         string ordered = Uri.EscapeDataString($"FLOOR({oid}/100) DESC");
-        (System.Net.HttpStatusCode code, _) = await RequestAsync(System.Net.Http.HttpMethod.Get,
+        (System.Net.HttpStatusCode code, string body) = await RequestAsync(System.Net.Http.HttpMethod.Get,
             $"{root}{layer}/query?where=1%3D1&outStatistics={statistics}&groupByFieldsForStatistics={grouped}&orderByFields={ordered}&f=json",
             token!, null);
-        Assert.Equal(400, (int)code);
+        Assert.Equal(200, (int)code);
+        double[] keys = [.. JsonDocument.Parse(body).RootElement.GetProperty("features").EnumerateArray()
+            .Select(f => f.GetProperty("attributes").GetProperty("Expr1").GetDouble())];
+        Assert.Equal(keys.OrderByDescending(k => k), keys);
     }
 
     [Fact]
