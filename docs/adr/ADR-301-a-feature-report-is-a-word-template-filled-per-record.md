@@ -306,7 +306,19 @@ the requests a report makes, not a port to a library.
    drawing, as the asker, the records marked; measured on the fixture (§4). `rotate` and `mapFilters` stay refused, and a
    basemap at another address is left out and said, as ADR-265 §5.3 leaves it out of a print.
 5. **The cost is measured**: 100 records with a photograph each, through the Inbox, on the showcase — time, peak memory and
-   size — against §5.9 (e)'s bounds, which are this session's guesses.
+   size — against §5.9 (e)'s bounds, which are this session's guesses. **PARTLY DISCHARGED 2026-11-20 — on a local fixture, not on the showcase** (branch night-server; Windows, PostgreSQL 16 +
+   PostGIS, the host built from c4bc8b60 plus the night's commits, on a machine running four other builds). A member made for
+   the run submitted 100 records to a form with an Inbox (limit 1,000), each with a distinct 1600×1200 JPEG (49.2 MB in all,
+   about 490 KB each), and asked for reports of all 100 **through the Inbox** (the member cannot read the form's layers), with
+   a template placing the photograph at 400×300; the server's working set polled every 50 ms from outside:
+   - **separate `.docx`, zipped: 4.3 s, 45.5 MB**, working set 275 → 512 MB (+238 MB);
+   - **merged `.docx`: 3.8 s, 45.3 MB**, +227 MB;
+   - **merged PDF** (ADR-302): 10.9 s, 49.2 MB, server +298 MB, the engine's child 474 MB at its peak.
+   Against §5.9 (e): 100 records were answered at once well inside a request's patience; the pictures were a quarter of the
+   200 MB bound; the server's peak rise (≈ 240 MB for 49 MB of photographs, about five times the pictures) is what the bound of
+   two reports at once per node multiplies — two such reports would add about 0.5 GB. **Left: the same run on the showcase**
+   (arm64, its own memory and disk), which tonight's brief does not let this session touch; the script is
+   [benchmarks/feature-report-cost/inbox_report.py](../../benchmarks/feature-report-cost/inbox_report.py) and takes the server's address, an administrator and the server's process id.
 
 ## 8. Dependencies
 

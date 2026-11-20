@@ -160,7 +160,19 @@ the PDF Microsoft Word 16 exported of the same document. Prototype in the sessio
      run of the thirteen is condition 3's.
 2. **The owner confirms §5.5** through [Q-240](../open-questions.md). **DISCHARGED 2026-11-17:** all three confirmed as written (*"Uygun"*).
 3. **Measured on the showcase after the image is built**, not in a container borrowed for the prototype: the thirteen
-   templates again, and a 25-submission separate report with photographs — time and peak memory against §5.2's bounds.
+   templates again, and a 25-submission separate report with photographs — time and peak memory against §5.2's bounds. **PARTLY DISCHARGED 2026-11-20 — on a local Windows fixture, not on the showcase** (branch night-server; the brief of the
+   night does not let this session touch the showcase):
+   - **The thirteen templates**, the merged three-record document of each, through the engine's child exactly as the server
+     starts it, its working set polled every 20 ms: **all thirteen laid out** (condition 1's workarounds included),
+     1.6–13.6 s each, peak working set 154–908 MB — against §5.2's one minute and 1.5 GB working set, the slowest at a
+     quarter of the deadline and the largest (`bc592744`, the POET sampling report, 6 pages of pictures) at 60 % of the
+     memory bound. Three of the thirteen passed 800 MB, which is the number to watch on arm64.
+   - **A 25-submission separate PDF report with photographs**, through the server, by a member reading through the form's
+     Inbox, each record with its own 1600×1200 JPEG (≈ 490 KB): **22.7 s for the 25, 12.3 MB zipped**, the engine's child
+     86 MB at its peak, the server's working set unmoved. A merged PDF of 100 such records: 10.9 s, 49.2 MB, child 474 MB.
+   - **Left: both on the showcase's image**, arm64 with the four font packages, where §4 measured the prototype slower
+     (0.5–14.3 s); the scripts are in
+     [benchmarks/feature-report-cost/](../../benchmarks/feature-report-cost/) (`engine_templates.py`, `inbox_report.py`).
 
 ## 8. Dependencies
 
