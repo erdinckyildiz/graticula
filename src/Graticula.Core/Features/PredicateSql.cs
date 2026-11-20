@@ -654,7 +654,9 @@ public static class PredicateSql
                             ? ("(cast(", " as date) - cast(", " as date))")
                             : ReferenceEquals(dialect, SqlDialect.DuckDb)
                                 ? ("((epoch(", ") - epoch(", ")) / 86400.0)")
-                                : ("(extract(epoch from (cast(", " as timestamptz) - cast(", " as timestamptz))) / 86400.0)");
+                                // A double, not PostgreSQL's numeric: a variance of numeric days overflowed .NET's
+                                // decimal on the first Map Viewer histogram (dev, 2026-11-20).
+                                : ("(cast(extract(epoch from (cast(", " as timestamptz) - cast(", " as timestamptz))) as double precision) / 86400.0)");
 
                 // SQL Server's and MySQL's functions take the earlier moment first.
                 bool earlierFirst = dialect.SqlServerForms || dialect.MySqlForms;

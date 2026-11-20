@@ -233,7 +233,7 @@ public sealed class WhereClauseStandardFunctionsTests
 
         ParsedWhere parsed = Ok(MapViewer);
         Assert.Equal(
-            "((extract(epoch from (cast(\"founded\" as timestamptz) - cast(@w0 as timestamptz))) / 86400.0) * @w1) >= @w2",
+            "((cast(extract(epoch from (cast(\"founded\" as timestamptz) - cast(@w0 as timestamptz))) as double precision) / 86400.0) * @w1) >= @w2",
             parsed.Sql);
         Assert.Equal(new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero), parsed.Parameters[0]);
 
