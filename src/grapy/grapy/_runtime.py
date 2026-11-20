@@ -59,10 +59,36 @@ class _Frame:
     """One tool run: the messages it has said, and the messages of the last tool it ran — what GetMessages answers
     while it runs. The script itself is the frame at the bottom of the stack, with no messages of its own."""
 
-    __slots__ = ("name", "messages", "last")
+    __slots__ = ("name", "messages", "last", "call")
 
     def __init__(self, name=None):
-        self.name, self.messages, self.last = name, [], []
+        self.name, self.messages, self.last, self.call = name, [], [], None
+
+
+def tool_inputs():
+    """The values the running tool was given for its input parameters — every parameter but those named ``out_…``
+    or ``output…`` — as (function, values); (None, []) outside a tool. _zm reads them for the output Z and M
+    environments' *Same As Input* (D-412)."""
+    import inspect
+    call = _STACK[-1].call
+    if call is None:
+        return None, []
+    function, args, kwargs = call
+    try:
+        signature = inspect.signature(function)
+        bound = signature.bind_partial(*args, **kwargs)
+    except (TypeError, ValueError):
+        return function, list(args)
+    values = []
+    for name, value in bound.arguments.items():
+        lowered = name.lower()
+        if lowered.startswith("out_") or lowered.startswith("output") or lowered.startswith("out"):
+            continue
+        if signature.parameters[name].kind == inspect.Parameter.VAR_POSITIONAL:
+            values.extend(value)
+        elif signature.parameters[name].kind != inspect.Parameter.VAR_KEYWORD:
+            values.append(value)
+    return function, values
 
 
 _STACK = [_Frame()]
@@ -232,7 +258,7 @@ class _Environment:
     """
 
     _NAMES = ("workspace", "scratchWorkspace", "overwriteOutput", "outputCoordinateSystem", "extent", "cellSize", "mask",
-              "snapRaster", "addOutputsToMap", "randomGenerator")
+              "snapRaster", "addOutputsToMap", "randomGenerator", "outputZFlag", "outputMFlag")
 
     def __init__(self):
         self._reset()
@@ -240,7 +266,15 @@ class _Environment:
     @staticmethod
     def _default(name):
         return {"workspace": os.getcwd(), "scratchWorkspace": os.getcwd(), "overwriteOutput": True,
-                "addOutputsToMap": False}.get(name)
+                "addOutputsToMap": False, "outputZFlag": "Same As Input", "outputMFlag": "Same As Input"}.get(name)
+
+    def __setattr__(self, name, value):
+        # outputZFlag and outputMFlag (D-412): Pro 3.7 reads ENABLED and DISABLED back as Enabled and Disabled and
+        # keeps any other text as given, Same As Input being the default (measured 2026-11-20); _zm reads them.
+        if name in ("outputZFlag", "outputMFlag") and isinstance(value, str) and value.upper() in ("ENABLED",
+                                                                                                    "DISABLED"):
+            value = value.capitalize()
+        object.__setattr__(self, name, value)
 
     def _reset(self, name=None):
         for each in ([name] if name else self._NAMES):
@@ -459,6 +493,30 @@ def _inputs(function, args, kwargs):
     return found
 
 
+_EXECUTE_ERRORS: dict = {}
+
+
+def _as_execute_error(failure, text):
+    """An ExecuteError that is also an instance of ``failure``'s own class, carrying ``text``; a plain ExecuteError
+    where the two classes cannot be combined or the class cannot be made from one message."""
+    kind = type(failure)
+    made = _EXECUTE_ERRORS.get(kind)
+    if made is None:
+        try:
+            made = type("ExecuteError", (ExecuteError, kind), {"__module__": __name__})
+        except TypeError:
+            made = ExecuteError
+        _EXECUTE_ERRORS[kind] = made
+    try:
+        error = made(text)
+    except Exception:  # noqa: BLE001 — a class whose constructor wants more than a message (UnicodeDecodeError)
+        error = ExecuteError(text)
+    for attribute in ("_grapy_in_execute",):
+        if hasattr(failure, attribute):
+            setattr(error, attribute, getattr(failure, attribute))
+    return error
+
+
 def run_tool(name, function, args=(), kwargs=None):
     """Runs ``function`` as arcpy runs a tool: its own messages, with the start and end lines; the last tool's
     messages of whoever called it set to them when it ends; and the severity level consulted (SetSeverityLevel)."""
@@ -466,6 +524,7 @@ def run_tool(name, function, args=(), kwargs=None):
     from ._result import Result
     kwargs = kwargs or {}
     frame = _Frame(name)
+    frame.call = (function, args, kwargs)
     parent = _STACK[-1]
     started = time.time()
     frame.messages.append({"kind": 2, "code": 0, "text": f"Start Time: {_when(started)}"})
@@ -496,6 +555,12 @@ def run_tool(name, function, args=(), kwargs=None):
             result.status = 4 if getattr(failure, "_grapy_in_execute", False) else 5
             result._messages = frame.messages
             return result
+        if not isinstance(failure, (ExecuteError, NotBuiltError)):
+            # D-409: a failing tool raises arcpy.ExecuteError, as Pro's do, so a script's ``except arcpy.ExecuteError``
+            # catches it; the exception is still of its own type too (ValueError, FileNotFoundError …), so code that
+            # caught that goes on working. Its text is the tool's errors, each with a newline, as Pro's ExecuteError.
+            raise _as_execute_error(failure, "".join(m["text"] + "\n" for m in frame.messages
+                                                     if m["kind"] == 100)) from failure
         raise
     except BaseException:
         _STACK.pop()

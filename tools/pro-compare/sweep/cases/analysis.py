@@ -247,3 +247,25 @@ def _(ap, I, O):
 @case("analysis.Update")
 def _(ap, I, O):
     return ap.analysis.Update(I["polys"], I["clip"], O("out"))
+
+
+@case("analysis.Union.NO_GAPS")
+def union_no_gaps(ap, I, O):
+    """Four bars round a 100 m square gap, and a square with a hole: NO_GAPS fills what polygons enclose (D-415,
+    added 2026-11-20)."""
+    path = os.path.join(I["gdb"], "frame")
+    if not ap.Exists(path):
+        sr = ap.SpatialReference(I["srid"])
+        ap.management.CreateFeatureclass(I["gdb"], "frame", "POLYGON", spatial_reference=sr)
+        ap.management.AddField(path, "bar", "TEXT")
+        x, y = I["x0"], I["y0"]
+
+        def sq(x0, y0, x1, y1):
+            return f"(({x + x0} {y + y0}, {x + x0} {y + y1}, {x + x1} {y + y1}, {x + x1} {y + y0}, {x + x0} {y + y0}))"
+        with ap.da.InsertCursor(path, ["bar", "SHAPE@"]) as cursor:
+            for name, box in (("s", (0, 0, 300, 100)), ("n", (0, 200, 300, 300)), ("w", (0, 100, 100, 200)),
+                              ("e", (200, 100, 300, 200))):
+                cursor.insertRow((name, ap.FromWKT("POLYGON " + sq(*box), sr)))
+            cursor.insertRow(("h", ap.FromWKT("POLYGON (" + sq(400, 0, 600, 200)[1:-1] + ", " +
+                                              sq(450, 50, 550, 150)[1:-1] + ")", sr)))
+    return ap.analysis.Union([path], O("out"), "ALL", None, "NO_GAPS")

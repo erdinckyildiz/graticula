@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from . import _gpkg, _units
+from . import _gpkg, _units, _zm
 from ._result import Result
 from ._runtime import NotBuiltError
 from ._runtime import _is_given, _is_set  # noqa: E402 — a Raster is never compared with ==
@@ -163,6 +163,8 @@ def CopyFeatures(in_features, out_feature_class, *_, **__):
     # The copy keeps the input's z and m, as Pro's does under the default output Z and M environments (measured in
     # ArcGIS Pro 3.7, 2026-11-08, by the ddd sweep: a copied 3D line class stayed 3D); until then grapy dropped them.
     has_z, has_m = _gpkg.dimensions(connection, table)
+    from ._runtime import env
+    has_z, has_m = _zm._flag(env.outputZFlag, has_z), _zm._flag(env.outputMFlag, has_m)  # D-412, Pro 3.7 2026-11-20
     from . import _multipatch
     patch = _multipatch.is_registered(connection, table)
     connection.close()
@@ -765,21 +767,28 @@ def Dissolve(in_features, out_feature_class, dissolve_field=None, statistics_fie
     out_columns = [by_name[f.lower()] for f in fields] + [
         _gpkg.Column(f"{s}_{f}", _statistic_type(s, by_name.get(f.lower()))) for f, s in statistics]
     out = _path(out_feature_class)
-    _gpkg.create(out, shape_kind, srid, out_columns)
+    dimensions = _zm.output(_source(in_features)[0])
+    _gpkg.create(out, shape_kind, srid, out_columns, *dimensions)
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         for key, (shapes, values) in groups.items():
+            if dimensions[0] or dimensions[1]:
+                # The union keeps neither m nor, everywhere, z: each vertex takes its input's (D-412).
+                sources = _zm.Sources(shapes)
+                shapes = [_gpkg.conform(s, False, False) for s in shapes]
             summary = [_statistic(s, v) for (_, s), v in zip(statistics, values)]
             if shape_kind == "Polyline" and shapes and str(unsplit_lines).upper() == "UNSPLIT_LINES":
                 from shapely.geometry import MultiLineString
                 from shapely.ops import linemerge
                 lines = [part for shape in shapes for part in _parts(shape)]
                 for piece in _parts(linemerge(MultiLineString(lines))):
-                    written.insertRow((*key, *summary, piece))
+                    written.insertRow((*key, *summary, _zm.carry(piece, sources, dimensions)
+                                       if dimensions[0] or dimensions[1] else piece))
                 continue
             merged = union_all(shapes) if shapes else None
             pieces = _parts(merged) if merged is not None and str(multi_part).upper() == "SINGLE_PART" else [merged]
             for piece in pieces:
-                written.insertRow((*key, *summary, piece))
+                written.insertRow((*key, *summary, _zm.carry(piece, sources, dimensions)
+                                   if dimensions[0] or dimensions[1] else piece))
     return Result(out)
 
 
@@ -835,8 +844,9 @@ def FeatureVerticesToPoints(in_features, out_feature_class, point_location="ALL"
     out = _path(out_feature_class)
     where = str(point_location).upper()
     dangle = where == "DANGLE"
+    dimensions = _zm.output(_source(in_features)[0])
     _gpkg.create(out, "Point", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer")] +
-                 ([_gpkg.Column("DANGLE_LEN", "Double")] if dangle else []))
+                 ([_gpkg.Column("DANGLE_LEN", "Double")] if dangle else []), *dimensions)
     with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
         features = [(row[0], row[1:-1], row[-1]._shape) for row in rows if row[-1] is not None]
     with da.InsertCursor(out, [*names, "ORIG_FID", *(["DANGLE_LEN"] if dangle else []), "SHAPE@"]) as written:
@@ -847,7 +857,7 @@ def FeatureVerticesToPoints(in_features, out_feature_class, point_location="ALL"
                 if shape.geom_type not in ("LineString", "MultiLineString"):
                     continue
                 for i, part in enumerate(_parts(shape)):
-                    ends = list(part.coords)
+                    ends = [c[:2] for c in part.coords]
                     if len(ends) < 2 or ends[0][:2] == ends[-1][:2]:
                         continue
                     others = [p for o, j, p in pieces if (o, j) != (oid, i) and p.intersects(part)]
@@ -858,15 +868,18 @@ def FeatureVerticesToPoints(in_features, out_feature_class, point_location="ALL"
                         if any(o.intersects(point) for o in others):
                             continue
                         span = (min(meets) if at == 0.0 else part.length - max(meets)) if meets else part.length
-                        written.insertRow((*values, oid, span, point))
+                        written.insertRow((*values, oid, span, _zm.carry(point, [shape], dimensions)))
             return Result(out)
         for oid, values, shape in features:
             for part in _parts(shape):
+                # x and y only: a vertex's z and m come from the shape itself below (D-412); a 4D coordinate made
+                # shapely refuse the ring as a line.
+                part2d = _gpkg.conform(part, False, False)
                 if part.geom_type == "Polygon":
-                    rings = _esri_rings(part)
+                    rings = _esri_rings(part2d)
                     coordinates, line = rings[0], shapely.LineString(rings[0])
                 else:
-                    rings, coordinates, line = [list(part.coords)], list(part.coords), part
+                    rings, coordinates, line = [list(part2d.coords)], list(part2d.coords), part2d
                 if where == "MID":
                     chosen = [line.interpolate(0.5, normalized=True).coords[0]]
                 elif where == "START":
@@ -878,7 +891,7 @@ def FeatureVerticesToPoints(in_features, out_feature_class, point_location="ALL"
                 else:
                     chosen = [xy for ring in rings for xy in ring]
                 for xy in chosen:
-                    written.insertRow((*values, oid, ShapelyPoint(xy[:2])))
+                    written.insertRow((*values, oid, _zm.carry(ShapelyPoint(xy[:2]), [shape], dimensions)))
     return Result(out)
 
 
@@ -1771,26 +1784,39 @@ def FeatureToLine(in_features, out_feature_class, cluster_tolerance=None, attrib
     paths = _list(in_features)
     schemas = [_schema(_source(p)[0]) for p in paths]
     srid = schemas[0][2]
-    inputs = [[(oid, values, _linework(shape)) for oid, values, shape in _features(p, srid) if shape is not None]
-              for p in paths]
+    originals = [[(oid, shape) for oid, _, shape in _features(p, srid) if shape is not None] for p in paths]
+    inputs = [[(oid, values, _gpkg.conform(_linework(shape), False, False)) for oid, values, shape in _features(p, srid)
+               if shape is not None] for p in paths]
     edges = _noded([line for features in inputs for _, _, line in features])
+    dimensions = _zm.output(*[_source(p)[0] for p in paths])
+    # An edge's vertices take z and m from the features it lies along, the first owner's first (D-412: where two
+    # lines cross, each piece keeps its own line's z, measured in Pro 3.7).
+    sources = _zm.Sources([s for features in originals for _, s in features]) if any(dimensions) else None
+    position = {}
+    for k, features in enumerate(originals):
+        for oid, _ in features:
+            position[(k, oid)] = len(position)
     out = _path(out_feature_class)
     keep = str(attributes or "ATTRIBUTES").upper() != "NO_ATTRIBUTES"
     from .analysis import _joined_columns
     columns = _joined_columns(*[(_stem_of(_source(p)[0]), s[0]) for p, s in zip(paths, schemas)]) if keep else []
-    _gpkg.create(out, "Polyline", srid, columns)
+    _gpkg.create(out, "Polyline", srid, columns, *dimensions)
     import itertools
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for edge in edges:
+            along = [position[(k, oid)] for k, features in enumerate(inputs) for oid, _, line in features
+                     if _on(edge, line)]
             if not keep:
-                written.insertRow((edge,))
+                written.insertRow((_zm.carry(edge, sources, dimensions, along),))
                 continue
             owners = []
             for features, schema in zip(inputs, schemas):
                 found = [[oid, *values] for oid, values, line in features if _on(edge, line)]
                 owners.append(found or [[-1, *[None] * len(schema[0])]])
             for combination in itertools.product(*owners):
-                written.insertRow((*[v for part in combination for v in part], edge))
+                prefer = [position[(k, part[0])] for k, part in enumerate(combination) if part[0] != -1]
+                written.insertRow((*[v for part in combination for v in part],
+                                   _zm.carry(edge, sources, dimensions, prefer + along)))
     return Result(out)
 
 
@@ -1811,13 +1837,18 @@ def FeatureToPolygon(in_features, out_feature_class, cluster_tolerance=None, att
     paths = _list(in_features)
     schemas = [_schema(_source(p)[0]) for p in paths]
     srid = schemas[0][2]
-    lines = [_linework(shape) for p in paths for _, _, shape in _features(p, srid) if shape is not None]
+    originals = [shape for p in paths for _, _, shape in _features(p, srid) if shape is not None]
+    lines = [_gpkg.conform(_linework(shape), False, False) for shape in originals]
     faces = list(shapely.polygonize(_noded(lines)).geoms) if lines else []
+    dimensions = _zm.output(*[_source(p)[0] for p in paths])
+    if any(dimensions):
+        sources = _zm.Sources(originals)
+        faces = [_zm.carry(face, sources, dimensions) for face in faces]
     out = _path(out_feature_class)
     if _given(label_features):
         label_columns = _schema(_source(label_features)[0])[0]
         labels = sorted((oid, values, shape) for oid, values, shape in _features(label_features, srid) if shape is not None)
-        _gpkg.create(out, "Polygon", srid, label_columns)
+        _gpkg.create(out, "Polygon", srid, label_columns, *dimensions)
         with da.InsertCursor(out, [*[c.name for c in label_columns], "SHAPE@"]) as written:
             for face in faces:
                 inside = [values for _, values, point in labels if face.covers(point)]
@@ -1835,7 +1866,7 @@ def FeatureToPolygon(in_features, out_feature_class, cluster_tolerance=None, att
                 if column.name.lower() not in seen:
                     seen.add(column.name.lower())
                     columns.append(column)
-    _gpkg.create(out, "Polygon", srid, columns)
+    _gpkg.create(out, "Polygon", srid, columns, *dimensions)
     fids, at = set(), 0
     for _, schema in (polygonal if keep else []):
         fids.add(columns[at].name)
@@ -1874,13 +1905,17 @@ def PolygonToLine(in_features, out_feature_class, neighbor_option="IDENTIFY_NEIG
     columns, _, srid, _ = _schema(_source(in_features)[0])
     features = [f for f in _features(in_features) if f[2] is not None and not f[2].is_empty]
     out = _path(out_feature_class)
+    dimensions = _zm.output(_source(in_features)[0])
+    sources = _zm.Sources([f[2] for f in features]) if any(dimensions) else None
+    features = [(oid, values, _gpkg.conform(shape, False, False)) for oid, values, shape in features]
     if str(neighbor_option or "IDENTIFY_NEIGHBORS").upper() == "IGNORE_NEIGHBORS":
-        _gpkg.create(out, "Polyline", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer")])
+        _gpkg.create(out, "Polyline", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer")], *dimensions)
         with da.InsertCursor(out, [*[c.name for c in columns], "ORIG_FID", "SHAPE@"]) as written:
-            for oid, values, shape in features:
+            for k, (oid, values, shape) in enumerate(features):
                 for part in _parts(shape):
                     for ring in [part.exterior, *part.interiors]:
-                        written.insertRow((*values, oid, shapely.LineString(ring.coords)))
+                        written.insertRow((*values, oid, _zm.carry(shapely.LineString(ring.coords), sources,
+                                                                   dimensions, [k])))
         return Result(out)
     polygons = [(oid, shape) for oid, _, shape in features]
     for i, (_, a) in enumerate(polygons):
@@ -1891,7 +1926,8 @@ def PolygonToLine(in_features, out_feature_class, neighbor_option="IDENTIFY_NEIG
     for edge in _noded([shape.boundary for _, shape in polygons]):
         owners = tuple(sorted(oid for oid, shape in polygons if _on(edge, shape.boundary)))
         groups.setdefault(owners, []).append(edge)
-    _gpkg.create(out, "Polyline", srid, [_gpkg.Column("LEFT_FID", "Integer"), _gpkg.Column("RIGHT_FID", "Integer")])
+    _gpkg.create(out, "Polyline", srid, [_gpkg.Column("LEFT_FID", "Integer"), _gpkg.Column("RIGHT_FID", "Integer")],
+                 *dimensions)
     with da.InsertCursor(out, ["LEFT_FID", "RIGHT_FID", "SHAPE@"]) as written:
         for owners, edges in groups.items():
             merged = linemerge(edges) if len(edges) > 1 else edges[0]
@@ -1899,7 +1935,7 @@ def PolygonToLine(in_features, out_feature_class, neighbor_option="IDENTIFY_NEIG
                 left, right = _left_right(line, polygons)
                 if left != -1 and right == -1:
                     line, (left, right) = line.reverse(), (-1, left)
-                written.insertRow((left, right, line))
+                written.insertRow((left, right, _zm.carry(line, sources, dimensions)))
     return Result(out)
 
 
@@ -1912,16 +1948,20 @@ def SplitLine(in_features, out_feature_class):
     from . import da
     columns, _, srid, _ = _schema(_source(in_features)[0])
     out = _path(out_feature_class)
-    _gpkg.create(out, "Polyline", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer"), _gpkg.Column("ORIG_SEQ", "Integer")])
+    dimensions = _zm.output(_source(in_features)[0])
+    _gpkg.create(out, "Polyline", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer"), _gpkg.Column("ORIG_SEQ", "Integer")],
+                 *dimensions)
     with da.InsertCursor(out, [*[c.name for c in columns], "ORIG_FID", "ORIG_SEQ", "SHAPE@"]) as written:
         for oid, values, shape in _features(in_features):
             if shape is None:
                 continue
             sequence = 0
-            for coordinates in _esri_lines(shape):
+            sources = _zm.Sources([shape]) if any(dimensions) else None
+            for coordinates in _esri_lines(_gpkg.conform(shape, False, False)):
                 for a, b in zip(coordinates, coordinates[1:]):
                     sequence += 1
-                    written.insertRow((*values, oid, sequence, shapely.LineString([a, b])))
+                    written.insertRow((*values, oid, sequence, _zm.carry(shapely.LineString([a, b]), sources,
+                                                                         dimensions)))
     return Result(out)
 
 
@@ -1938,19 +1978,23 @@ def SplitLineAtPoint(in_features, point_features, out_feature_class, search_radi
     radius = _linear(search_radius, srid, "SplitLineAtPoint")
     points = [s for _, s in _shapes(point_features, srid)]
     out = _path(out_feature_class)
-    _gpkg.create(out, "Polyline", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer"), _gpkg.Column("ORIG_SEQ", "Integer")])
+    dimensions = _zm.output(_source(in_features)[0])
+    _gpkg.create(out, "Polyline", srid, [*columns, _gpkg.Column("ORIG_FID", "Integer"), _gpkg.Column("ORIG_SEQ", "Integer")],
+                 *dimensions)
+    points = [_gpkg.conform(p, False, False) for p in points]
     with da.InsertCursor(out, [*[c.name for c in columns], "ORIG_FID", "ORIG_SEQ", "SHAPE@"]) as written:
         for oid, values, shape in _features(in_features):
             if shape is None:
                 continue
-            parts = _parts(shape)
+            sources = _zm.Sources([shape]) if any(dimensions) else None
+            parts = _parts(_gpkg.conform(shape, False, False))
             if len(parts) > 1:
                 raise NotBuiltError("arcpy.management.SplitLineAtPoint on a multipart line is not built in grapy.")
             line = parts[0]
             cuts = sorted({line.project(p) for p in points if line.distance(p) <= radius} - {0.0, line.length})
             stops = [0.0, *[c for c in cuts if 0 < c < line.length], line.length]
             for sequence, (a, b) in enumerate(zip(stops, stops[1:]), start=1):
-                written.insertRow((*values, oid, sequence, substring(line, a, b)))
+                written.insertRow((*values, oid, sequence, _zm.carry(substring(line, a, b), sources, dimensions)))
     return Result(out)
 
 
@@ -1997,12 +2041,14 @@ def GeneratePointsAlongLines(Input_Features, Output_Feature_Class, Point_Placeme
         field_at = {n.lower(): i for i, n in enumerate(names)}[str(Distance_Field).lower()]
     interval = _linear(Distance, srid, "GeneratePointsAlongLines") if placement == "DISTANCE" else None
     out = _path(Output_Feature_Class)
-    _gpkg.create(out, "Point", srid, [*columns, *extra])
+    dimensions = _zm.output(_source(Input_Features)[0])
+    _gpkg.create(out, "Point", srid, [*columns, *extra], *dimensions)
     with da.InsertCursor(out, [*names, *[c.name for c in extra], "SHAPE@"]) as written:
         for oid, values, shape in _features(Input_Features):
             if shape is None or shape.is_empty:
                 continue
-            lines = _parts(_linework(shape))
+            sources = _zm.Sources([shape]) if any(dimensions) else None
+            lines = _parts(_gpkg.conform(_linework(shape), False, False))
             if len(lines) > 1:
                 raise NotBuiltError("arcpy.management.GeneratePointsAlongLines on a multipart feature is not built in grapy.")
             line = lines[0]
@@ -2023,7 +2069,8 @@ def GeneratePointsAlongLines(Input_Features, Output_Feature_Class, Point_Placeme
             if ends:
                 stops = sorted({0.0, *stops, length})
             for sequence, at in enumerate(stops, start=1):
-                written.insertRow((*values, oid, *((at, sequence) if chainage else ()), line.interpolate(at)))
+                written.insertRow((*values, oid, *((at, sequence) if chainage else ()),
+                                   _zm.carry(line.interpolate(at), sources, dimensions)))
     return Result(out)
 
 
@@ -2099,7 +2146,11 @@ def PointsToLine(Input_Features, Output_Feature_Class, Line_Field=None, Sort_Fie
         carried = transfer
     out_columns = ([line_field] if line_field else []) + carried
     out = _path(Output_Feature_Class)
-    _gpkg.create(out, "Polyline", srid, out_columns)
+    dimensions = _zm.output(_source(Input_Features)[0])
+    _gpkg.create(out, "Polyline", srid, out_columns, *dimensions)
+    # Each vertex is a point and keeps its z and m (D-412).
+    sources = _zm.Sources([shape for _, _, shape in _features(Input_Features) if shape is not None]) \
+        if any(dimensions) else None
     two_point = str(Line_Construction_Method or "CONTINUOUS").upper() == "TWO_POINT"
     close = str(Close_Line or "NO_CLOSE").upper() == "CLOSE"
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
@@ -2120,7 +2171,7 @@ def PointsToLine(Input_Features, Output_Feature_Class, Line_Field=None, Sort_Fie
                 values = [] if source == "NONE" else (
                     [start[0][c.name] for c in transfer] + [end[0][c.name] for c in transfer] if source == "BOTH_ENDS"
                     else [(start if source == "START" else end)[0][c.name] for c in transfer])
-                written.insertRow((*([key] if line_field else []), *values, shape))
+                written.insertRow((*([key] if line_field else []), *values, _zm.carry(shape, sources, dimensions)))
     return Result(out)
 
 
@@ -2539,11 +2590,13 @@ def Eliminate(in_features, out_feature_class, selection="LENGTH", ex_where_claus
             features[best][1] = shapely.union_all([features[best][1], shape])
             gone.add(oid)
     out = _path(out_feature_class)
-    _gpkg.create(out, "Polygon", srid, columns)
+    dimensions = _zm.output(layer.source)
+    _gpkg.create(out, "Polygon", srid, columns, *dimensions)
+    sources = _zm.Sources([s for _, _, s in _features(layer.source) if s is not None]) if any(dimensions) else None
     with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for oid in sorted(features):
             if oid not in gone:
-                written.insertRow((*features[oid][0], features[oid][1]))
+                written.insertRow((*features[oid][0], _zm.carry(features[oid][1], sources, dimensions)))
     return Result(out)
 
 

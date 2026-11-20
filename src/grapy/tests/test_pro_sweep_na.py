@@ -200,6 +200,29 @@ class ProSweepNa(unittest.TestCase):
                                    ["EarliestStartTime", "LatestStartTime", "AssignmentRule"]),
                          [(datetime.datetime(1899, 12, 30, 8), datetime.datetime(1899, 12, 30, 10), 1)])
 
+    def test_vehicle_routing_times_utc_and_curb_approaches_as_pro_writes_them(self):
+        """D-416 (na.md 1, Pro 3.7 measured 2026-11-12): visit times to the whole second, UTC equal to local on a
+        network with no time zone, and Arrive/DepartCurbApproach 0 for an order whose CurbApproach is 0."""
+        self.timed()
+        layer = na.MakeVehicleRoutingProblemAnalysisLayer(self.network, "v", "Driving", default_date="2026-01-05",
+                                                          generate_directions_on_solve="NO_DIRECTIONS")[0]
+        na.AddLocations(layer, "Orders", self.points("o", [("o1", "POINT(33 1)"), ("o2", "POINT(100 47)")]))
+        na.AddLocations(layer, "Depots", self.points("d", [("d", "POINT(0 0)")]))
+        na.AddVehicleRoutingProblemRoutes(layer, 1, "Truck", "d", "d")
+        na.Solve(layer)
+        orders = self.rows(na.GetNASublayer(layer, "Orders"), ["ArriveTime", "ArriveTimeUTC", "DepartTime",
+                                                                 "ArriveCurbApproach", "DepartCurbApproach"])
+        self.assertEqual(len(orders), 2)
+        for arrive, utc, depart, curb_in, curb_out in orders:
+            self.assertIsNotNone(arrive)
+            self.assertEqual(arrive, utc)
+            self.assertEqual(arrive.microsecond, 0)
+            self.assertEqual(depart.microsecond, 0)
+            self.assertEqual((curb_in, curb_out), (0, 0))
+        routes = self.rows(na.GetNASublayer(layer, "Routes"), ["StartTime", "StartTimeUTC", "EndTime", "EndTimeUTC"])
+        self.assertEqual(routes[0][0], routes[0][1])
+        self.assertEqual(routes[0][2], routes[0][3])
+
     def test_waste_collection_wants_a_collection_mode(self):
         self.timed()
         layer = na.MakeWasteCollectionAnalysisLayer(self.network, "w", "Driving", route_start_time="08:00",

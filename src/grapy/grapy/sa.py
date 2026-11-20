@@ -1992,9 +1992,10 @@ def _d8(in_flow_direction_raster, tool):
     return raster
 
 
-def _downstream(raster):
+def _downstream(raster, mutual_sinks=True):
     """Each cell's downstream cell as a flat index: -1 where the flow leaves the raster or reaches NoData, -2 where the
-    direction is undefined (not one of the eight codes) or the cell is NoData."""
+    direction is undefined (not one of the eight codes) or the cell is NoData. ``mutual_sinks``: two cells pointing at
+    each other are both -1 (see below); Watershed, Sink and Basin follow them as they point."""
     a, mask = raster._array, raster._mask
     rows, columns = a.shape
     down = np.full(a.size, -2, np.int64)
@@ -2005,6 +2006,16 @@ def _downstream(raster):
         target = np.where(inside, nr * columns + np.clip(nk, 0, columns - 1), -1)
         target = np.where(inside & ~mask[np.clip(nr, 0, rows - 1), np.clip(nk, 0, columns - 1)], target, -1)
         down[r * columns + k] = target
+    # Two cells pointing at each other — what FlowDirection writes for a one-cell pit — are both sinks, as ArcGIS Pro
+    # 3.7 treats them (D-413, measured 2026-11-20 with tools/pro-compare/d413-loop.py on Pro's own direction raster:
+    # FlowAccumulation, FlowLength both ways, StreamLink, StreamOrder STRAHLER and SHREVE, SnapPourPoint and
+    # Watershed all match cell for cell only so). A longer loop is still refused (_upstream_order).
+    # Watershed, Sink and Basin are the exceptions: a cell of such a pair belongs to the pour point on the other (Pro's watershed of a
+    # pour point snapped to one pit cell holds the other and all it drains, 309 cells, in the same measurement).
+    if mutual_sinks:
+        inside = np.flatnonzero(down >= 0)
+        mutual = inside[down[down[inside]] == inside] if inside.size else inside
+        down[mutual] = -1
     return down
 
 
@@ -2292,8 +2303,8 @@ def Sink(in_flow_direction_raster, analysis_target_device=None):
     raster = _d8(in_flow_direction_raster, "Sink")
     undefined = ~raster._mask & ~np.isin(raster._array, list(_D8))
     # The cells on a loop: strip every cell nothing flows into, repeatedly; what is left with a downstream cell is a
-    # cycle (each cell has one downstream cell at most).
-    down = _downstream(raster)
+    # cycle (each cell has one downstream cell at most). The directions as they point, not with a pair made sinks.
+    down = _downstream(raster, mutual_sinks=False)
     inflow = np.bincount(down[down >= 0], minlength=down.size)
     alive = down >= 0
     queue = list(np.flatnonzero(alive & (inflow == 0)))
@@ -2342,19 +2353,21 @@ def Watershed(in_flow_direction_raster, in_pour_point_data, pour_point_field=Non
     counts."""
     _refuse_environment("arcpy.sa.Watershed")
     raster = _d8(in_flow_direction_raster, "Watershed")
-    down = _downstream(raster)
+    down = _downstream(raster, mutual_sinks=False)
     pours = _pour_cells(in_pour_point_data, pour_point_field, raster._grid, "Watershed")
     out = np.full(down.size, -1, np.int64)
     known = np.zeros(down.size, bool)
     for start in range(down.size):
-        path, i = [], start
+        path, i, seen = [], start, set()
         while i >= 0 and not known[i]:
             if i in pours:
                 out[i], known[i] = pours[i], True
                 break
+            if i in seen:      # a loop no pour point lies on drains to none (D-413)
+                i = -1
+                break
             path.append(i)
-            if len(path) > down.size:
-                raise ValueError("The flow direction raster holds a loop.")
+            seen.add(i)
             i = down[i]
         value = out[i] if i >= 0 and known[i] else -1
         for p in path:
@@ -2370,7 +2383,8 @@ def Basin(in_flow_direction_raster, analysis_target_device=None):
     INFERRED: basins are numbered from 1 in the scan order of their first cell; the page does not say how."""
     _refuse_environment("arcpy.sa.Basin")
     raster = _d8(in_flow_direction_raster, "Basin")
-    down = _downstream(raster)
+    # As the directions point: a pit's pair is one sink to Sink (Pro 3.7, 2026-11-08), so one basin here.
+    down = _downstream(raster, mutual_sinks=False)
     end = np.full(down.size, -1, np.int64)
     for start in range(down.size):
         if raster._mask.ravel()[start]:
