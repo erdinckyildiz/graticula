@@ -72,17 +72,48 @@ internal static class MigrationPlan
     /// Whether the source is a table — ADR-213 — which matches a table with no geometry column, as a layer matches one
     /// with.
     /// </param>
-    internal static (Table? Table, string Note) Match(string layerName, IReadOnlyList<Table> tables, bool isTable = false)
+    /// <param name="geometryType">
+    /// The source layer's <c>geometryType</c> (<c>esriGeometryPolygon</c> and so on), or null: several tables of one name
+    /// are narrowed to those whose geometry is of the same kind — D-385.
+    /// </param>
+    /// <param name="dataset">
+    /// The geodatabase dataset the source's manifest says the layer reads (<c>DB.OWNER.PARCELS</c>), or null. When given it
+    /// is the name matched, in place of the layer's, and its owner part narrows several tables of one name to the schema
+    /// of that name — D-385, ADR-081 Alternative C.
+    /// </param>
+    internal static (Table? Table, string Note) Match(
+        string layerName, IReadOnlyList<Table> tables, bool isTable = false, string? geometryType = null, string? dataset = null)
     {
-        string wanted = Normalise(layerName);
+        string wanted = Normalise(dataset ?? layerName);
+        string how = dataset is null ? "by name" : $"through the source's manifest, which names {dataset}";
         Table[] found = [.. tables.Where(t => (t.GeometryColumn is null) == isTable && Normalise(t.Name) == wanted)];
+
+        // D-385: a tie is narrowed by what the source says of the layer — its geometry's kind, and its dataset's owner —
+        // and is left a tie when that does not settle it.
+        if (found.Length > 1 && !isTable && KindOf(geometryType) is { } kind)
+        {
+            Table[] sameKind = [.. found.Where(t => KindOf(t.GeometryType) == kind)];
+            if (sameKind.Length > 0)
+            {
+                found = sameKind;
+            }
+        }
+
+        if (found.Length > 1 && OwnerOf(dataset) is { } owner)
+        {
+            Table[] owned = [.. found.Where(t => string.Equals(t.Schema, owner, StringComparison.OrdinalIgnoreCase))];
+            if (owned.Length == 1)
+            {
+                found = owned;
+            }
+        }
 
         return found.Length switch
         {
             1 when found[0].ObjectIdColumn is null => (null,
-                $"The table {found[0].Schema}.{found[0].Name} matches by name and has no integer object-id column, "
+                $"The table {found[0].Schema}.{found[0].Name} matches {how} and has no integer object-id column, "
                 + "so it cannot be served through the ArcGIS surface. Add one, or pick another table."),
-            1 => (found[0], $"Matched {found[0].Schema}.{found[0].Name} by name. Check it before applying."),
+            1 => (found[0], $"Matched {found[0].Schema}.{found[0].Name} {how}. Check it before applying."),
             0 => (null, isTable
                 ? "No table without a geometry column has this name. Fill in schema and table by hand, or leave it out."
                 : "No table with a geometry column has this name. Fill in schema and table by hand, or leave it out."),
@@ -91,6 +122,106 @@ internal static class MigrationPlan
                 + "Choose one by hand."),
         };
     }
+
+    /// <summary>A geometry's kind — point, line or polygon — from an Esri <c>geometryType</c> or a PostGIS type name.</summary>
+    internal static string? KindOf(string? geometryType)
+    {
+        string type = (geometryType ?? string.Empty).ToUpperInvariant().Replace("ESRIGEOMETRY", string.Empty, StringComparison.Ordinal);
+
+        return type switch
+        {
+            _ when type.Contains("POLYGON", StringComparison.Ordinal) || type.Contains("ENVELOPE", StringComparison.Ordinal)
+                || type.Contains("SURFACE", StringComparison.Ordinal) => "polygon",
+            _ when type.Contains("LINE", StringComparison.Ordinal) || type.Contains("CURVE", StringComparison.Ordinal) => "line",
+            _ when type.Contains("POINT", StringComparison.Ordinal) => "point",
+            _ => null,
+        };
+    }
+
+    /// <summary>The owner part of a geodatabase dataset's name — <c>GISOWNER</c> of <c>GISDB.GISOWNER.PARCELS</c> — or null.</summary>
+    internal static string? OwnerOf(string? dataset)
+    {
+        string[] parts = (dataset ?? string.Empty).Split('.');
+        return parts.Length >= 2 && parts[^2].Length > 0 ? parts[^2] : null;
+    }
+
+    /// <summary>
+    /// Which dataset of the service's manifest each layer reads, or null where that is not certain — D-385, ADR-081
+    /// Alternative C.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The manifest names a service's datasets, not which layer reads which</b>
+    /// (<c>/admin/services/&lt;service&gt;.MapServer/iteminfo/manifest/manifest.json</c>, <c>databases[].datasets[].onServerName</c>,
+    /// ArcGIS Server's Administrator API). So the pairing is made in two passes, and nothing is guessed: a layer whose
+    /// name matches exactly one dataset takes it; then, of what is left, a service with one layer and one dataset pairs
+    /// them, which is the common case of a layer renamed at publish time.
+    /// </para>
+    /// <para>
+    /// <b>Why it helps although it is still a name rule:</b> the dataset's name is the table's own, so the second step reads
+    /// the target's table by the name it really has rather than by a layer's label.
+    /// </para>
+    /// </remarks>
+    internal static string?[] PairWithManifest(IReadOnlyList<string> layerNames, IReadOnlyList<string> datasets)
+    {
+        string?[] paired = new string?[layerNames.Count];
+        HashSet<int> taken = [];
+
+        for (int i = 0; i < layerNames.Count; i++)
+        {
+            string wanted = Normalise(layerNames[i]);
+            int[] hits = [.. Enumerable.Range(0, datasets.Count).Where(d => Normalise(datasets[d]) == wanted)];
+
+            if (hits.Length == 1)
+            {
+                paired[i] = datasets[hits[0]];
+                taken.Add(hits[0]);
+            }
+        }
+
+        int[] layersLeft = [.. Enumerable.Range(0, layerNames.Count).Where(i => paired[i] is null)];
+        int[] datasetsLeft = [.. Enumerable.Range(0, datasets.Count).Where(d => !taken.Contains(d))];
+
+        if (layersLeft.Length == 1 && datasetsLeft.Length == 1)
+        {
+            paired[layersLeft[0]] = datasets[datasetsLeft[0]];
+        }
+
+        return paired;
+    }
+
+    /// <summary>The dataset names a manifest lists, in order and once each.</summary>
+    internal static IReadOnlyList<string> DatasetsOf(JsonElement manifest)
+    {
+        List<string> names = [];
+
+        if (manifest.ValueKind == JsonValueKind.Object
+            && manifest.TryGetProperty("databases", out JsonElement databases) && databases.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement database in databases.EnumerateArray())
+            {
+                if (database.TryGetProperty("datasets", out JsonElement datasets) && datasets.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement dataset in datasets.EnumerateArray())
+                    {
+                        string? name = Text(dataset, "onServerName") ?? Text(dataset, "onPremiseName");
+                        if (name is { Length: > 0 } && !names.Contains(name, StringComparer.OrdinalIgnoreCase))
+                        {
+                            names.Add(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>The Administrator API's services root beside a REST services root: <c>…/rest/services</c> to <c>…/admin/services</c>.</summary>
+    internal static string AdminServicesRoot(string services) =>
+        services.EndsWith("/rest/services", StringComparison.OrdinalIgnoreCase)
+            ? services[..^"/rest/services".Length] + "/admin/services"
+            : services + "/../admin/services";
 
     /// <summary>Every field whose alias says something its name does not.</summary>
     internal static IReadOnlyDictionary<string, string> AliasesOf(JsonElement layer)
@@ -211,7 +342,7 @@ internal static class MigrationPlan
         string services = InventoryScan.ServicesRoot(source);
 
         List<Entry> entries = [];
-        int unreadable = 0;
+        int unreadable = 0, manifests = 0, byManifest = 0;
         HashSet<string> featureServices = new(StringComparer.OrdinalIgnoreCase);
         List<(string Name, string Type)> listed = await ListAsync(http, services, token, cancellationToken).ConfigureAwait(false);
 
@@ -276,6 +407,8 @@ internal static class MigrationPlan
             string? folder = slash < 0 ? null : name[..slash];
             string service = slash < 0 ? name : name[(slash + 1)..];
 
+            List<(int Id, string Name, bool IsTable, JsonElement Layer)> read = [];
+
             foreach ((JsonElement listedLayer, bool isTable) in members)
             {
                 if (listedLayer.TryGetProperty("subLayerIds", out JsonElement children) && children.ValueKind == JsonValueKind.Array
@@ -314,7 +447,33 @@ internal static class MigrationPlan
                 }
 
                 string layerName = layer.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? $"{id}" : $"{id}";
-                (Table? match, string note) = Match(layerName, tables, isTable);
+                read.Add((id, layerName, isTable, layer));
+            }
+
+            // D-385, ADR-081 Alternative C: the service's manifest, where the source token may read it, says which datasets
+            // the service reads; each layer is matched by its dataset's name where that is certain, by its own otherwise.
+            IReadOnlyList<string>? datasets = token is { Length: > 0 }
+                ? await ManifestAsync(http, services, name, token, cancellationToken).ConfigureAwait(false)
+                : null;
+            string?[] fromManifest = datasets is { Count: > 0 }
+                ? PairWithManifest([.. read.Select(r => r.Name)], datasets)
+                : new string?[read.Count];
+            manifests += datasets is { Count: > 0 } ? 1 : 0;
+
+            for (int i = 0; i < read.Count; i++)
+            {
+                (int id, string layerName, bool isTable, JsonElement layer) = read[i];
+                string? geometryType = layer.TryGetProperty("geometryType", out JsonElement g) ? g.GetString() : null;
+                (Table? match, string note) = Match(layerName, tables, isTable, geometryType, fromManifest[i]);
+
+                // A dataset the manifest named that matches nothing here is said, and the layer's own name is tried.
+                if (match is null && fromManifest[i] is not null)
+                {
+                    (Table? byName, string nameNote) = Match(layerName, tables, isTable, geometryType);
+                    (match, note) = byName is not null ? (byName, nameNote) : (null, note);
+                }
+
+                byManifest += match is not null && note.Contains("manifest", StringComparison.Ordinal) ? 1 : 0;
 
                 entries.Add(new Entry(
                     service,
@@ -344,7 +503,8 @@ internal static class MigrationPlan
 
         int matched = entries.Count(e => e.Target is not null);
         await output.WriteLineAsync(
-            $"{entries.Count} layer(s) read from {source}; {matched} matched a table in '{named}' by name, "
+            $"{entries.Count} layer(s) read from {source}; {matched} matched a table in '{named}' "
+            + (manifests > 0 ? $"({byManifest} through the manifests of {manifests} service(s), the rest by name), " : "by name, ")
             + $"{entries.Count - matched} did not.\nThe plan is {path}. Read it, fill in or delete the unmatched ones, then run "
             + "`graticula tools migrate apply`. Nothing has been published.").ConfigureAwait(false);
 
@@ -502,6 +662,27 @@ internal static class MigrationPlan
         }
 
         return listed;
+    }
+
+    /// <summary>
+    /// The datasets a source service's manifest names, or null when it cannot be read — the token is not an
+    /// administrator's, the service has none, or the server is not an ArcGIS Server. Never a reason to stop the plan.
+    /// </summary>
+    private static async Task<IReadOnlyList<string>?> ManifestAsync(
+        HttpClient http, string services, string name, string token, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // The manifest is the MapServer's for a feature service too (measured 2026-11-05, 398 of 400 services).
+            JsonElement manifest = await InventoryScan.GetAsync(
+                http, $"{AdminServicesRoot(services)}/{name}.MapServer/iteminfo/manifest/manifest.json", token, cancellationToken)
+                .ConfigureAwait(false);
+            return DatasetsOf(manifest);
+        }
+        catch (Exception e) when (e is InvalidOperationException or HttpRequestException or JsonException or TaskCanceledException)
+        {
+            return null;
+        }
     }
 
     private static async Task<string> SignInAsync(HttpClient http, Uri target, CancellationToken cancellationToken)

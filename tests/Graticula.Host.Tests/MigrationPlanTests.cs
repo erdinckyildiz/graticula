@@ -117,4 +117,93 @@ public sealed class MigrationPlanTests
     {
         Assert.Equal("?pictures=keep", MigrationPlan.SymbologyQuery);
     }
+    /// <summary>
+    /// D-385: a tie by name is narrowed by the source layer's geometry kind, and left a tie when that does not settle it.
+    /// </summary>
+    [Fact]
+    public void A_tie_by_name_is_narrowed_by_the_layers_geometry_kind()
+    {
+        MigrationPlan.Table[] tables =
+        [
+            new("gis", "assets", "shape", 2952, "MULTIPOLYGON", "objectid"),
+            new("survey", "assets", "shape", 2952, "POINT", "objectid"),
+        ];
+
+        Assert.Equal("gis", MigrationPlan.Match("Assets", tables, geometryType: "esriGeometryPolygon").Table!.Schema);
+        Assert.Equal("survey", MigrationPlan.Match("Assets", tables, geometryType: "esriGeometryPoint").Table!.Schema);
+        Assert.Null(MigrationPlan.Match("Assets", tables).Table);
+        Assert.Null(MigrationPlan.Match("Assets", tables, geometryType: "esriGeometryPolyline").Table);
+
+        // Two of the same kind stay a tie: the kind narrows, it does not pick.
+        Assert.Null(MigrationPlan.Match("Hydrants", Tables, geometryType: "esriGeometryPoint").Table);
+    }
+
+    [Theory]
+    [InlineData("esriGeometryPolygon", "polygon")]
+    [InlineData("MULTIPOLYGON", "polygon")]
+    [InlineData("esriGeometryPolyline", "line")]
+    [InlineData("MULTILINESTRING", "line")]
+    [InlineData("esriGeometryMultipoint", "point")]
+    [InlineData("POINT", "point")]
+    [InlineData(null, null)]
+    [InlineData("GEOMETRY", null)]
+    public void A_geometry_kind_is_read_from_esri_and_postgis_names(string? type, string? kind) =>
+        Assert.Equal(kind, MigrationPlan.KindOf(type));
+
+    /// <summary>
+    /// D-385, ADR-081 Alternative C: the manifest's dataset is the table's own name, so a layer renamed at publish time
+    /// finds its table; the dataset's owner settles a tie between schemas.
+    /// </summary>
+    [Fact]
+    public void A_dataset_from_the_manifest_is_matched_in_place_of_the_layers_name()
+    {
+        (MigrationPlan.Table? table, string note) =
+            MigrationPlan.Match("Fire hydrants (2024)", Tables, geometryType: "esriGeometryPoint", dataset: "GISDB.STAGING.HYDRANTS");
+
+        Assert.Equal(("staging", "hydrants"), (table!.Schema, table.Name));
+        Assert.Contains("manifest", note, StringComparison.Ordinal);
+
+        // Without the manifest the same layer matches nothing.
+        Assert.Null(MigrationPlan.Match("Fire hydrants (2024)", Tables).Table);
+
+        // An owner that is no schema here leaves the tie as it was.
+        Assert.Null(MigrationPlan.Match("x", Tables, dataset: "GISDB.SDE.HYDRANTS").Table);
+    }
+
+    [Fact]
+    public void Layers_take_the_dataset_their_name_matches_and_a_last_one_left_takes_the_last_dataset()
+    {
+        // Two layers named as their datasets, one renamed: the renamed one takes the dataset left over.
+        Assert.Equal(
+            "GISDB.GIS.PARCELS|GISDB.GIS.ROAD_CENTRELINES|GISDB.GIS.WATER_MAINS",
+            Said(MigrationPlan.PairWithManifest(["Parcels", "Road centrelines", "Pipes"], ["GISDB.GIS.WATER_MAINS", "GISDB.GIS.PARCELS", "GISDB.GIS.ROAD_CENTRELINES"])));
+
+        // A service of one layer and one dataset: whatever the layer is called.
+        Assert.Equal("GISDB.GIS.WATER_MAINS", Said(MigrationPlan.PairWithManifest(["Network"], ["GISDB.GIS.WATER_MAINS"])));
+
+        // Two renamed layers and two datasets left: nothing is guessed.
+        Assert.Equal("-|-", Said(MigrationPlan.PairWithManifest(["North", "South"], ["GISDB.GIS.A", "GISDB.GIS.B"])));
+
+        // Two datasets of one name: neither layer takes one by name.
+        Assert.Equal("-|-", Said(MigrationPlan.PairWithManifest(["Parcels", "Other"], ["DB.A.PARCELS", "DB.B.PARCELS"])));
+    }
+
+    private static string Said(string?[] paired) => string.Join("|", paired.Select(p => p ?? "-"));
+
+    [Fact]
+    public void A_manifests_datasets_are_its_on_server_names_once_each()
+    {
+        using JsonDocument manifest = JsonDocument.Parse("""
+            {"databases":[
+              {"onServerConnectionString":"…","datasets":[{"onServerName":"GISDB.GIS.PARCELS"},{"onServerName":"GISDB.GIS.ROADS"}]},
+              {"datasets":[{"onPremiseName":"GISDB.GIS.WELLS"},{"onServerName":"gisdb.gis.parcels"}]}
+            ]}
+            """);
+
+        Assert.Equal(["GISDB.GIS.PARCELS", "GISDB.GIS.ROADS", "GISDB.GIS.WELLS"], MigrationPlan.DatasetsOf(manifest.RootElement));
+        Assert.Empty(MigrationPlan.DatasetsOf(JsonDocument.Parse("""{"error":{"code":403}}""").RootElement));
+        Assert.Equal("GISOWNER", MigrationPlan.OwnerOf("GISDB.GISOWNER.PARCELS"));
+        Assert.Null(MigrationPlan.OwnerOf("PARCELS"));
+        Assert.Equal("https://h/arcgis/admin/services", MigrationPlan.AdminServicesRoot("https://h/arcgis/rest/services"));
+    }
 }
