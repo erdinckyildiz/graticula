@@ -123,7 +123,14 @@ ADR-012 (site sweeps), ADR-270 §5.4, ADR-272 §5.7, D-386 (coarse levels).
 1. **The build is a service that takes a principal**, and the request path uses it unchanged. *(Discharged 2026-11-07: `MakeSceneFromAsync` takes the service already found and allowed; the request path finds and allows it as before, and the sweep allows only the owner's own or a public layer, §4.)*
 2. **The sweep**: a scene layer whose owner asked is rebuilt after its layer changes, and once only on a site of two
    nodes. *(Partly discharged 2026-11-07: the rebuild is measured, §4; once-per-site rests on the same singleton lease
-   every other sweep uses, and is not separately measured on two nodes.)*
+   every other sweep uses, and is not separately measured on two nodes.)* **DISCHARGED 2026-11-20** for the two-node
+   half: `ASceneLayerIsRebuiltOnceOnASiteOfTwoNodesTests.A_changed_layer_makes_its_scene_layer_again_once_on_the_node_that_leads_the_sweep`
+   starts two real server processes over one store, each sweeping every 2 seconds. A point is added through the node
+   that does **not** lead `scene-rebuilds`, so the change reaches the leader only through the store. The scene layer is
+   made again within seconds, and after five more passes of both nodes the leader has logged it once and the other node
+   never. **The control**, run by hand and not kept: with the sweep asking for the lease and then sweeping anyway, the
+   same test failed, the node that does not lead having made the layer again. Passed locally (PostgreSQL 16, Windows)
+   on 2026-11-20, with `ASiteOfTwoNodesTests.Each_site_sweep_runs_on_one_node_only` beside it.
 3. **Hosted layers record which rows changed since a time.** *(Discharged 2026-11-07 by being made unnecessary: the
    package's fingerprints say what changed, §4b. A per-row record would still save the reading of every feature, which
    is half of what a partial update now costs; that is a performance question with no measured need yet.)*
