@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -198,6 +199,68 @@ public sealed class ShareAsWebMapTests : ArcGisClient
         }
         finally
         {
+            await SendAsync(HttpMethod.Delete, $"/admin/groups/{name}");
+        }
+    }
+
+    /// <summary>
+    /// ADR-214 condition 2, the group half (2026-11-20): Pro's sharing engine overwrites with <c>shareItems</c>,
+    /// <c>groups=</c>, <c>everyone=false</c>, <c>account=false</c>, and the item stays in its group, as ArcGIS Enterprise
+    /// 2025.2 keeps it, rather than going private behind the group's back.
+    /// </summary>
+    [Fact]
+    public async Task A_share_form_naming_no_group_leaves_the_item_in_its_group()
+    {
+        string root = await RequireServerAsync();
+        string token = await TokenAsync(root) ?? throw new InvalidOperationException("No token: this test signs in.");
+        string name = $"zz_kept_group_{Guid.NewGuid():N}"[..24];
+
+        using (HttpRequestMessage make = new(HttpMethod.Post, $"{root}/admin/groups"))
+        {
+            make.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            make.Content = new StringContent(JsonSerializer.Serialize(new { name, title = name }), System.Text.Encoding.UTF8, "application/json");
+            using HttpResponseMessage made = await Http.SendAsync(make);
+            Assert.True(made.IsSuccessStatusCode, await made.Content.ReadAsStringAsync());
+        }
+
+        string? id = null;
+        try
+        {
+            JsonElement listing = await SendAsync(HttpMethod.Get, $"/sharing/rest/community/groups?q=title:{name}&num=100&f=json");
+            string group = listing.GetProperty("results")[0].GetProperty("id").GetString()!;
+
+            JsonElement added = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/addItem?f=json",
+                new Dictionary<string, string> { ["type"] = "Web Map", ["title"] = name, ["tags"] = "pro,share", ["text"] = Map });
+            id = added.GetProperty("id").GetString()!;
+
+            JsonElement toGroup = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/shareItems?f=json",
+                new Dictionary<string, string>
+                {
+                    ["items"] = id, ["groups"] = group, ["confirmItemControl"] = "true", ["everyone"] = "false", ["account"] = "false",
+                });
+            Assert.True(toGroup.GetProperty("results")[0].GetProperty("success").GetBoolean(), toGroup.GetRawText());
+            JsonElement shared = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/users/{User}/items/{id}?f=json");
+            Assert.Equal("shared", shared.GetProperty("sharing").GetProperty("access").GetString());
+
+            // Pro's overwrite with no group named — the exact form dev's capture recorded.
+            JsonElement overwrite = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/shareItems?f=json",
+                new Dictionary<string, string>
+                {
+                    ["items"] = id, ["groups"] = "", ["confirmItemControl"] = "true", ["everyone"] = "false", ["account"] = "false",
+                });
+            Assert.True(overwrite.GetProperty("results")[0].GetProperty("success").GetBoolean(), overwrite.GetRawText());
+
+            JsonElement after = await SendAsync(HttpMethod.Get, $"/sharing/rest/content/users/{User}/items/{id}?f=json");
+            Assert.Equal("shared", after.GetProperty("sharing").GetProperty("access").GetString());
+            Assert.Contains(group, after.GetProperty("sharing").GetProperty("groups").EnumerateArray().Select(g => g.GetString()));
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await SendAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+            }
+
             await SendAsync(HttpMethod.Delete, $"/admin/groups/{name}");
         }
     }
