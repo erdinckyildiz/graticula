@@ -104,7 +104,32 @@ ADR-254 (no GPL linked), ADR-280, ADR-281 §5.1, build-vs-adopt Tier 2.
    night: the test, renamed `…converts_obj_collada_and_fbx_models_and_refuses_one_it_cannot_read`, converts the same box
    as COLLADA and as ASCII FBX from `tests/Graticula.Console.Tests/corpus/`, each kept under its own hash.)*
 2. **Real files**: an FBX from a modelling tool, an IFC from a BIM tool and a USD, each converted or refused with its
-   reason. *(Open.)*
+   reason. *(Open.)* **PARTLY DISCHARGED 2026-11-20: each converted or refused, on Windows; the same run on the image's
+   own tools is written and has not run yet.** `tools/real-models.py` fetches five public models at pinned commits,
+   checks each by SHA-256, converts it by `ModelConverters`' own command line, and reads the glb back (triangles and
+   the box it fills). Nothing of them is committed. Measured on this machine:
+
+   | model | made by | licence | result |
+   |---|---|---|---|
+   | `maxPbrMaterial_metalRough.fbx` (Assimp's test models) | 3ds Max 2021, FBX SDK 2020 (ASCII FBX 7.7) | BSD-3-Clause | 12 triangles, 17.8 x 16.8 x 22.0, 4 ms |
+   | `spider.fbx` (Assimp's test models) | Blender 2.76 (binary FBX) | BSD-3-Clause | 1,368 triangles, 15,059 x 7,974 x 19,338 in the file's own units, 8 ms |
+   | `HHS Office/construction.ifc` (opensourceBIM/IFC-files) | Revit Architecture 2010 (IFC2x3) | CC BY-ND 4.0 | 63,624 triangles, 65.9 x 11.1 x 53.9 m, 10-13 s |
+   | `CarbonFrameBike.usdz` (usd-wg/assets) | a production model for AR Quick Look | CC BY-SA 4.0 | 135,648 triangles, 1.93 x 1.22 x 0.61 m, 2-3 s |
+   | `McUsd.usdz` (usd-wg/assets) | Mineways | CC BY-NC-SA 4.0 | **refused**: *"The file is not a USD stage this converter reads: Failed to parse USDA"* (tinyusdz requires `doubleSided` to be `uniform`) |
+
+   - **With which tools.** IFC by IfcConvert 0.9.0post1's `win64` build without its CGAL kernels, and USD by `usd2glb`
+     built here from the pinned tinyusdz commit: the shipped versions, on another platform. **FBX by Assimp 6.0.6's
+     Windows library** through its C API (`aiImportFile`, then `aiExportScene` as `glb2`), because the Windows release
+     ships no command-line tool. **That is not the image's Assimp**, which is Ubuntu's packaged `assimp-utils`, and
+     §4 saw Debian's 5.2.5 fail on a binary FBX. So the FBX rows say what Assimp can do, not yet what the image does.
+   - **What the server said.** The refused USDZ showed that the server's reason would have been a tinyusdz source path,
+     not usd2glb's sentence: `ModelConverters.Reason` now takes the converter's own sentence first
+     (`AModelConverterSaysWhyTests`, three tests).
+   - **The spider's size** is in its file's units, scaled by nothing. A model in centimetres would be placed a hundred
+     times too large. Whether to apply FBX's unit scale is for a real upload to show, not this run.
+   - **Owed**: CI's new step *real 3D models through the converters* runs the same script on the image's tools (amd64)
+     on the next push. The FBX rows accept either answer there, converted or refused with a reason, and print which;
+     its output is to be written here, and then this condition is discharged.
 3. **The image and the licence register** carry `assimp-utils`. *(Discharged 2026-11-07: `deploy/server.Dockerfile`,
    the CI job with a server, and [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md) §Assimp.)*
 4. **Behind the mesh layer's `uploadAssets`** (ADR-280), a non-glb asset type is converted there. *(Discharged

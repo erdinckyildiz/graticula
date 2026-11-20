@@ -698,6 +698,11 @@ internal static partial class AdminEndpoints
 
                 if (p.GetValueOrDefault("assetMaps") is { Length: > 0 } mapsText && JsonNode.Parse(mapsText) is JsonObject maps)
                 {
+                    // A feature given new asset maps by an edit loses the ones it had: "the existing geometry and the new
+                    // assetMaps are mutually exclusive" (applyEdits, ArcGIS REST API reference). Measured 2026-11-20: the
+                    // Maps SDK moves a model by an update with a new asset map and no delete of the old, and before this
+                    // every move left one more map on the feature, each answered by query3D and the asset map table.
+                    HashSet<string> replaced = new(StringComparer.Ordinal);
                     foreach ((string part, List<object> results) in new[] { ("adds", mapAdds), ("updates", mapUpdates) })
                     {
                         foreach (JsonNode? map in maps[part] as JsonArray ?? [])
@@ -711,6 +716,11 @@ internal static partial class AdminEndpoints
                                 return MeshError(400, held || hash is null
                                     ? "An asset map names a feature this edit does not hold."
                                     : "An asset map names a model that was not uploaded to this layer. Nothing was changed.");
+                            }
+
+                            if (replaced.Add(parent))
+                            {
+                                state.Maps.RemoveAll(m => m.Parent == parent && m.Gen < gen);
                             }
 
                             state.Maps.RemoveAll(m => m.Gid == gid);
