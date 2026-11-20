@@ -86,7 +86,15 @@ ADR-269, ADR-272 §5.5, ADR-273, ADR-274.
 ## 9. Conditions
 
 1. **A real-world archive** (a city's photogrammetry exported as `.3tz`) is drawn, and its size and node count are
-   recorded. *(Open.)*
+   recorded. *(Open.)* *(Still open 2026-11-20, for the owner: **no public city photogrammetry archive in `.3tz` under a
+   licence that allows use was found.** Searched: the format's own pages (Maxar's 3TZ specification, its IANA media
+   type, the Library of Congress's format description), Cesium's samples, and city open-data portals. What exists is
+   other formats: the City of Melbourne's textured mesh, 2018 and 2020, is CC BY as OBJ tiles and as SLPK
+   ([data.vic.gov.au](https://discover.data.vic.gov.au/dataset/city-of-melbourne-3d-textured-mesh-photomesh-2020));
+   Ordnance Survey's 3D Mesh sample is 3D Tiles under a trial licence for internal evaluation only. Converting
+   Melbourne's mesh to a `.3tz` here would measure our own conversion, not an archive a photogrammetry tool wrote, which
+   is what this condition asks. **For the owner**: an archive from a customer or a vendor trial that may be used for a
+   test, or a decision that a converted open mesh is enough.)*
 2. **3D Tiles 1.0 content** (b3dm): measured whether the SDK draws it, and the answer said where a 1.0 archive is
    added. *(Discharged 2026-11-07: an archive of the same box as b3dm in a 1.0 tileset was kept, served and loaded, and
    SDK 4.34 created no layer view for it. 1.0 content is not drawn, and adding one now says so. Drawing it is a
@@ -97,7 +105,14 @@ ADR-269, ADR-272 §5.5, ADR-273, ADR-274.
    same way, needs its own measurement. *(Measured 2026-11-07: 4.34's published typings have no `GaussianSplatLayer`;
    a module of that name is on the CDN but not public API. Gaussian splat waits on the move to SDK 5.x, ADR-273's
    revisit trigger. ~~Deferred with that decision.~~)* *(Taken up again 2026-11-07, ADR-281 §5.2: on 5.2 the scene viewer adds a splat tileset as a
-   splat layer, and Esri's sample is drawn. A splat archive of our own is refused, and is ADR-281 condition 2's rest.)*
+   splat layer, and Esri's sample is drawn. A splat archive of our own is refused, and is ADR-281 condition 2's rest.)* **DISCHARGED 2026-11-20**: the
+   rest was done the same night, and this condition was not told. ADR-281 condition 2 is discharged:
+   `GaussianSplatArchiveTests.A_splat_archive_is_served_and_drawn_as_a_splat_layer` uploads an SPZ archive this server
+   wrote, serves it from `3DTilesServer` and draws it as a splat layer on SDK 5.2; it passed again on 2026-11-20 against
+   the local fixture, with `TilesArchiveTests` beside it. **4.34 will not gain it**: checked 2026-11-20 on npm, the last
+   4.34 release is `@arcgis/core@4.34.8` (2025-11-14), whose package holds `layers/GaussianSplatLayer.js` but no
+   `GaussianSplatLayer.d.ts`, so the class is still not public API there; `5.2.7` (2026-11-19, the `latest` tag) has
+   both. 4.34 stays what an address naming 4.x loads, without splats (ADR-281 §5.2).
 4. **An archive's extent** from its root bounding volume, for the portal's `bbox` search. *(Discharged 2026-11-07 for a
    root `region`: `TilesetExtentAsync`, and `TilesArchiveTests` finds the archive by a box around it and not by one far
    away. A root bounded by a box or a sphere still has no extent, since placing it needs the root's transform.)*
