@@ -298,7 +298,15 @@ the requests a report makes, not a port to a library.
    bullets, multiline answers. Microsoft Word 16, hidden with alerts off, opened all twenty-five documents (thirteen merged,
    twelve single) without a repair prompt and exported each to PDF. What they needed is §5.12; the three not filled are
    refused at upload with their reasons. **Not done: LibreOffice**, which is not on this machine and was not installed
-   (the brief forbids installing software on it); the half of this condition it names stays open.
+   (the brief forbids installing software on it); the half of this condition it names stays open. *Read again 2026-11-20 (branch night-server), nothing left this
+   machine can do:* the Word half is whole (all twenty-five opened without a repair prompt), the three templates not filled
+   are refused at upload with their reasons, and LibreOffice is still not installed and may not be. A third reader that is not
+   Word did open all thirteen merged documents on 2026-11-20 — OfficeIMO, laying each out as a PDF (ADR-302 condition 1) —
+   which says the packages are well-formed enough for an independent Open XML reader; it is not LibreOffice and does not stand
+   in for it. **What remains: open the thirteen filled documents in LibreOffice** (`soffice --headless --convert-to pdf` on each
+   merged `.docx` in `D:\temp\report-templates\2026-11-17\out` is enough to see a repair or a refusal), on a machine
+   where it may be installed — the showcase's VPS has Docker, and an image with LibreOffice there would do it without
+   installing anything on this one.
 2. **The owner confirms the INFERRED list** of §5.9, (a) to (q), through [Q-237](../open-questions.md). **DISCHARGED 2026-11-17:** every point confirmed, (p) as Word only and (ac) the other way (§5.14).
 3. **PDF is decided** (Q-237): a converter adopted behind a port with its ADR, a Tier 1 layout, or Word only, written down. **DISCHARGED 2026-11-17:** Word only, by owner decision (§5.14) — and decided again the same evening the other way: a converter behind a port, with its ADR, [ADR-302](ADR-302-a-feature-report-is-also-a-pdf-laid-out-by-officeimo.md).
 4. **Maps are drawn** for `${location | map}` and `$shape` on ADR-265's renderer, or the refusal stays and is recorded as
