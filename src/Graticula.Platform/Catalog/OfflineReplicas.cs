@@ -14,7 +14,19 @@ namespace Graticula.Platform.Catalog;
 /// <param name="QueryOption">ArcGIS's <c>queryOption</c>: <c>useFilter</c>, <c>all</c> or <c>none</c>.</param>
 /// <param name="Where">The layer's filter, or empty for none.</param>
 /// <param name="UseGeometry">Whether the replica's geometry filters this layer.</param>
-public sealed record ReplicaLayer(int Id, long ServerGeneration, string QueryOption, string Where, bool UseGeometry);
+/// <param name="Own">
+/// D-401: the GlobalIDs (rows and attachments) an <c>upload</c>-only sync applied for this replica since its generation,
+/// each with the moment after it was applied. The generation stays put after such a sync, so the next download's window
+/// holds them; it leaves out each one the server has not changed since that moment, instead of sending the replica its own
+/// edits back. Emptied when the layer's generation advances; null or empty for none.
+/// </param>
+public sealed record ReplicaLayer(
+    int Id, long ServerGeneration, string QueryOption, string Where, bool UseGeometry, IReadOnlyList<OwnUpload>? Own = null);
+
+/// <summary>A row or attachment a replica uploaded without downloading — D-401.</summary>
+/// <param name="GlobalId">Its GlobalID.</param>
+/// <param name="At">The moment after the upload was applied, epoch milliseconds.</param>
+public sealed record OwnUpload(Guid GlobalId, long At);
 
 /// <summary>A replica registered by <c>createReplica</c> — ADR-288 §6, the registry.</summary>
 /// <param name="Id">The replica's id, which the client sends back on every sync.</param>

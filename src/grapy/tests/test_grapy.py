@@ -164,11 +164,16 @@ TOOLBOX = textwrap.dedent('''
 ''')
 
 
+# The temporary-file variables the server's ToolSandbox.StartInfo points at the run's directory (D-429).
+TEMPORARY_VARIABLES = ("SQLITE_TMPDIR", "TMPDIR", "TEMP", "TMP", "CPL_TMPDIR")
+
+
 def _run(directory, run, unfenced):
     with open(os.path.join(directory, "run.json"), "w") as out:
         json.dump(run, out)
     environment = {k: v for k, v in os.environ.items() if k in ("PATH", "SYSTEMROOT", "PYTHONPATH")}
     environment["PYTHONPATH"] = os.path.dirname(HERE)
+    environment.update({name: directory for name in TEMPORARY_VARIABLES})
     if unfenced:
         environment["GRAPY_UNFENCED"] = "1"
     # -c with the package's folder on the path, as the server's own launch puts it there (-I would ignore PYTHONPATH).
@@ -329,6 +334,46 @@ class TheFenceHolds(unittest.TestCase):
 
     def test_a_process_outside_the_runtime_is_refused(self):
         self.assertIn("PermissionError", self._hostile("process")["error"])
+
+    def test_a_layer_of_thousands_of_polygons_crosses_the_fence(self):
+        # D-429: 4,515 polygons failed as "unable to open database file" when SQLite spilled the GeoPackage write to
+        # /var/tmp, outside the fence; with the temporary variables at the run's directory, as the server starts it,
+        # they cross in and out again.
+        import math
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
+        with open(os.path.join(directory, "copy.pyt"), "w") as out:
+            out.write(textwrap.dedent('''
+                import grapy as arcpy
+
+                class Toolbox:
+                    def __init__(self):
+                        self.tools = [Copy]
+
+                class Copy:
+                    def getParameterInfo(self):
+                        return [arcpy.Parameter(name="in_features", datatype="GPFeatureRecordSetLayer"),
+                                arcpy.Parameter(name="out_features", datatype="GPFeatureRecordSetLayer", direction="Output")]
+
+                    def execute(self, parameters, messages):
+                        parameters[1].value = arcpy.management.CopyFeatures(parameters[0].valueAsText, "copy.gpkg").getOutput(0)
+            '''))
+        # Scattered, not in order: polygons inserted in spatial order grow the R-tree without the journal spilling.
+        import random
+        scatter = random.Random(1)
+        features = []
+        for i in range(6000):
+            x, y = 29 + scatter.random() * 0.1, 41 + scatter.random() * 0.05
+            ring = [[x + 0.0003 * math.cos(k * 0.4), y + 0.0003 * math.sin(k * 0.4)] for k in range(16)]
+            features.append({"type": "Feature", "properties": {"id": i, "name": f"building {i}"},
+                             "geometry": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}})
+        os.makedirs(os.path.join(directory, "inputs"))
+        with open(os.path.join(directory, "inputs", "in_features.geojson"), "w") as out:
+            json.dump({"type": "FeatureCollection", "features": features}, out)
+        result = _run(directory, {"mode": "run", "toolbox": "copy.pyt", "tool": "Copy",
+                                  "inputs": {"in_features": "inputs/in_features.geojson"}}, unfenced=False)
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["layers"]["out_features"]["count"], 6000)
 
 
 if __name__ == "__main__":

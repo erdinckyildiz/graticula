@@ -361,20 +361,22 @@ class Pairwise(_Folder):
         everything = arcpy.analysis.PairwiseBuffer(pts, os.path.join(self.directory, "b3.gpkg"), "10 Meters", "ALL")[0]
         self.assertEqual(len(self.read(everything, ["OID@"])), 1)
 
-    def test_a_geodesic_buffer_is_refused_rather_than_answered_planar(self):
+    def test_a_geodesic_buffer_is_geodesic_rather_than_planar(self):
         # Found while writing this test: method was accepted and ignored, so a GEODESIC request on Web Mercator data
-        # answered a planar disc — at 60° N twice the geodesic size. It is refused by name now, in each buffer tool.
+        # answered a planar disc — at 60° N twice the geodesic size. It was refused by name, and since D-397 it is
+        # built: a 10 m geodesic disc at 60° N covers 4 × π·10² m² of the Mercator plane, whose scale there is 2.
         pts = self.features("g", "POINT", [("a", point(0, 8399737.89))], [("kind", "TEXT")])
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.analysis.PairwiseBuffer(pts, os.path.join(self.directory, "g1.gpkg"), "10 Meters", method="GEODESIC")
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.analysis.Buffer(pts, os.path.join(self.directory, "g2.gpkg"), "10 Meters", method="GEODESIC")
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.analysis.MultipleRingBuffer(pts, os.path.join(self.directory, "g3.gpkg"), [10, 20], "Meters",
-                                              method="GEODESIC")
+        for tool, name in ((arcpy.analysis.PairwiseBuffer, "g1.gpkg"), (arcpy.analysis.Buffer, "g2.gpkg")):
+            disc = tool(pts, os.path.join(self.directory, name), "10 Meters", method="GEODESIC")[0]
+            (shape,), = self.read(disc, ["SHAPE@"])
+            self.assertAlmostEqual(shape.area / (4 * math.pi * 100), 1, delta=0.01)
+        rings = arcpy.analysis.MultipleRingBuffer(pts, os.path.join(self.directory, "g3.gpkg"), [10, 20], "Meters",
+                                                  method="GEODESIC")[0]
+        self.assertEqual(len(self.read(rings, ["OID@"])), 2)
         planar = arcpy.analysis.PairwiseBuffer(pts, os.path.join(self.directory, "g4.gpkg"), "10 Meters",
                                                method="PLANAR")[0]
-        self.assertEqual(len(self.read(planar, ["OID@"])), 1)
+        (shape,), = self.read(planar, ["SHAPE@"])
+        self.assertAlmostEqual(shape.area / (math.pi * 100), 1, delta=0.01)
 
     def test_table_select_answers_select(self):
         chosen = arcpy.analysis.TableSelect(self.squares, os.path.join(self.directory, "s.gpkg"), "kind = 'a'")[0]
