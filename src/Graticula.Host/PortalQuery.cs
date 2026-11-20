@@ -466,6 +466,14 @@ internal static class PortalQuery
                 // `-type:"Web Mapping Application"` to it. Exact matching found nothing for Pro's unquoted
                 // `type:Web Map`, so its basemap gallery was empty.
                 "type" => WordsOf(PortalQuery.Field(item, field), wanted),
+
+                // <b>A title is matched by its words — D-395, 2026-11-20.</b> `title:"hydrant*"` read as the title's start,
+                // so ArcGIS Field Maps' `((title:"hydrant*") OR (title:"hydrant"))` found nothing for *graticula-test
+                // hydrant tasks*. Measured read-only on an ArcGIS Enterprise 2025.2 portal the same night: `title:w`,
+                // `title:"w"`, `title:w*` and `title:"w*"` each find an item by a word in the middle of its title, or after
+                // an underscore; the first three letters of that word find it too, the middle of a word does not; and
+                // `title:"w1 w2"` finds it when the two words run in that order and not reversed.
+                "title" => TitleWordsOf(PortalQuery.Field(item, field), wanted),
                 _ => Same(PortalQuery.Field(item, field), wanted, prefix),
             };
         }
@@ -555,6 +563,62 @@ internal static class PortalQuery
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether the wanted words are a run of the title's words, each the start of its word, where a word is a run of
+    /// letters and digits — so <c>hydrant</c> and <c>hyd</c> are in <c>graticula-test hydrant tasks</c> and in
+    /// <c>Hydrant_Inspections</c>, <c>drant</c> is not, and <c>hydrant tasks</c> is while <c>tasks hydrant</c> is not.
+    /// </summary>
+    private static bool TitleWordsOf(object? actual, string wanted)
+    {
+        string[] have = LettersAndDigits(actual?.ToString() ?? string.Empty);
+        string[] want = LettersAndDigits(wanted);
+
+        if (want.Length == 0)
+        {
+            return false;
+        }
+
+        for (int start = 0; start + want.Length <= have.Length; start++)
+        {
+            bool all = true;
+
+            for (int i = 0; i < want.Length && all; i++)
+            {
+                all = have[start + i].StartsWith(want[i], StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (all)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string[] LettersAndDigits(string text)
+    {
+        List<string> words = [];
+        int at = -1;
+
+        for (int i = 0; i <= text.Length; i++)
+        {
+            bool inWord = i < text.Length && char.IsLetterOrDigit(text[i]);
+
+            if (inWord && at < 0)
+            {
+                at = i;
+            }
+            else if (!inWord && at >= 0)
+            {
+                words.Add(text[at..i]);
+                at = -1;
+            }
+        }
+
+        return [.. words];
     }
 
     /// <summary>
