@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>5b366563</code> · 2026-11-21 17:19</p>
+<p class="stamp">Şu commit’ten üretildi: <code>f19c037d</code> · 2026-11-21 17:22</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">293</div><div class="kpi-l">ADR</div><div class="kpi-n">95 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">737/776</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">28 canlı · 11 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">244 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">245 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">açık borç</div><div class="kpi-n">354 ödendi · 23 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-241</b> — [OWNER] Is ADR-214 condition 2 met by showing that Pro has no Share pane for an existing item?</p><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">49 madde</span></div><p><b>28 ADR conditions</b> outstanding across 22 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -469,7 +469,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-228</span><span class="owner">Owner</span></div><p>Which portal address owns the services at the root /rest/services?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-241</span><span class="owner">Owner</span></div><p>[OWNER] Is ADR-214 condition 2 met by showing that Pro has no Share pane for an existing item?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -680,6 +679,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>f19c037d</code><time>2026-11-21</time><span>Pro opens a web scene authored in Studio as it was authored; Pro has no Share pane for an existing item (ADR-270 condition 2, ADR-214 condition 2, ADR-073 amended)</span></li>
 <li><code>5b366563</code><time>2026-11-21</time><span>A quantization extent in another reference has its corner projected, as ArcGIS does (ADR-073)</span></li>
 <li><code>2708fbea</code><time>2026-11-20</time><span>v1.0.526: the night of 2026-11-20 — fourteen conditions and six debts closed, and what ArcGIS clients found on the way</span></li>
 <li><code>c4bc8b60</code><time>2026-11-18</time><span>The report PDF engine&#x27;s fonts stay out of /usr/share/fonts, which killed the server&#x27;s map drawing on arm64 (D-428, ADR-302)</span></li>
@@ -693,7 +693,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
 <li><code>c1a637ee</code><time>2026-11-15</time><span>Offline editing for hosted layers: Field Maps and Pro take Graticula maps offline and sync both ways, preplanned map areas, attachments that keep their GlobalID; Pro publishes by reference from its Share pane (ADR-288, ADR-290, ADR-299)</span></li>
 <li><code>70c68f2d</code><time>2026-11-12</time><span>grapy against ArcGIS Pro 3.7: the module-by-module sweep, and the owner&#x27;s four answers (ADR-289)</span></li>
-<li><code>df8d84a4</code><time>2026-11-10</time><span>README and the Pages front page say geocoding exists through an optional Photon (ADR-258)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
