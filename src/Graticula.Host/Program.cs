@@ -3086,6 +3086,20 @@ public static class Program
                     })
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>queryBins — ADR-309 §4.</b> The layer's features divided into bins of a numeric or date field. It is the
+            // layer query's own handler (the filters, the budget and the provider are the query's), told by this mark to
+            // read `bin` and answer buckets.
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryBins", ["GET", "POST"],
+                    (HttpContext context, string serviceName, int layerId, CatalogFallback catalog, ServiceContexts contexts,
+                        ILoggerFactory loggerFactory, HostSettings settings, IProjector projector, DatumShiftNotices datumShifts,
+                        CancellationToken cancellation) =>
+                    {
+                        context.Items[BinsKey] = true;
+                        return QueryAsync(context, serviceName, layerId, catalog, contexts, loggerFactory, settings, projector,
+                            datumShifts, cancellation);
+                    })
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The service's own query — V-82, 2026-09-23.</b> Several layers in one request, each
             // answered by the layer query above on a request of its own (ServiceQuery), so there is one
             // implementation of what a query means.
@@ -4213,6 +4227,24 @@ public static class Program
 
             default:
             {
+                // ADR-309 §4: the same statistics query, grouped by bin.
+                if (context.Items[BinRequestKey] is BinRequest binRequest)
+                {
+                    try
+                    {
+                        await Results.Json(await QueryBins.AnswerAsync(binRequest, query, summaries, cancellation).ConfigureAwait(false))
+                            .ExecuteAsync(context).ConfigureAwait(false);
+                    }
+                    catch (BinRefusedException refused)
+                    {
+                        await Results.Json(
+                            new { error = new { code = 400, message = refused.Message, details = Array.Empty<string>() } },
+                            statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+
                 IReadOnlyList<IReadOnlyDictionary<string, object?>> rows = await summaries
                     .StatisticsAsync(query, cancellation).ConfigureAwait(false);
 
@@ -5455,10 +5487,11 @@ public static class Program
     /// or null when it carries none.
     /// </summary>
     /// <remarks>
-    /// <b>Only the two whose omission changes what is written.</b> <c>gdbVersion</c> and
-    /// <c>sessionID</c> name a version and an edit session this server does not have, and the edit
-    /// they describe is the one applied to the only version there is, so ignoring them loses
-    /// nothing. <c>useGlobalIds=false</c> and an empty <c>attachments</c> ask for nothing extra.
+    /// <b>Only the two whose omission changes what is written.</b> <c>sessionID</c> names an edit session this server does
+    /// not have, and the edit it describes is the one applied to the only version there is, so ignoring it loses
+    /// nothing. <c>useGlobalIds=false</c> and an empty <c>attachments</c> ask for nothing extra. <b><c>gdbVersion</c> is
+    /// refused when it names a version other than the default since 2026-11-21 (ADR-309 §2)</b>: it was ignored on the same
+    /// argument, and an edit a client directed at another version would have been written to the default one.
     /// </remarks>
     internal static string? EditParameterRefusal(
         IFormCollection form, HttpContext context, bool globalIdsHonoured = false, bool expectedDatesHonoured = false)
@@ -5478,6 +5511,11 @@ public static class Program
         {
             return "expectedEditDates is compared by a layer's applyEdits, not by this operation. Send the updates to "
                 + "the layer's applyEdits.";
+        }
+
+        if (FeatureServerQueryParameters.GdbVersionRefusal(Field(form, context, "gdbVersion")) is { } versionRefusal)
+        {
+            return versionRefusal + " Nothing was applied.";
         }
 
         string? attachments = Field(form, context, "attachments")?.Trim();
@@ -6989,6 +7027,12 @@ public static class Program
     /// <summary>Marks a request that came in as <c>queryTopFeatures</c>.</summary>
     private const string TopFeaturesKey = "graticula.topFeatures";
 
+    /// <summary>Marks a request that came in as <c>queryBins</c> (ADR-309 §4).</summary>
+    private const string BinsKey = "graticula.queryBins";
+
+    /// <summary>Carries a <c>queryBins</c> request's parsed bins from the parameter step to the answer.</summary>
+    private const string BinRequestKey = "graticula.queryBins.request";
+
     private static async Task QueryAsync(
         HttpContext context,
         string serviceName,
@@ -7083,7 +7127,27 @@ public static class Program
         (IFeatureSource source, LayerDescription described) = await contexts
             .GetAsync(layer, cancellation).ConfigureAwait(false);
 
-        bool html = RestDirectory.WantsHtml(
+        bool binning = context.Items.ContainsKey(BinsKey);
+
+        // queryBins is a bin operation on a layer that has a source to ask: PostGIS (ADR-309 §4).
+        if (binning && !described.AnswersBins)
+        {
+            await Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = "queryBins is answered for PostGIS layers, hosted or registered. This layer is served by a source "
+                            + "that does not answer it (its document's queryBinsCapabilities is absent).",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        bool html = !binning && RestDirectory.WantsHtml(
             context.Request.Query["f"], context.Request.Headers.Accept);
 
         // <b>An empty query string in a browser is a request for the form.</b>
@@ -7115,9 +7179,26 @@ public static class Program
           why the POST route was mapped in the first place.
         */
         ArgumentsForQuery parameters = new(await ArcGisParameters.ReadAsync(context, cancellation).ConfigureAwait(false));
+        IQueryCollection forParser = parameters.All;
+
+        if (binning)
+        {
+            if (!QueryBins.TryRead(
+                    parameters.All, described.Fields, layer.Definition.IntegerIdentityColumn!,
+                    out BinRequest? bins, out IQueryCollection? shared, out string? binError))
+            {
+                await Results.Json(
+                    new { error = new { code = 400, message = binError, details = Array.Empty<string>() } },
+                    statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+                return;
+            }
+
+            context.Items[BinRequestKey] = bins;
+            forParser = shared!;
+        }
 
         if (!FeatureServerQueryParameters.TryParse(
-                parameters.All,
+                forParser,
                 layer.Definition.IntegerIdentityColumn!,
                 layer.Definition.Srid,
                 described.Fields,

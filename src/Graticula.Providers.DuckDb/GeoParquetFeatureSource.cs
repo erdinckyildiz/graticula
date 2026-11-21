@@ -352,6 +352,7 @@ public sealed class GeoParquetFeatureSource
             AnswersHaving = false,
             AnswersTopFeatures = false,
             AnswersCentroid = false,
+            AnswersBins = false,
             AnswersStatisticExpressions = false,
             AnswersRelations = _engine is not null,
         };

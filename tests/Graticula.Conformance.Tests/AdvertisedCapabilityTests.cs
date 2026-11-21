@@ -76,6 +76,14 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             "it names an operation of its own, `queryAttachments`, not a parameter of `query`, and "
             + "the fixture layer may hold no attachments; AttachmentsAreQueriedAndReplacedTests "
             + "drives it on a layer it makes and attaches to",
+        // ADR-309 §1: the three flags that follow queryAttachments' own parameters, driven where attachments exist.
+        ["supportsQueryAttachmentsCountOnly"] =
+            "a parameter of `queryAttachments`, not of `query`, and the fixture layer may hold no attachments; "
+            + "QueryAttachmentsBinsAndVersionsTests drives returnCountOnly on a layer it makes and attaches to",
+        ["supportsQueryAttachmentsWithReturnUrl"] =
+            "a parameter of `queryAttachments`, not of `query`; AttachmentsAreQueriedAndReplacedTests asks for returnUrl",
+        ["supportsQueryAttachmentOrderByFields"] =
+            "false: queryAttachments refuses orderByFields, which QueryAttachmentsBinsAndVersionsTests asserts",
         ["supportsTopFeaturesQuery"] =
             "it names an operation of its own, `queryTopFeatures`, not a parameter of `query`; "
             + "QueryTopFeaturesTests drives it against the same layer",
