@@ -122,6 +122,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         // ADR-010 §5.1a, 2026-09-29.
         ["StaleTileNotices._served"] = "one per service answered with a stale tile since the process started, so the catalogue bounds it",
         ["FeatureServerQueryWriter._fields"] = "one per column of the layer being queried; the writer is built per request and does not outlive it",
+        // ADR-309, 2026-11-21: tables of constants, written once.
+        ["AttachmentFilter.Fields"] = "fixed: the attachment properties an expression may name, written once",
+        ["QueryBins.FixedUnits"] = "fixed: the clock and week units a date bin takes, written once",
+        ["QueryBins.MonthUnits"] = "fixed: the calendar units a date bin takes, written once",
         ["InventoryScan.ServiceTypes"] = "fixed: the ArcGIS service types the inventory names, written once",
         ["OgcRecordsEndpoints._services"] = "one per service in the catalogue listing; built per records request and does not outlive it (ADR-177)",
         ["FeatureCollectionPbfWriter._fields"] = "one per column of the layer being queried; the pbf writer is built per request and does not outlive it",

@@ -165,9 +165,12 @@ internal static class AttachmentEndpoints
     /// parser, so it accepts and refuses exactly what <c>where</c> does, and it is combined with
     /// <c>objectIds</c> when both are sent. <c>globalIds</c> — the features' GlobalIDs, turned into object ids through
     /// the layer's own GlobalID column, and added to <c>objectIds</c> (<c>INFERRED</c>: the public reference does not say how
-    /// the two combine) — is accepted since 2026-11-15 (D-422). <c>attachmentsWhere</c>, <c>keywords</c> and
-    /// <c>size</c> are still refused rather than ignored: each narrows the answer, and a caller who sent
-    /// one and got every attachment would be answered a different question.
+    /// the two combine) — is accepted since 2026-11-15 (D-422). <c>returnCountOnly</c>, <c>attachmentsDefinitionExpression</c>
+    /// (the reference's name for the attachments filter), <c>size</c> as <c>min,max</c>, <c>resultOffset</c> and
+    /// <c>resultRecordCount</c> are read since 2026-11-21 (ADR-309 §1), and the last two page over attachments, or over features
+    /// when only counts are asked. <c>returnCountOnly</c> was ignored before that and the answer was a list, which is the
+    /// silent degradation ADR-008 §2 forbids. <c>attachmentsWhere</c> (not a REST name) and <c>orderByFields</c> are refused rather
+    /// than ignored: each shapes the answer, and a caller who sent one and got another would be answered a different question.
     /// </para>
     /// <para>
     /// <b>The same reads the per-feature listing makes</b>, one per feature, so the two cannot
@@ -200,17 +203,71 @@ internal static class AttachmentEndpoints
                 ? posted.ToString()
                 : context.Request.Query[key].ToString();
 
-        foreach (string narrowing in (string[])["attachmentsWhere", "size"])
+        // ADR-309 §1. `attachmentsWhere` is not the REST name (the reference's is `attachmentsDefinitionExpression`), and it
+        // stays refused, with the right name in the message, rather than becoming a second spelling nobody documented.
+        if (Value("attachmentsWhere").Trim().Length > 0)
         {
-            if (Value(narrowing).Trim().Length > 0)
+            await Refuse(context, 400,
+                "'attachmentsWhere' is not a queryAttachments parameter. The attachments filter is "
+                + "'attachmentsDefinitionExpression'.").ConfigureAwait(false);
+            return;
+        }
+
+        // Sorting the attachments is a 12.0 parameter this server does not implement, and it is refused rather than
+        // ignored: a caller who sent it and got another order was answered a different question.
+        if (Value("orderByFields").Trim().Length > 0)
+        {
+            await Refuse(context, 400,
+                "'orderByFields' is not supported by queryAttachments here, and it is refused rather than ignored, "
+                + "because it orders the answer. Attachments come back by feature, then by attachment id.").ConfigureAwait(false);
+            return;
+        }
+
+        AttachmentFilter? attachmentFilter = null;
+
+        if (Value("attachmentsDefinitionExpression").Trim() is { Length: > 0 } attachmentsExpression
+            && !AttachmentFilter.TryParse(attachmentsExpression, out attachmentFilter, out string? filterError))
+        {
+            await Refuse(context, 400, filterError!).ConfigureAwait(false);
+            return;
+        }
+
+        // `size=min,max`, in bytes; both ends inclusive (INFERRED: the reference gives the range and not its ends).
+        long? sizeLow = null;
+        long? sizeHigh = null;
+
+        if (Value("size").Trim() is { Length: > 0 } sizeText)
+        {
+            string[] ends = sizeText.Split(',', StringSplitOptions.TrimEntries);
+
+            if (ends.Length != 2
+                || !long.TryParse(ends[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out long low)
+                || !long.TryParse(ends[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out long high)
+                || low < 0 || high < low)
             {
-                await Refuse(context, 400,
-                    $"'{narrowing}' is not supported by queryAttachments here, and it is refused rather "
-                    + "than ignored, because it narrows the answer. Pass 'objectIds' — a query with "
-                    + "returnIdsOnly=true turns a where clause into them.").ConfigureAwait(false);
+                await Refuse(context, 400, "'size' is a range of bytes written 'min,max', such as 1000,15000.").ConfigureAwait(false);
                 return;
             }
+
+            sizeLow = low;
+            sizeHigh = high;
         }
+
+        if (!TryPage(Value("resultOffset"), "resultOffset", 0, out int offset, out string? pageError)
+            || !TryPage(Value("resultRecordCount"), "resultRecordCount", settings.MaximumRecordCount, out int pageSize, out pageError))
+        {
+            await Refuse(context, 400, pageError!).ConfigureAwait(false);
+            return;
+        }
+
+        if (pageSize > settings.MaximumRecordCount || pageSize < 1)
+        {
+            await Refuse(context, 400,
+                $"'resultRecordCount' must be between 1 and the layer's maxRecordCount, {settings.MaximumRecordCount}.").ConfigureAwait(false);
+            return;
+        }
+
+        bool countOnly = string.Equals(Value("returnCountOnly").Trim(), "true", StringComparison.OrdinalIgnoreCase);
 
         List<long> ids = [];
 
@@ -328,17 +385,52 @@ internal static class AttachmentEndpoints
             ? await ParentGlobalIdsAsync(context, resolved!, [.. ids.Distinct()], cancellation).ConfigureAwait(false)
             : new Dictionary<long, Guid>();
 
-        foreach (long id in ids.Distinct())
+        // Every attachment that passes the filters, in feature order and then attachment id, which is the order a
+        // page is cut from: a page that moved between requests would repeat and drop attachments.
+        List<(long Parent, AttachmentInfo Attachment)> kept = [];
+
+        foreach (long id in ids.Distinct().Order())
         {
             IReadOnlyList<AttachmentInfo> attachments =
                 await store.ListAsync(id, cancellation).ConfigureAwait(false);
 
-            object[] infos =
-            [
-                .. attachments
-                    .Where(a => types.Length == 0 || types.Any(t => Matches(a.ContentType, t)))
-                    .Where(a => keywordsAsked.Length == 0 || keywordsAsked.Contains(a.Keywords, StringComparer.Ordinal))
-                    .Select(a => (object)new
+            foreach (AttachmentInfo a in attachments.OrderBy(x => x.Id))
+            {
+                if ((types.Length == 0 || types.Any(t => Matches(a.ContentType, t)))
+                    && (keywordsAsked.Length == 0 || keywordsAsked.Contains(a.Keywords, StringComparer.OrdinalIgnoreCase))
+                    && (sizeLow is null || (a.Size >= sizeLow && a.Size <= sizeHigh))
+                    && (attachmentFilter is null || attachmentFilter.Matches(a)))
+                {
+                    kept.Add((id, a));
+                }
+            }
+        }
+
+        if (countOnly)
+        {
+            // Only a feature with an attachment is listed, as the reference says; a page counts features, because
+            // the answer has one entry per feature (INFERRED: the reference does not say what a page of counts is).
+            foreach (IGrouping<long, (long Parent, AttachmentInfo Attachment)> parent in kept.GroupBy(k => k.Parent).Skip(offset).Take(pageSize))
+            {
+                groups.Add(new
+                {
+                    parentObjectId = parent.Key,
+                    parentGlobalId = parents.TryGetValue(parent.Key, out Guid countedParent) ? GlobalIds.Braced(countedParent) : null,
+                    count = parent.Count(),
+                });
+            }
+        }
+        else
+        {
+            foreach (IGrouping<long, (long Parent, AttachmentInfo Attachment)> parent in kept.Skip(offset).Take(pageSize).GroupBy(k => k.Parent))
+            {
+                long id = parent.Key;
+
+                groups.Add(new
+                {
+                    parentObjectId = id,
+                    parentGlobalId = parents.TryGetValue(id, out Guid parentId) ? GlobalIds.Braced(parentId) : null,
+                    attachmentInfos = parent.Select(k => k.Attachment).Select(a => (object)new
                     {
                         id = a.Id,
                         globalId = names ? GlobalIds.Braced(OfflineReplicaShapes.AttachmentGlobalId(resolved!.Id, a.Id, a.GlobalId)) : null,
@@ -348,21 +440,26 @@ internal static class AttachmentEndpoints
                         keywords = a.Keywords,
                         exifInfo = (object?)null,
                         url = urls ? $"{layerUrl}/{id}/attachments/{a.Id}" : null,
-                    }),
-            ];
-
-            if (infos.Length > 0)
-            {
-                groups.Add(new
-                {
-                    parentObjectId = id,
-                    parentGlobalId = parents.TryGetValue(id, out Guid parentId) ? GlobalIds.Braced(parentId) : null,
-                    attachmentInfos = infos,
+                    }).ToArray(),
                 });
             }
         }
 
         await Results.Json(new { attachmentGroups = groups }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads a non-negative integer paging parameter, empty meaning its default.</summary>
+    private static bool TryPage(string text, string name, int fallback, out int value, out string? error)
+    {
+        error = null;
+        value = fallback;
+
+        if (text.Trim().Length == 0) { return true; }
+
+        if (int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value) && value >= 0) { return true; }
+
+        error = $"'{name}' must be a non-negative whole number.";
+        return false;
     }
 
     /// <summary>
