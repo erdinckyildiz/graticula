@@ -243,6 +243,75 @@ public sealed class AppendServiceAndRegisteredTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-310: a CSV of addresses appended with <c>appendSourceInfo</c> <c>locationType: address</c>. Refused naming the key
+    /// to set when there is no geocoder; with one, the located rows are written, the unlocated one is reported by its row
+    /// number and a bad template is refused before the engine is asked.
+    /// </summary>
+    [Fact]
+    public async Task A_csv_of_addresses_is_appended_by_the_geocoder_and_the_unlocated_row_is_reported()
+    {
+        string root = await RequireServerAsync();
+        string token = await TokenAsync(root) ?? throw new InvalidOperationException("No token: this test signs in.");
+        string service = $"zz_addrapp_{Guid.NewGuid():N}"[..20];
+
+        await DefineAsync(token, root, service, service);
+
+        string address = $"{root}/rest/services/hosted/{service}/FeatureServer";
+
+        (HttpStatusCode locator, _) = await SendAsync(token, HttpMethod.Get, $"{root}/rest/services/Utilities/Geocode/GeocodeServer?f=json");
+        bool geocoder = locator == HttpStatusCode.OK;
+
+        try
+        {
+            string csv = "name,addr,city\nKizilay,Kizilay,Ankara\nNowhere,Zzzzz Qqqqq,\nKizilay two,Kizilay Ankara,\n";
+            string id = await UploadAsync(address, token, csv, "addresses.csv");
+
+            (HttpStatusCode appended, string body) = await PostFormAsync(token, $"{address}/0/append", new()
+            {
+                ["appendUploadId"] = id, ["appendUploadFormat"] = "csv", ["f"] = "json",
+                ["appendSourceInfo"] = "{\"type\":\"csv\",\"locationType\":\"address\",\"addressFields\":{\"Address\":\"addr\",\"City\":\"city\"}}",
+            });
+
+            if (!geocoder)
+            {
+                Assert.True(appended == HttpStatusCode.BadRequest, $"Addresses with no geocoder answered {(int)appended}: {body}");
+                Assert.Contains("Graticula:Geocoding:PhotonUrl", body, StringComparison.Ordinal);
+                Assert.Equal(0, await CountAsync(token, address, 0));
+                return;
+            }
+
+            Assert.True(appended == HttpStatusCode.OK, $"append by address answered {(int)appended}: {body}");
+
+            JsonElement said = JsonDocument.Parse(body).RootElement;
+            JsonElement report = said.GetProperty("geocoding");
+
+            Assert.Equal(2, said.GetProperty("recordCount").GetInt32());
+            Assert.Equal(3, report.GetProperty("rows").GetInt32());
+            Assert.Equal(2, report.GetProperty("matchedCount").GetInt32());
+            Assert.Equal(1, report.GetProperty("unmatchedCount").GetInt32());
+            Assert.Equal([2], report.GetProperty("unmatchedRows").EnumerateArray().Select(r => r.GetInt32()));
+            Assert.Equal(2, await CountAsync(token, address, 0));
+
+            // A template that names a column the table does not have is refused before the engine is asked.
+            string second = await UploadAsync(address, token, csv, "addresses.csv");
+
+            (HttpStatusCode wrong, string wrongBody) = await PostFormAsync(token, $"{address}/0/append", new()
+            {
+                ["appendUploadId"] = second, ["appendUploadFormat"] = "csv", ["f"] = "json",
+                ["appendSourceInfo"] = "{\"locationType\":\"address\",\"addressTemplate\":\"{street}\"}",
+            });
+
+            Assert.True(wrong == HttpStatusCode.BadRequest, $"A template naming no column answered {(int)wrong}: {wrongBody}");
+            Assert.Contains("street", wrongBody, StringComparison.Ordinal);
+            Assert.Equal(2, await CountAsync(token, address, 0));
+        }
+        finally
+        {
+            await DropServiceAsync(token, root, service);
+        }
+    }
+
     [Fact]
     public async Task A_registered_layer_is_appended_to_through_its_writer_and_truncate_and_upsert_are_refused()
     {

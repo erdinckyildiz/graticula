@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Formats;
+using Graticula.Host.Geocoding;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
@@ -274,14 +275,14 @@ internal static partial class ArcGisAppendEndpoints
 
         loaded.Spend();
 
-        await Results.Json(new
+        await Results.Json(WithGeocoding(context, new Dictionary<string, object?>
         {
-            layerName = written.Layer.Definition.Name,
-            submissionTime = submitted.ToUnixTimeMilliseconds(),
-            lastUpdatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            recordCount = written.Records,
-            status = "Completed",
-        }).ExecuteAsync(context).ConfigureAwait(false);
+            ["layerName"] = written.Layer.Definition.Name,
+            ["submissionTime"] = submitted.ToUnixTimeMilliseconds(),
+            ["lastUpdatedTime"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ["recordCount"] = written.Records,
+            ["status"] = "Completed",
+        })).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -394,22 +395,22 @@ internal static partial class ArcGisAppendEndpoints
 
         loaded.Spend();
 
-        await Results.Json(new
+        await Results.Json(WithGeocoding(context, new Dictionary<string, object?>
         {
-            recordCount = done.Sum(w => w.Records),
-            layers = done.Select(w => new
+            ["recordCount"] = done.Sum(w => w.Records),
+            ["layers"] = done.Select(w => new
             {
                 recordCount = w.Records,
                 attachmentCount = 0,
                 id = w.Layer.LayerIndex,
                 layerName = w.Layer.Definition.Name,
             }),
-            operationName = "append",
-            lastUpdatedTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            layerName = done[^1].Layer.Definition.Name,
-            submissionTime = submitted.ToUnixTimeMilliseconds(),
-            status = "Completed",
-        }).ExecuteAsync(context).ConfigureAwait(false);
+            ["operationName"] = "append",
+            ["lastUpdatedTime"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            ["layerName"] = done[^1].Layer.Definition.Name,
+            ["submissionTime"] = submitted.ToUnixTimeMilliseconds(),
+            ["status"] = "Completed",
+        })).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -489,6 +490,86 @@ internal static partial class ArcGisAppendEndpoints
         }
 
         return ids;
+    }
+
+    /// <summary>
+    /// An answer with what the geocoder did to a table of addresses, when one was geocoded: how many rows were asked, how
+    /// many were located, and which were not (ADR-310).
+    /// </summary>
+    private static Dictionary<string, object?> WithGeocoding(HttpContext context, Dictionary<string, object?> answer)
+    {
+        if (AddressGeocoding.ReportOf(context) is { } report)
+        {
+            answer["geocoding"] = AddressGeocoding.Describe(report);
+        }
+
+        return answer;
+    }
+
+    /// <summary>
+    /// The form with what <c>appendSourceInfo</c> says of a CSV or a workbook put where the reader reads it: the coordinate
+    /// columns as <c>x</c> and <c>y</c>, <c>sourceSR</c> as <c>srid</c>, and for <c>locationType</c> <c>address</c> the
+    /// address template or columns and the country (ADR-310). The parameter is the one the portal's analyze returns, which
+    /// is where a client takes it from; what it names that this server does not read is passed over, as publish passes
+    /// over the rest of <c>publishParameters</c>.
+    /// </summary>
+    private static IFormCollection WithSourceInfo(IFormCollection form, out string? why)
+    {
+        why = null;
+        string json = form["appendSourceInfo"].ToString();
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return form;
+        }
+
+        Dictionary<string, Microsoft.Extensions.Primitives.StringValues> merged = form.ToDictionary(p => p.Key, p => p.Value);
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                why = "'appendSourceInfo' is a JSON object, as the portal's analyze returns it.";
+                return form;
+            }
+
+            static string? Text(JsonElement on, string name) =>
+                on.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } s
+                    ? s.Trim()
+                    : null;
+
+            void Put(string key, string? value)
+            {
+                if (value is not null && merged.GetValueOrDefault(key).ToString().Length == 0) merged[key] = value;
+            }
+
+            Put("locationType", Text(root, "locationType"));
+            Put("x", Text(root, "longitudeFieldName"));
+            Put("y", Text(root, "latitudeFieldName"));
+            Put("addressTemplate", Text(root, "addressTemplate"));
+            Put("sourceCountry", Text(root, "sourceCountry"));
+
+            if (root.TryGetProperty("addressFields", out JsonElement fields) && fields.ValueKind == JsonValueKind.Object)
+            {
+                Put("addressFields", fields.GetRawText());
+            }
+
+            if (root.TryGetProperty("sourceSR", out JsonElement sr) && sr.ValueKind == JsonValueKind.Object
+                && (sr.TryGetProperty("latestWkid", out JsonElement wkid) || sr.TryGetProperty("wkid", out wkid))
+                && wkid.TryGetInt32(out int srid) && srid > 0)
+            {
+                Put("srid", srid.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+        catch (JsonException e)
+        {
+            why = $"'appendSourceInfo' is not JSON: {e.Message}";
+        }
+
+        return new FormCollection(merged);
     }
 
     /// <summary>The form of an append, or the query string's parameters when it was not posted as one.</summary>
@@ -615,6 +696,14 @@ internal static partial class ArcGisAppendEndpoints
         HttpContext context, IFormCollection form, string format, IJobStore jobs, JobSignal signal, GeodatabaseReader reader,
         ImportScratch scratch, CancellationToken cancellation)
     {
+        form = WithSourceInfo(form, out string? sourceInfoWhy);
+
+        if (sourceInfoWhy is not null)
+        {
+            await RefuseAsync(context, 400, sourceInfoWhy).ConfigureAwait(false);
+            return null;
+        }
+
         string id = form["appendUploadId"].ToString().Trim();
         string itemId = form["appendItemId"].ToString().Trim();
         RequestPrincipal? caller = context.Features.Get<RequestPrincipal>();

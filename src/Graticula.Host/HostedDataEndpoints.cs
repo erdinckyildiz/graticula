@@ -486,6 +486,11 @@ internal static class HostedDataEndpoints
             id = published.Id,
             name,
             warning,
+
+            // ADR-310: what the geocoder did to a table of addresses, when it was asked to.
+            geocoding = Graticula.Host.Geocoding.AddressGeocoding.ReportOf(context) is { } located
+                ? Graticula.Host.Geocoding.AddressGeocoding.Describe(located)
+                : null,
             table = $"{result.SchemaName}.{result.TableName}",
             rows = result.Rows,
             geometryType = dataset!.GeometryType.ToString(),
@@ -914,6 +919,9 @@ internal static class HostedDataEndpoints
                     @out = json,
                     x = form["x"].ToString() is { Length: > 0 } x ? x : null,
                     y = form["y"].ToString() is { Length: > 0 } y ? y : null,
+
+                    // ADR-310: a table of addresses has no coordinates to find; its rows are located after they are read.
+                    geometryOptional = Graticula.Host.Geocoding.AddressGeocoding.Asked(form),
                 },
                 ShapefileViaReader.Deadline,
                 cancellation).ConfigureAwait(false))
@@ -943,7 +951,8 @@ internal static class HostedDataEndpoints
             }
 
             (ImportedDataset? read, string? readError) = await ShapefileViaReader.ReadAsync(
-                reader, json, srid, null, Limits(context), cancellation).ConfigureAwait(false);
+                reader, json, srid, null, Limits(context), cancellation,
+                locatedLater: Graticula.Host.Geocoding.AddressGeocoding.Asked(form)).ConfigureAwait(false);
 
             if (read is null)
             {
@@ -951,7 +960,10 @@ internal static class HostedDataEndpoints
                 return null;
             }
 
-            return read;
+            // ADR-310: `locationType=address` — the rows are located by the geocoder the operator configured, or refused.
+            return Graticula.Host.Geocoding.AddressGeocoding.Asked(form)
+                ? await Graticula.Host.Geocoding.AddressGeocoding.ApplyAsync(context, form, read, cancellation).ConfigureAwait(false)
+                : read;
         }
         finally
         {
@@ -2498,6 +2510,9 @@ internal static class HostedDataEndpoints
             matched = result.Matched,
             ignored = result.Ignored,
             transformed = result.Transformed,
+            geocoding = Graticula.Host.Geocoding.AddressGeocoding.ReportOf(context) is { } located
+                ? Graticula.Host.Geocoding.AddressGeocoding.Describe(located)
+                : null,
             note = (replace
                     ? $"Every feature of this layer was replaced by the file's {result.Rows}. Object ids keep counting from where they were."
                     : upsert is not null
