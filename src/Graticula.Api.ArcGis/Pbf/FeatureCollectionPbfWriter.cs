@@ -91,6 +91,14 @@ public sealed class FeatureCollectionPbfWriter
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(quantization);
 
+        if (quantization.OriginSrid is int foreign)
+        {
+            throw new ArgumentException(
+                $"The grid's origin is still in wkid {foreign}; project it into the response's reference "
+                + "(PbfQuantization.WithOrigin) before writing, or every coordinate decodes somewhere else.",
+                nameof(quantization));
+        }
+
         FeatureSchema schema = source.SchemaFor(query);
         int objectIdIndex = schema.IndexOf(_layer.IntegerIdentityColumn!);
 

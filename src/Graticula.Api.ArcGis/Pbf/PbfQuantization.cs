@@ -48,6 +48,33 @@ public sealed record PbfQuantization
     public required bool View { get; init; }
 
     /// <summary>
+    /// The reference <see cref="OriginX"/> and <see cref="OriginY"/> are still in, when the caller's extent named
+    /// one other than the response's; null once they are in the response's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A grid with this set must not be written with.</b> Its origin is a corner in other units; the caller
+    /// projects that one point into the response's reference and clears this (<see cref="WithOrigin"/>) before
+    /// any coordinate is placed on the grid. Parsing cannot do it, because the projector is asynchronous and this
+    /// type has no reference to one.
+    /// </para>
+    /// <para>
+    /// <b>Why the corner is projected rather than refused — measured 2026-11-21.</b> The ArcGIS Maps SDK's 3D
+    /// feature tile fetcher sends the layer's own extent, in the layer's own reference, with <c>outSR=102100</c>:
+    /// against a GeoParquet layer stored in 4326 every tile was refused, and Studio's scene viewer drew nothing.
+    /// ArcGIS Online answers the same request, and its <c>transform.translate</c> is the extent's upper-left
+    /// corner projected to Web Mercator — (-179.984°, 66.416°) became (-20035727.23, 9991640.25). This server
+    /// now does the same.
+    /// </para>
+    /// </remarks>
+    public int? OriginSrid { get; init; }
+
+    /// <summary>The same grid with its origin in the response's reference.</summary>
+    /// <param name="x">The origin's x, projected.</param>
+    /// <param name="y">The origin's y, projected.</param>
+    public PbfQuantization WithOrigin(double x, double y) => this with { OriginX = x, OriginY = y, OriginSrid = null };
+
+    /// <summary>
     /// The cell size for Z and M, which <c>quantizationParameters</c> has no field for — ADR-077 §9.
     /// </summary>
     /// <remarks>
@@ -87,9 +114,11 @@ public sealed record PbfQuantization
     /// <param name="error">Why it was refused, when this returns false.</param>
     /// <returns>Whether the value could be used.</returns>
     /// <remarks>
-    /// <b>An extent in another reference is refused rather than transformed.</b> Its corner would be
-    /// the origin of a grid in different units, and every coordinate would decode somewhere else with
-    /// no error to say so.
+    /// <b>An extent in another reference is kept with its reference, not used as it is.</b> Its corner
+    /// would be the origin of a grid in different units, and every coordinate would decode somewhere
+    /// else with no error to say so; so the grid comes back with <see cref="OriginSrid"/> set and the
+    /// caller projects the corner (ArcGIS does the same — see <see cref="OriginSrid"/>). Until
+    /// 2026-11-21 such an extent was refused, which ADR-073 had decided before any 3D client asked.
     /// </remarks>
     public static bool TryParse(string? json, int outputSrid, out PbfQuantization? quantization, out string? error)
     {
@@ -163,6 +192,7 @@ public sealed record PbfQuantization
 
             double originX = 0;
             double originY = 0;
+            int? originSrid = null;
 
             if (root.TryGetProperty("extent", out JsonElement extent) && extent.ValueKind == JsonValueKind.Object)
             {
@@ -181,11 +211,13 @@ public sealed record PbfQuantization
                     && code != outputSrid
                     && !(IsWebMercator(code) && IsWebMercator(outputSrid)))
                 {
-                    error =
-                        $"quantizationParameters extent is in wkid {code} and the response is written in {outputSrid}. "
-                        + "Its corner would be the origin of a grid in other units, so it is refused rather than "
-                        + "used; send the extent in the output reference, or outSR to match it.";
-                    return false;
+                    if (code <= 0)
+                    {
+                        error = $"quantizationParameters extent names wkid {code}, which is not a reference.";
+                        return false;
+                    }
+
+                    originSrid = code;
                 }
 
                 originX = xmin;
@@ -199,6 +231,7 @@ public sealed record PbfQuantization
                 OriginY = originY,
                 UpperLeft = upperLeft,
                 View = view,
+                OriginSrid = originSrid,
             };
 
             return true;
