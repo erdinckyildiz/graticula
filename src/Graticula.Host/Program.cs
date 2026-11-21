@@ -4547,6 +4547,9 @@ public static class Program
         // ADR-288: a sync-enabled hosted service says so, and offers Sync to a caller who may edit it.
         document = SyncFlags.ApplyToService(context, document, service);
 
+        // ADR-310: a service with a hosted layer takes the service-level append, and says so once it does.
+        document = AppendFlags.Apply(context, document, service);
+
         // The portal item this face is, as ArcGIS's service documents name it (ServiceItem).
         string serviceItemId = PortalEndpoints.ItemIdOf(service, "FeatureServer");
         document = ServiceItem.Apply(context, document, serviceItemId);
@@ -6048,7 +6051,7 @@ public static class Program
     /// questions of every layer it names. A second copy of these checks is how one surface comes
     /// to allow an edit the other refuses.
     /// </remarks>
-    private static async Task<(LayerDescription Description, ApplyEditsRequest.Parsed Parsed, EditBatch Batch)?> PrepareEditAsync(
+    internal static async Task<(LayerDescription Description, ApplyEditsRequest.Parsed Parsed, EditBatch Batch)?> PrepareEditAsync(
         HttpContext context,
         PublishedLayer layer,
         string? adds,
@@ -6270,7 +6273,7 @@ public static class Program
             || requested;
     }
 
-    private static Task AuditEditsAsync(
+    internal static Task AuditEditsAsync(
         HttpContext context,
         IAuditLog audit,
         string layerName,
