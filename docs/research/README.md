@@ -27,6 +27,7 @@ Planned topics, in priority order:
 | `hosted-datastore-and-tiles.md` | Own MVT encoder, cache as the equaliser, optional managed datastore — **written**, proposal |
 | `runtime-schema-evolution.md` | How ArcGIS changes a live layer's schema, and what it costs — **written**, first pass |
 | `arcgis-datastore-model.md` | ArcGIS Data Store and reference-registered data — **written**, and it corrects two earlier notes |
+| `enterprise-12-2-gap.md` | Graticula against ArcGIS Enterprise 12.2, item by item, and the three planning bands the owner accepted on 2026-11-21 — **written** |
 | `spatial-dialects.md` | PostGIS vs SQL Server Spatial vs Oracle Spatial: function coverage, indexing, SRID handling, validity semantics — **not started, now high priority** |
 | `rendering-engines.md` | Skia, Cairo, MapLibre Native — **written, first pass, deliberately thin** |
 
