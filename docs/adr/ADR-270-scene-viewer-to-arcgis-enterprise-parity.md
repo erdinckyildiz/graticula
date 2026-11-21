@@ -290,6 +290,21 @@ viewer authors lives in the web scene item ADR-269 keeps.
    window only, and the owner was using the machine all session. A person: author a scene in Studio on dev with a styled
    layer, a pop-up and two slides, then in Pro Catalog › Portal › the scene › Add and Open, and compare the renderer, the
    pop-up and Pro's bookmarks (Pro makes slides bookmarks) with what was authored.)*
+   **DISCHARGED 2026-11-21, on dev, with the owner's leave to take the desktop (*"Pro ile başla. İzin verdim"*).** The
+   scene was authored in Studio's scene viewer through the page's own code — `scRendererFor` for the look (extruded 30 m,
+   coloured in four natural-break classes of `way_area`), the pop-up form's `PopupTemplate` shape (title `{name}`, `name`
+   and `way_area` shown), the Slide button's `Slide.createFrom` + `scCaptureElements` twice, and `scSave` — on
+   `istanbul_areas`, so what Pro read is what the SDK's `WebScene.toJSON` wrote. Driven in headless Chrome rather than
+   by hand: the form's controls were not clicked, their functions were called with the values they would carry. Pro 3.7,
+   Catalog › Portal › the scene › *Add And Open*, then a `saveACopy` from Pro's Python pane and the layer's CIM read back:
+   the renderer is a `CIMClassBreaksRenderer` on `way_area` with the same four upper bounds and the same four fill colours
+   (e.g. [239,206,202] → [239,206,202,100]); the edges' transparency 65 is alpha 35; the symbol's 30 m extrude became the
+   layer's `CIMFeatureExtrusion` *Base*, expression `30`, metres; the pop-up's title is `{name}` and its table shows `name`
+   and `way_area`; the two slides are bookmarks *Istanbul* and *Sultanahmet* at the same camera positions and heights,
+   with tilt written as Pro's pitch (`tilt − 90`: 45 → −45, 60 → −30) and heading with the opposite sign (30 → −30) —
+   a convention, not a loss. **Found on the way, not by Pro:** Studio's own scene viewer drew none of the layer, because
+   this server refused the SDK's 3D tile queries (`quantizationParameters` extent in 4326 with `outSR=102100`); fixed by
+   the ADR-073 amendment of the same day. Pro's own queries for the layer were answered (133 × 200).
 3. **The parity with ArcGIS Online and Enterprise is written down**, item by item, with what is built, what is not and
    why, in [3d-parity-arcgis.md](../reviews/3d-parity-arcgis.md). *(Discharged 2026-11-06: written from ArcGIS Online's
    pages and Enterprise 11.4's Scene Viewer page, every row cited; the gaps it found are each built, owed, or listed for

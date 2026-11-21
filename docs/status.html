@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>1a0c4387</code> · 2026-11-20 18:14</p>
+<p class="stamp">Generated from commit <code>5b366563</code> · 2026-11-21 17:19</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">293</div><div class="kpi-l">ADRs</div><div class="kpi-n">95 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">735/776</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">30 live · 11 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">244 answered</div></div>
+<div class="kpi good"><div class="kpi-v">737/776</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">28 live · 11 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">open questions</div><div class="kpi-n">244 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">open debts</div><div class="kpi-n">354 repaid · 23 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">7231</div><div class="kpi-l">tests</div><div class="kpi-n">758 source files, 337,016 lines</div></div>
+<div class="kpi good"><div class="kpi-v">7233</div><div class="kpi-l">tests</div><div class="kpi-n">758 source files, 337,087 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">2 open</span></div><p><b>Q-241</b> — [OWNER] Is ADR-214 condition 2 met by showing that Pro has no Share pane for an existing item?</p><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">51 items</span></div><p><b>30 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">49 items</span></div><p><b>28 ADR conditions</b> outstanding across 22 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -145,12 +145,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-270 · Scenes to ArcGIS Enterprise&#x27;s leve</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -384,7 +382,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">211</td><td>Tables of an attached DuckDB file or MotherDuck database are edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">212</td><td>Editor tracking and attachments on every registered database&#x27;s layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/2</td></tr>
 <tr><td class="id">213</td><td>A layer may be a table: ArcGIS&#x27;s standalone table</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">10/10</td></tr>
-<tr><td class="id">214</td><td>The portal&#x27;s item writes do what they answer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
+<tr><td class="id">214</td><td>The portal&#x27;s item writes do what they answer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">215</td><td>What ArcGIS ignores is not refused</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">216</td><td>The organisation has one id, at every address</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">217</td><td>A versioned or archived geodatabase class is refused, not served wrongly</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
@@ -440,7 +438,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">267</td><td>An item carries metadata and comments</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the wire shapes are Esri&#x27;s public REST reference and the ArcGIS API for Python,…</td><td class="num">3/3</td></tr>
 <tr><td class="id">268</td><td>A PDF&#x27;s first page is its picture, drawn by PDFium in the import reader</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the payload and the isolation, measured, and for the width, which the owner…</td><td class="num">2/2</td></tr>
 <tr><td class="id">269</td><td>Scenes: web scenes are saved, scene layer packages are served, and the server writes I3S from hosted layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
-<tr><td class="id">270</td><td>Scenes to ArcGIS Enterprise&#x27;s level: Scene Viewer&#x27;s tools, and what a scene layer is made from</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
+<tr><td class="id">270</td><td>Scenes to ArcGIS Enterprise&#x27;s level: Scene Viewer&#x27;s tools, and what a scene layer is made from</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
 <tr><td class="id">271</td><td>The portal&#x27;s search answers `bbox`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
 <tr><td class="id">272</td><td>The owner&#x27;s decisions on 3D scope, 2026-11-07</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">273</td><td>The Maps SDK the console loads is 4.34</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -471,6 +469,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-228</span><span class="owner">Owner</span></div><p>Which portal address owns the services at the root /rest/services?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-241</span><span class="owner">Owner</span></div><p>[OWNER] Is ADR-214 condition 2 met by showing that Pro has no Share pane for an existing item?</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -620,10 +619,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2583</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:39.1%"></div></div><div class="bar-n">1011</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:38.3%"></div></div><div class="bar-n">990</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:38.4%"></div></div><div class="bar-n">991</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.1%"></div></div><div class="bar-n">649</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:23.6%"></div></div><div class="bar-n">609</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.0%"></div></div><div class="bar-n">465</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.0%"></div></div><div class="bar-n">466</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:9.5%"></div></div><div class="bar-n">245</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:5.1%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:4.8%"></div></div><div class="bar-n">124</div></div>
@@ -681,20 +680,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>1a0c4387</code><time>2026-11-20</time><span>An FBX is converted to metres by its own unit scale, by owner decision (ADR-282 §5.5)</span></li>
-<li><code>19f5a5df</code><time>2026-11-20</time><span>An upload-only sync is remembered from the millisecond after it ended, so its own writes are not sent back (D-401)</span></li>
-<li><code>61d8c54e</code><time>2026-11-20</time><span>The status page catches up with the night&#x27;s five branches</span></li>
-<li><code>9efac324</code><time>2026-11-20</time><span>Merge night-pro</span></li>
-<li><code>ce218db5</code><time>2026-11-20</time><span>ADR-083 condition 2 discharged by ArcGIS Map Viewer&#x27;s date filter; D-301 half reversed, D-430 opened</span></li>
-<li><code>dffacf02</code><time>2026-11-20</time><span>A grouped expression may be ordered by as written, as ArcGIS Online answers it (ADR-083 condition 2)</span></li>
-<li><code>8118097f</code><time>2026-11-20</time><span>A count of 1 is a count of rows, as Map Viewer counts a histogram&#x27;s buckets (ADR-083 condition 2)</span></li>
-<li><code>9b73bcfb</code><time>2026-11-20</time><span>CASE WHEN ... THEN ... ELSE ... END is an expression, as Map Viewer buckets a date histogram (ADR-083 condition 2)</span></li>
-<li><code>a4865fd5</code><time>2026-11-20</time><span>PostgreSQL&#x27;s days between two dates are a double, so Map Viewer&#x27;s date variance does not overflow (ADR-083 condition 2)</span></li>
-<li><code>42789bb5</code><time>2026-11-20</time><span>A date minus a date is the days between them, as ArcGIS&#x27;s standardized SQL has it (ADR-083 condition 2)</span></li>
-<li><code>4b33b3c6</code><time>2026-11-20</time><span>Merge night-server</span></li>
-<li><code>58768501</code><time>2026-11-20</time><span>Merge night-grapy</span></li>
-<li><code>96b593ff</code><time>2026-11-20</time><span>Merge night-storage</span></li>
-<li><code>51b4341c</code><time>2026-11-20</time><span>Merge night-3d</span></li>
+<li><code>5b366563</code><time>2026-11-21</time><span>A quantization extent in another reference has its corner projected, as ArcGIS does (ADR-073)</span></li>
+<li><code>2708fbea</code><time>2026-11-20</time><span>v1.0.526: the night of 2026-11-20 — fourteen conditions and six debts closed, and what ArcGIS clients found on the way</span></li>
+<li><code>c4bc8b60</code><time>2026-11-18</time><span>The report PDF engine&#x27;s fonts stay out of /usr/share/fonts, which killed the server&#x27;s map drawing on arm64 (D-428, ADR-302)</span></li>
+<li><code>c466ebed</code><time>2026-11-17</time><span>A feature report can also be a PDF, laid out by OfficeIMO in a child process (ADR-302); Q-240 answered</span></li>
+<li><code>f51d428d</code><time>2026-11-17</time><span>Forms: feature reports, the question types real forms still needed, and scripts in a sandbox (ADR-301, ADR-287 sections 5.26-5.29)</span></li>
+<li><code>bd7a0958</code><time>2026-11-17</time><span>Forms: the Inbox, barcode, search() and pulldata(&quot;@layer&quot;), and annotate (ADR-300, ADR-287 sections 5.22-5.25)</span></li>
+<li><code>79d90218</code><time>2026-11-16</time><span>A view&#x27;s attachments answer only for the rows it shows, and only where it offers Query (ADR-113)</span></li>
+<li><code>fe24dd41</code><time>2026-11-16</time><span>Forms: the work Survey123 does, in Graticula&#x27;s own browser client (ADR-287)</span></li>
+<li><code>f9b1b49a</code><time>2026-11-15</time><span>D-425 is Pro&#x27;s, not this server&#x27;s: a control with Esri&#x27;s sample sync service and Esri&#x27;s basemap stops the same way (ADR-288 condition 4)</span></li>
+<li><code>55ae5329</code><time>2026-11-15</time><span>Linux builds with the .NET 10 SDK too, and global.json pins it everywhere</span></li>
+<li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
+<li><code>c1a637ee</code><time>2026-11-15</time><span>Offline editing for hosted layers: Field Maps and Pro take Graticula maps offline and sync both ways, preplanned map areas, attachments that keep their GlobalID; Pro publishes by reference from its Share pane (ADR-288, ADR-290, ADR-299)</span></li>
+<li><code>70c68f2d</code><time>2026-11-12</time><span>grapy against ArcGIS Pro 3.7: the module-by-module sweep, and the owner&#x27;s four answers (ADR-289)</span></li>
+<li><code>df8d84a4</code><time>2026-11-10</time><span>README and the Pages front page say geocoding exists through an optional Photon (ADR-258)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
