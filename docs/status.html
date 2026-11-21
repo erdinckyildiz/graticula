@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f19c037d</code> · 2026-11-21 17:22</p>
+<p class="stamp">Generated from commit <code>934ca581</code> · 2026-11-22 00:03</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">293</div><div class="kpi-l">ADRs</div><div class="kpi-n">95 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">295</div><div class="kpi-l">ADRs</div><div class="kpi-n">96 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">737/776</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">28 live · 11 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">245 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">open debts</div><div class="kpi-n">354 repaid · 23 waiting on a trigger · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">25</div><div class="kpi-l">open debts</div><div class="kpi-n">354 repaid · 23 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/93</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">7233</div><div class="kpi-l">tests</div><div class="kpi-n">758 source files, 337,087 lines</div></div>
+<div class="kpi good"><div class="kpi-v">7322</div><div class="kpi-l">tests</div><div class="kpi-n">763 source files, 339,906 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">49 items</span></div><p><b>28 ADR conditions</b> outstanding across 22 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">57 items</span></div><p><b>28 ADR conditions</b> outstanding across 22 decisions — the largest commitment on this page.</p><p><b>25 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -464,6 +464,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">301</td><td>A feature report is a Word template filled per record, by the server&#x27;s own engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the syntax is Survey123&#x27;s public documentation and every part of it built is…</td><td class="num">3/5</td></tr>
 <tr><td class="id">302</td><td>A feature report is also a PDF, laid out by OfficeIMO in a child process</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — thirteen public Survey123 templates, filled and laid out on Windows and on the…</td><td class="num">2/3</td></tr>
 <tr><td class="id">304</td><td>grapy&#x27;s tool outputs carry z and m as ArcGIS Pro&#x27;s do</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
+<tr><td class="id">309</td><td>The 12.2 query gaps are closed where the public reference says how, and refused by name where it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
+<tr><td class="id">310</td><td>Append on the service, into registered layers, and from addresses</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the routes are tested end to end against a running server, the geocoder against…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -513,6 +515,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-418</td><td>EQUIVALENT algorithms whose results differ from Pro&#x27;s.</td><td class="muted-t">Esri publishes a rule, or a user reports a result that matters</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-419</td><td>Pro sweep names not compared on this machine.</td><td class="muted-t">A fixture, licence or environment that makes one comparable</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-430</td><td>A grouped expression&#x27;s column is Expr1 here and EXPR1 in ArcGIS Online.</td><td class="muted-t">A client observed reading the grouped column by name, or an Enterprise 11.x/12 hosted layer&#x27;s answer</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-460</td><td>lodBin (queryBins) and outDistance (layer query), both new at ArcGIS Enterprise 12.2, are refused by name because no public page defines them.</td><td class="muted-t">The public Query Bins or Query page defines either parameter — implement it from that text the same day</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-461</td><td>queryBins answers the documented core on PostGIS only, and refuses the rest by name.</td><td class="muted-t">A client or a Dashboards widget observed sending one of the refused parameters, or queryBins asked of a non-PostGIS…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-462</td><td>queryAttachments does not sort and reads no EXIF.</td><td class="muted-t">A client observed sending orderByFields to an attachment query, a layer whose attachment tables make the in-memory…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-463</td><td>A non-default gdbVersion is refused here where ArcGIS ignores it on a layer that says isDataVersioned: false.</td><td class="muted-t">A client observed sending a non-default gdbVersion to a non-versioned layer and expecting an answer (a map authored…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-464</td><td>A service-level append is one transaction per layer, not one for the service.</td><td class="muted-t">A client reports a service left partly appended, or a run against the real ArcGIS client expects rollbackOnFailure to…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-465</td><td>An append into a registered layer is an applyEdits batch, so it is bounded by the edit ceiling and cannot upsert or truncate.</td><td class="muted-t">Somebody appends more rows to a registered layer than the ceiling allows and cannot split the file, or asks for upsert…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-466</td><td>A publish by address does not tell its caller which rows were not located.</td><td class="muted-t">A user publishes a CSV of addresses and is surprised by the count.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-467</td><td>JSON Lines is read as one GeoJSON feature per line, and that is INFERRED.</td><td class="muted-t">A client sends JSON Lines this reader refuses, or Esri documents the line.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">354 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -616,21 +626,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2583</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:39.1%"></div></div><div class="bar-n">1011</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:38.4%"></div></div><div class="bar-n">991</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:25.1%"></div></div><div class="bar-n">649</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:23.6%"></div></div><div class="bar-n">609</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:18.0%"></div></div><div class="bar-n">466</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:9.5%"></div></div><div class="bar-n">245</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:5.1%"></div></div><div class="bar-n">131</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:4.8%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">106</div></div>
-<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">70</div></div>
-<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.3%"></div></div><div class="bar-n">59</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">2658</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:38.0%"></div></div><div class="bar-n">1011</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:37.8%"></div></div><div class="bar-n">1005</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.4%"></div></div><div class="bar-n">649</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:22.9%"></div></div><div class="bar-n">609</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:17.5%"></div></div><div class="bar-n">466</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:9.2%"></div></div><div class="bar-n">245</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:4.9%"></div></div><div class="bar-n">131</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.0%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:2.6%"></div></div><div class="bar-n">70</div></div>
+<div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:2.2%"></div></div><div class="bar-n">59</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">50</div></div>
-<div class="bar"><div class="bar-l">Offline.Sqlite</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">43</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">43</div></div>
+<div class="bar"><div class="bar-l">Offline.Sqlite</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">43</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.1%"></div></div><div class="bar-n">29</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:0.9%"></div></div><div class="bar-n">24</div></div>
 </div></section>
@@ -679,8 +689,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>f19c037d</code><time>2026-11-21</time><span>Pro opens a web scene authored in Studio as it was authored; Pro has no Share pane for an existing item (ADR-270 condition 2, ADR-214 condition 2, ADR-073 amended)</span></li>
-<li><code>5b366563</code><time>2026-11-21</time><span>A quantization extent in another reference has its corner projected, as ArcGIS does (ADR-073)</span></li>
+<li><code>934ca581</code><time>2026-11-22</time><span>Merge branch &#x27;gap-query&#x27; into gap-122</span></li>
+<li><code>ae83f904</code><time>2026-11-21</time><span>ADR-309: the 12.2 query gaps are closed where the public reference says how, and refused by name where it does not; debts D-460 to D-463</span></li>
+<li><code>6049ccca</code><time>2026-11-21</time><span>queryAttachments counts and filters, gdbVersion is refused, outDistance and lodBin are refused by name, queryBins is answered (ADR-309)</span></li>
+<li><code>71d05630</code><time>2026-11-21</time><span>docs: the owner chose all four band-2 groups for the Enterprise 12.2 plan; order INFERRED</span></li>
+<li><code>b556493c</code><time>2026-11-21</time><span>docs: Graticula against ArcGIS Enterprise 12.2, and the planning bands the owner accepted</span></li>
+<li><code>2ad90825</code><time>2026-11-21</time><span>v1.0.527: Pro opens a web scene authored in Studio as it was authored, and Studio&#x27;s scene viewer draws a layer stored in 4326 (ADR-270 c2, ADR-214 c2, ADR-073 amended)</span></li>
 <li><code>2708fbea</code><time>2026-11-20</time><span>v1.0.526: the night of 2026-11-20 — fourteen conditions and six debts closed, and what ArcGIS clients found on the way</span></li>
 <li><code>c4bc8b60</code><time>2026-11-18</time><span>The report PDF engine&#x27;s fonts stay out of /usr/share/fonts, which killed the server&#x27;s map drawing on arm64 (D-428, ADR-302)</span></li>
 <li><code>c466ebed</code><time>2026-11-17</time><span>A feature report can also be a PDF, laid out by OfficeIMO in a child process (ADR-302); Q-240 answered</span></li>
@@ -689,10 +703,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>79d90218</code><time>2026-11-16</time><span>A view&#x27;s attachments answer only for the rows it shows, and only where it offers Query (ADR-113)</span></li>
 <li><code>fe24dd41</code><time>2026-11-16</time><span>Forms: the work Survey123 does, in Graticula&#x27;s own browser client (ADR-287)</span></li>
 <li><code>f9b1b49a</code><time>2026-11-15</time><span>D-425 is Pro&#x27;s, not this server&#x27;s: a control with Esri&#x27;s sample sync service and Esri&#x27;s basemap stops the same way (ADR-288 condition 4)</span></li>
-<li><code>55ae5329</code><time>2026-11-15</time><span>Linux builds with the .NET 10 SDK too, and global.json pins it everywhere</span></li>
-<li><code>4e60dd44</code><time>2026-11-15</time><span>BasemapTargetsAsync awaits nothing, so it returns a completed task</span></li>
-<li><code>c1a637ee</code><time>2026-11-15</time><span>Offline editing for hosted layers: Field Maps and Pro take Graticula maps offline and sync both ways, preplanned map areas, attachments that keep their GlobalID; Pro publishes by reference from its Share pane (ADR-288, ADR-290, ADR-299)</span></li>
-<li><code>70c68f2d</code><time>2026-11-12</time><span>grapy against ArcGIS Pro 3.7: the module-by-module sweep, and the owner&#x27;s four answers (ADR-289)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

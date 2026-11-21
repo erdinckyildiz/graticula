@@ -115,7 +115,7 @@ internal static partial class GeocodeServerEndpoints
         && string.Equals(folder, GeocoderSettings.Folder, StringComparison.OrdinalIgnoreCase)
         && Allowed(settings, current);
 
-    private static bool Allowed(GeocoderSettings settings, RequestPrincipal current) =>
+    internal static bool Allowed(GeocoderSettings settings, RequestPrincipal current) =>
         LayerAccess.Evaluate(settings.Sharing, null, current.Principal, current.Authorization).IsAllowed();
 
     private const string RefusalMessage =
@@ -534,76 +534,17 @@ internal static partial class GeocodeServerEndpoints
         }
 
         string? language = p("langCode");
-        (GeocodePlace Place, double Score)?[] best = new (GeocodePlace, double)?[records.Count];
-        int succeeded = 0;
-        int failed = 0;
-        string? down = null;
-
-        using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        (GeocodePlace Place, double Score)?[] best;
 
         try
         {
-            await Parallel.ForEachAsync(
-                    Enumerable.Range(0, records.Count),
-                    new ParallelOptions { MaxDegreeOfParallelism = GeocoderSettings.BatchConcurrency, CancellationToken = stop.Token },
-                    async (i, token) =>
-                    {
-                        string line = records[i].Line;
-
-                        if (line.Length == 0)
-                        {
-                            return;
-                        }
-
-                        try
-                        {
-                            IReadOnlyList<GeocodePlace> places = await geocoder.SearchAsync(
-                                    new GeocodeSearch(line, BatchCandidates, null, within, language, kinds, countries), token)
-                                .ConfigureAwait(false);
-
-                            Interlocked.Increment(ref succeeded);
-
-                            // The first of the best, so Photon's ranking settles a tie, as findAddressCandidates does.
-                            (GeocodePlace Place, double Score)? top = null;
-
-                            foreach (GeocodePlace place in places)
-                            {
-                                double score = GeocodeServerWriter.Score(line, place);
-
-                                if (score > 0 && (top is null || score > top.Value.Score))
-                                {
-                                    top = (place, score);
-                                }
-                            }
-
-                            best[i] = top;
-                        }
-                        catch (GeocoderUnavailableException e)
-                        {
-                            int failures = Interlocked.Increment(ref failed);
-
-                            if (Volatile.Read(ref succeeded) == 0 && failures >= GeocoderSettings.BatchConcurrency)
-                            {
-                                Interlocked.CompareExchange(ref down, e.Message, null);
-                                await stop.CancelAsync().ConfigureAwait(false);
-                            }
-                            else if (Volatile.Read(ref succeeded) == 0)
-                            {
-                                Interlocked.CompareExchange(ref down, e.Message, null);
-                            }
-                        }
-                    })
+            best = await BestAsync(geocoder, [.. records.Select(r => r.Line)], within, language, kinds, countries, cancellation)
                 .ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested && down is not null)
+        catch (GeocoderUnavailableException e)
         {
-            // The engine is down; answered below.
-        }
-
-        // Nothing the engine was asked was answered: that is the engine, not the records.
-        if (succeeded == 0 && failed > 0)
-        {
-            return Unavailable(context, new GeocoderUnavailableException(down ?? "The geocoder did not answer."));
+            // Nothing the engine was asked was answered: that is the engine, not the records.
+            return Unavailable(context, e);
         }
 
         List<double> lonLat = [];
@@ -667,6 +608,100 @@ internal static partial class GeocodeServerEndpoints
             ["spatialReference"] = GeocodeServerWriter.SpatialReference(outWkid),
             ["locations"] = locations,
         });
+    }
+
+    /// <summary>
+    /// The best candidate for each line, or null where the engine found none that matches — shared by
+    /// <c>geocodeAddresses</c> and by a table of addresses appended or published (ADR-310).
+    /// </summary>
+    /// <remarks>
+    /// <b>Bounded against the engine</b>: at most <see cref="GeocoderSettings.BatchConcurrency"/> lines are asked at once,
+    /// each with the configured deadline. One line's failure is that line's — unmatched — while the rest are answered;
+    /// <b>an engine that is down is the batch's</b>: when the first lines asked have all failed and none has succeeded the
+    /// remaining ones are not sent and <see cref="GeocoderUnavailableException"/> is thrown, rather than a table of a
+    /// thousand unmatched rows after a thousand timeouts. An empty line is not asked.
+    /// </remarks>
+    internal static async Task<(GeocodePlace Place, double Score)?[]> BestAsync(
+        IGeocoder geocoder,
+        IReadOnlyList<string> lines,
+        GeocodeBox? within,
+        string? language,
+        IReadOnlySet<GeocodePlaceKind>? kinds,
+        IReadOnlySet<string>? countries,
+        CancellationToken cancellation)
+    {
+        (GeocodePlace Place, double Score)?[] best = new (GeocodePlace, double)?[lines.Count];
+        int succeeded = 0;
+        int failed = 0;
+        string? down = null;
+
+        using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+
+        try
+        {
+            await Parallel.ForEachAsync(
+                    Enumerable.Range(0, lines.Count),
+                    new ParallelOptions { MaxDegreeOfParallelism = GeocoderSettings.BatchConcurrency, CancellationToken = stop.Token },
+                    async (i, token) =>
+                    {
+                        string line = lines[i];
+
+                        if (line.Length == 0)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            IReadOnlyList<GeocodePlace> places = await geocoder.SearchAsync(
+                                    new GeocodeSearch(line, BatchCandidates, null, within, language, kinds, countries), token)
+                                .ConfigureAwait(false);
+
+                            Interlocked.Increment(ref succeeded);
+
+                            // The first of the best, so Photon's ranking settles a tie, as findAddressCandidates does.
+                            (GeocodePlace Place, double Score)? top = null;
+
+                            foreach (GeocodePlace place in places)
+                            {
+                                double score = GeocodeServerWriter.Score(line, place);
+
+                                if (score > 0 && (top is null || score > top.Value.Score))
+                                {
+                                    top = (place, score);
+                                }
+                            }
+
+                            best[i] = top;
+                        }
+                        catch (GeocoderUnavailableException e)
+                        {
+                            int failures = Interlocked.Increment(ref failed);
+
+                            if (Volatile.Read(ref succeeded) == 0 && failures >= GeocoderSettings.BatchConcurrency)
+                            {
+                                Interlocked.CompareExchange(ref down, e.Message, null);
+                                await stop.CancelAsync().ConfigureAwait(false);
+                            }
+                            else if (Volatile.Read(ref succeeded) == 0)
+                            {
+                                Interlocked.CompareExchange(ref down, e.Message, null);
+                            }
+                        }
+                    })
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellation.IsCancellationRequested && down is not null)
+        {
+            // The engine is down; thrown below.
+        }
+
+        if (succeeded == 0 && failed > 0)
+        {
+            throw new GeocoderUnavailableException(down ?? "The geocoder did not answer.");
+        }
+
+        return best;
     }
 
     /// <summary>How many places the engine is asked for per batch record; the best of them is the answer.</summary>
