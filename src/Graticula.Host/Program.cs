@@ -7219,14 +7219,44 @@ public static class Program
                 ? "outStatistics is answered as json only: f=pbf carries features, counts, ids and extents here."
                 : null;
 
+            int outputSrid = query!.OutSrid ?? layer.Definition.Srid;
+
             if (refused is null
                 && !PbfQuantization.TryParse(
                     parameters.All["quantizationParameters"].ToString(),
-                    query!.OutSrid ?? layer.Definition.Srid,
+                    outputSrid,
                     out quantization,
                     out refused))
             {
                 refused ??= "quantizationParameters could not be used.";
+            }
+
+            // An extent in another reference — the SDK's 3D tile fetcher sends the layer's own extent with
+            // outSR=102100. Its origin corner is projected into the response's reference, as ArcGIS does
+            // (PbfQuantization.OriginSrid says what was measured); one this server cannot project is refused.
+            if (refused is null && quantization is { OriginSrid: int originSrid })
+            {
+                try
+                {
+                    (IReadOnlyList<Geometry> moved, _) = await projector
+                        .ProjectAsync([new Point(quantization.OriginX, quantization.OriginY)], originSrid, outputSrid, cancellation)
+                        .ConfigureAwait(false);
+
+                    if (moved is [Point corner] && double.IsFinite(corner.X) && double.IsFinite(corner.Y))
+                    {
+                        quantization = quantization.WithOrigin(corner.X, corner.Y);
+                    }
+                    else
+                    {
+                        refused = $"quantizationParameters extent is in wkid {originSrid}, and its corner has no place in "
+                            + $"wkid {outputSrid}, the reference the response is written in.";
+                    }
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    refused = $"quantizationParameters extent is in wkid {originSrid}, which cannot be projected into "
+                        + $"wkid {outputSrid}, the reference the response is written in: {e.Message}";
+                }
             }
 
             if (refused is not null)

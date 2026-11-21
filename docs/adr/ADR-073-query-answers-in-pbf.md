@@ -99,8 +99,17 @@ refused with a reason.
 
 Coordinates are written on the grid `quantizationParameters` names: `tolerance` is the cell, the
 `extent`'s upper-left or lower-left corner (`originPosition`, default upper-left) is the origin,
-and `mode` is `view` (default) or `edit`. An extent in a reference other than the response's is
-refused. Without `quantizationParameters` the grid is a billionth of a degree or a tenth of a
+and `mode` is `view` (default) or `edit`. ~~An extent in a reference other than the response's is
+refused.~~ **An extent in a reference other than the response's has its origin corner projected into
+the response's reference, as ArcGIS does — amended 2026-11-21.** The refusal was decided before any 3D
+client asked, and the first one did: the ArcGIS Maps SDK's 3D feature tile fetcher sends the layer's
+own extent, in the layer's own reference, with `outSR=102100`. Against a GeoParquet layer stored in
+4326 every tile answered 400 and Studio's scene viewer drew nothing (58 refusals on one scene).
+ArcGIS Online answers the same request, and its `transform.translate` is the corner projected —
+(-179.984°, 66.416°) became (-20035727.23, 9991640.25). A corner this server cannot project is still
+refused, with the two references named. `An_extent_in_the_layers_own_reference_places_the_grid_in_the_output_reference`
+(conformance) decodes the coordinates on that grid and compares them with the json answer in the same
+`outSR`. Without `quantizationParameters` the grid is a billionth of a degree or a tenth of a
 millimetre, from an origin of zero, in edit mode. A json answer is written at full precision and
 still logs `quantizationParameters` as ignored.
 

@@ -274,11 +274,31 @@ public sealed class FeatureCollectionPbfTests
     [InlineData("{\"mode\":\"sketch\"}", "mode")]
     [InlineData("{\"tolerance\":0}", "tolerance")]
     [InlineData("{\"originPosition\":\"middle\"}", "originPosition")]
-    [InlineData("{\"extent\":{\"xmin\":0,\"ymin\":0,\"xmax\":1,\"ymax\":1,\"spatialReference\":{\"wkid\":4326}}}", "wkid 4326")]
+    [InlineData("{\"extent\":{\"xmin\":0,\"ymin\":0,\"xmax\":1,\"ymax\":1,\"spatialReference\":{\"wkid\":-1}}}", "wkid -1")]
     public void A_grid_that_cannot_be_used_is_refused_with_its_reason(string json, string reason)
     {
         Assert.False(PbfQuantization.TryParse(json, 3857, out _, out string? error));
         Assert.Contains(reason, error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The SDK's 3D tile fetcher sends the layer's extent in the layer's reference with outSR=102100 (measured
+    /// 2026-11-21); ArcGIS Online projects the corner. Parsing keeps the corner and names its reference, and the
+    /// writer refuses a grid whose origin was never projected rather than writing every coordinate elsewhere.
+    /// </summary>
+    [Fact]
+    public async Task An_extent_in_another_reference_keeps_its_corner_until_it_is_projected()
+    {
+        const string Json = "{\"tolerance\":4.77,\"extent\":{\"xmin\":25.5,\"ymin\":35.8,\"xmax\":44.8,\"ymax\":42.3,"
+            + "\"spatialReference\":{\"wkid\":4326,\"latestWkid\":4326}},\"originPosition\":\"upperLeft\"}";
+
+        Assert.True(PbfQuantization.TryParse(Json, 102100, out PbfQuantization? grid, out string? error), error);
+        Assert.Equal((25.5, 42.3, (int?)4326), (grid!.OriginX, grid.OriginY, grid.OriginSrid));
+
+        PbfQuantization projected = grid.WithOrigin(2838623.5, 5205172.9);
+        Assert.Equal((2838623.5, 5205172.9, (int?)null), (projected.OriginX, projected.OriginY, projected.OriginSrid));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => WriteAsync([], quantization: grid));
     }
 
     [Fact]

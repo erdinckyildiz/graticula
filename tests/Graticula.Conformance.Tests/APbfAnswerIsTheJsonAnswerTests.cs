@@ -123,7 +123,7 @@ public sealed class APbfAnswerIsTheJsonAnswerTests : ArcGisClient
     [Fact]
     public async Task Counts_and_ids_match_and_a_bad_grid_is_refused()
     {
-        (string path, string oid, int srid) = await LayerAsync();
+        (string path, string oid, _) = await LayerAsync();
 
         long count = (await GetJsonAsync($"{path}/query?where=1%3D1&returnCountOnly=true")).GetProperty("count").GetInt64();
         (_, _, byte[] counted) = await GetBytesAsync($"{path}/query?where=1%3D1&returnCountOnly=true&f=pbf");
@@ -140,13 +140,60 @@ public sealed class APbfAnswerIsTheJsonAnswerTests : ArcGisClient
             : [];
         Assert.Equal(ids.Order(), decoded.Order());
 
-        string grid = Uri.EscapeDataString(
-            $"{{\"mode\":\"view\",\"originPosition\":\"upperLeft\",\"tolerance\":1,\"extent\":{{\"xmin\":0,\"ymin\":0,\"xmax\":1,\"ymax\":1,\"spatialReference\":{{\"wkid\":{(srid == 4326 ? 3857 : 4326)}}}}}}}");
+        string grid = Uri.EscapeDataString("{\"mode\":\"view\",\"originPosition\":\"upperLeft\",\"tolerance\":0}");
         (HttpStatusCode refused, _, byte[] why) = await GetBytesAsync(
             $"{path}/query?where=1%3D1&resultRecordCount=1&f=pbf&quantizationParameters={grid}");
 
-        Assert.True(refused == HttpStatusCode.BadRequest, $"An extent in another reference answered {(int)refused}.");
+        Assert.True(refused == HttpStatusCode.BadRequest, $"A grid of no size answered {(int)refused}.");
         Assert.Contains("quantizationParameters", System.Text.Encoding.UTF8.GetString(why), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The ArcGIS Maps SDK's 3D tile fetcher sends the layer's own extent, in the layer's own reference, with an
+    /// outSR it draws in (measured 2026-11-21 against a 4326 layer, outSR=102100). ArcGIS Online answers it, with the
+    /// extent's corner projected as the grid's origin; this server refused it, and Studio's scene viewer drew
+    /// nothing. The coordinates decoded on that grid are the json answer's in the same outSR.
+    /// </summary>
+    [Fact]
+    public async Task An_extent_in_the_layers_own_reference_places_the_grid_in_the_output_reference()
+    {
+        (string path, string oid, _) = await LayerAsync();
+        JsonElement extent = (await GetJsonAsync(path)).GetProperty("extent");
+        int srid = extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32();
+        (int outSr, double cell) = srid == 4326 ? (102100, 1.0) : (4326, 1e-5);
+
+        string grid = Uri.EscapeDataString(
+            "{\"mode\":\"edit\",\"originPosition\":\"upperLeft\",\"tolerance\":" + cell.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + ",\"extent\":{\"xmin\":" + extent.GetProperty("xmin").GetRawText() + ",\"ymin\":" + extent.GetProperty("ymin").GetRawText()
+            + ",\"xmax\":" + extent.GetProperty("xmax").GetRawText() + ",\"ymax\":" + extent.GetProperty("ymax").GetRawText()
+            + ",\"spatialReference\":{\"wkid\":" + srid + "}}}");
+        string query = $"{path}/query?where=1%3D1&outFields={oid}&orderByFields={oid}&resultRecordCount=10&returnGeometry=true&outSR={outSr}";
+
+        JsonElement json = await GetJsonAsync(query);
+        (HttpStatusCode status, _, byte[] body) = await GetBytesAsync(query + $"&f=pbf&quantizationParameters={grid}");
+        Assert.True(status == HttpStatusCode.OK,
+            $"An extent in wkid {srid} with outSR={outSr} answered {(int)status}: {System.Text.Encoding.UTF8.GetString(body)}");
+
+        IReadOnlyList<Field> result = PbfReader.QueryResult(body).One(1).Message;
+        IReadOnlyList<Field> transform = result.One(12).Message;
+        JsonElement[] features = [.. json.GetProperty("features").EnumerateArray()];
+        List<Field> encoded = result.All(15);
+        Assert.Equal(features.Length, encoded.Count);
+        Assert.NotEmpty(encoded);
+
+        for (int i = 0; i < encoded.Count; i++)
+        {
+            if (!features[i].TryGetProperty("geometry", out JsonElement geometry))
+            {
+                continue;
+            }
+
+            List<List<(double X, double Y)>> parts = PbfReader.Parts(encoded[i].Message.One(2).Message, transform);
+            (double X, double Y) want = JsonParts(geometry)[0][0];
+            (double X, double Y) got = parts[0][0];
+            Assert.True(Math.Abs(want.X - got.X) <= cell && Math.Abs(want.Y - got.Y) <= cell,
+                $"Feature {i}'s first vertex: json {want}, pbf {got}, grid {cell} in wkid {outSr}.");
+        }
     }
 
     private static List<List<(double X, double Y)>> JsonParts(JsonElement geometry)
