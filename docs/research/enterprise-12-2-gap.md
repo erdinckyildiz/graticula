@@ -139,9 +139,21 @@ These are cheap REST gaps that ArcGIS clients send today. They are built on the 
 The last three are built only if a client is shown to call them. **`currentVersion` moves last**, after band 1 lands
 and after a live 12.2 server has been read (ADR-181 is amended then, not before).
 
-### Band 2: in the plan, order to be set by the owner
+### Band 2: in the plan, all four groups chosen by the owner
 
-Each item names the record it is waiting on. None is decided by being listed here.
+Asked after band 1 started which group comes first, the owner chose **all four** (2026-11-21):
+field work and editing, enterprise operations, apps, and analysis services. They are taken in that order,
+which is the order they were offered in, and **the order itself is `INFERRED`**, for confirmation.
+Each item still names the record it is waiting on. Being chosen does not decide an item. Every item that
+reopens an ADR or a scope line gets its own ADR before any code is written.
+
+| Group | Items |
+|---|---|
+| 1. Field work and editing | offline sync out of prototype, `extractChanges`, contingent values and field groups, Map Viewer forms and Arcade |
+| 2. Enterprise operations | IWA and PKI, restore and validate through the API, HA phase 2 |
+| 3. Apps | Dashboards and Experience Builder |
+| 4. Analysis services | network analysis, stream service, basic raster analysis, own locator |
+
 
 | Item | Size | Waiting on |
 |---|---|---|
