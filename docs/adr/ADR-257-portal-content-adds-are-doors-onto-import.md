@@ -148,7 +148,7 @@ Python posts it, as well as from the query.
 ### 5.3 What `publish` refuses
 
 `locationType` other than `coordinates` (an address, a lookup, or `none` for a table without coordinates: the
-import's reader needs coordinates or WKT and geocodes nothing); ~~`overwrite=true` (Update data, or `append` with
+import's reader needs coordinates or WKT and geocodes nothing — *`address` answered since 2026-11-21 where a geocoder is configured, [ADR-310](ADR-310-append-on-the-service-registered-layers-and-addresses.md) §5.5; `lookup` and `none` stay refused*); ~~`overwrite=true` (Update data, or `append` with
 `truncateExisting`, replaces a layer's rows)~~ *(answered since 2026-11-03 — §12: an overwrite of the service the item
 was published to)*; a file type the item is not. Each is refused by name and writes nothing.
 
@@ -242,7 +242,7 @@ ADR-214 (§5a).
 - ~~The owner decides `createService` should make an empty service (Q-225's wording), which reopens ADR-057 condition 4
   and needs the service-level `addToDefinition` the ArcGIS clients send next.~~ **Met 2026-11-02 and acted on — §11.**
 - A client is found that reads `analyze`'s field list or `records` to decide what it publishes.
-- A geocoder is served (the parallel geocoder work): `locationType=address` then has something to call.
+- ~~A geocoder is served (the parallel geocoder work): `locationType=address` then has something to call.~~ **Met and acted on 2026-11-21 — [ADR-310](ADR-310-append-on-the-service-registered-layers-and-addresses.md) §5.5**: an address is located by the configured Photon in a publish and in an append, and refused naming the key where there is none.
 - An overwrite from an item is asked for, which needs the item-to-service relationship recorded.
 
 ## 10. Dissent

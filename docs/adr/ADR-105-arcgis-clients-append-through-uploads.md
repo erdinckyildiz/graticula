@@ -15,6 +15,10 @@
 
 ---
 
+> **Amended 2026-11-21 — [ADR-310](ADR-310-append-on-the-service-registered-layers-and-addresses.md).** *Hosted layers only* no longer holds for
+> the ArcGIS routes: a registered layer is appended to through its edit writer, the operation exists on the service as well
+> (`FeatureServer/append`, with the 12.2 `layers` array), and JSON Lines is read. The native `/admin/hosted/{layer}/append` is unchanged.
+
 ## 1. Context
 
 ADR-103 gave a hosted layer *Update data* through the server's own routes and Studio, and left ArcGIS's
