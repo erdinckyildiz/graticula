@@ -210,8 +210,24 @@
   #pane-analysis .azfoot:empty { display: none; }
   #pane-analysis .bad { color: var(--alert); }
   .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
-  /* ADR-312: a combination the layer's contingent values do not allow — said, never blocking. */
-  .said.cvwarn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 4px; padding: 6px 8px; }
+  /* ADR-312: a combination the layer's contingent values do not allow — said, never blocking. The box is never hidden
+     (its live part must be in the page before its words arrive) and takes no room while it has nothing to say; it says
+     what it is in words and with a mark, not by its colour alone (design review 2026-11-22, findings 5 and 10). */
+  .said.cvwarn { color: var(--ink); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 4px;
+    padding: 6px 8px 6px 30px; position: relative; }
+  .said.cvwarn:not(.on) { min-height: 0; margin: 0; padding: 0; border: 0; background: none; }
+  .said.cvwarn.on::before { content: "!" / ""; position: absolute; left: 8px; top: 7px; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--warn); color: var(--surface); font: 700 11px/16px system-ui, sans-serif;
+    text-align: center; }
+  .said.cvwarn .cvlead b { color: var(--warn); }
+  .said.cvwarn .cvmore:not(:empty) { display: block; margin-top: 2px; }
+  /* A table cell whose row holds a combination the layer does not list (contingent-editor.js). */
+  #tableGrid td.celledit[data-cv] { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn-line); position: relative;
+    padding-right: 20px; }
+  #tableGrid td.celledit[data-cv]::after { content: "!" / ""; position: absolute; right: 3px; top: 50%; margin-top: -7px;
+    width: 14px; height: 14px; border-radius: 50%; background: var(--warn); color: var(--surface);
+    font: 700 10px/14px system-ui, sans-serif; text-align: center; pointer-events: none; }
+  #tableGrid option[data-cv-state] { color: var(--muted); }
   .said.bad { color: var(--alert); }
 
   button, select, input, textarea { font: inherit; font-size: 13px; }
