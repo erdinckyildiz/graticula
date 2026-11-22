@@ -192,15 +192,13 @@
     prune(formInfo);
   }
 
-  /** What a property is set to: "none", "true", "false" (the system expressions) or "expression". */
+  /** What a property is set to: "none", "true" or "false" (the system expressions), or "expression". */
   function modeOf(formInfo, element, property) {
     const name = element && element[property];
     if (typeof name !== "string") return "none";
     if (name === SYSTEM_TRUE) return "true";
     if (name === SYSTEM_FALSE) return "false";
-    const info = expressionInfo(formInfo, name);
-    if (info && /^\s*true\s*;?\s*$/.test(info.expression || "")) return "true";
-    if (info && /^\s*false\s*;?\s*$/.test(info.expression || "")) return "false";
+    // Any other name is an expression, even one that answers a constant: it is shown and edited as written.
     return "expression";
   }
 

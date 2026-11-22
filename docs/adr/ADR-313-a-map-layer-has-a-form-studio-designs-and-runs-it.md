@@ -119,9 +119,14 @@ fetched; the pages were read through a summarising fetcher, so the examples were
      ones a form uses without a FeatureSet — `Feature`, `HasKey`, `HasValue`, `DefaultValue`, `Domain`,
      `DomainName`, `DomainCode`, `Schema`, `Expects` — and `Geometry($feature)`. Every other documented function is
      catalogued and refused with an error that names it and why; a name that is not documented answers *is not a
-     function*. `GraticulaArcade.coverage()` counts them, and a test checks every one.
+     function*. `GraticulaArcade.coverage()` counts them, and a test checks every one: of the **214** documented names,
+     **122 are built and 92 refused**. `Number`, `DateOnly` and `Time` with a text pattern are refused for the pattern
+     alone (D-479).
    - **Dates** execute in the browser's time zone (INFERRED: Map Viewer's Arcade runs in the client), a named zone
      through the platform's `Intl`, UTC and fixed offsets; Node tests pass `UTC`.
+   - **A step budget** of a million statements and expressions per run, after which the expression fails with an
+     error that says so: a form evaluates as the reader types, and a `while (true)` must not hang the page. The figure
+     is ours; nothing public sets one.
 2. **The form logic** — `wwwroot/form-info.js`, global `GraticulaFormInfo`: compile the expressions once; evaluate
    every element against the values; and say for each field whether it is shown, required, editable, and its
    calculated value, with any expression's error.
@@ -193,7 +198,7 @@ are not edited in Studio's form (D-477). The table view of the map viewer edits 
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | INFERRED, listed for confirmation: (a) a failing expression is treated as absent and its error shown; (b) `{name}` in a text element is an expression first, then a field; (c) markdown is a safe subset; (d) fixed required and read-only are written as `expr/system/true` and `expr/system/false`; (e) designer expression names `expr/<n>` and `returnType` from the property or field; (f) dates execute in the browser's time zone; (g) calculated values in form order, at most four passes; (h) `$originalFeature` of a new feature has every field null; (i) JavaScript's operator precedence (ADR-235 §5.8 b) | Unconfirmed |
+| — | INFERRED, listed for confirmation: (a) a failing expression is treated as absent and its error shown; (b) `{name}` in a text element is an expression first, then a field; (c) markdown is a safe subset; (d) fixed required and read-only are written as `expr/system/true` and `expr/system/false`; (e) designer expression names `expr/<n>` and `returnType` from the property or field; (f) dates execute in the browser's time zone; (g) calculated values in form order, at most four passes; (h) `$originalFeature` of a new feature has every field null; (i) JavaScript's operator precedence (ADR-235 §5.8 b); (j) a calculated value for a whole-number field is rounded, and one too long for a text field is not written and is reported; (k) a switch is offered only for a field with exactly two coded values; (l) a field hidden when the form opens keeps its value, since only a shown-then-hidden field is cleared; (m) the step budget of a million steps | Unconfirmed |
 
 ## 8. Dependencies
 
@@ -216,14 +221,29 @@ None recorded.
 ## 11. Conditions
 
 1. **The language core is tested headless against the documentation's own examples**, every example expression from
-   the form pages among them.
-2. **Every documented function is built or refused naming itself**, and a test calls each refused one.
+   the form pages among them. **DISCHARGED 2026-11-22**: `tests/studio-js/arcade.test.js` (37 tests, Node 24,
+   `node --test tests/studio-js/*.test.js`) checks the guide's and the function reference's worked examples, the web
+   map specification's formInfo and formExpressionInfo examples, both form profiles' examples, and the Field Maps and
+   Map Viewer form pages' examples — the two printed without a function name fail as syntax errors, and the ones that
+   need geometry, the portal or a FeatureSet fail naming the function.
+2. **Every documented function is built or refused naming itself**, and a test calls each refused one. **DISCHARGED 2026-11-22**:
+   `arcade.test.js` *every documented function is built or refused* finds none of the 214 without a status and calls
+   each of the 92 refused, whose error names it and why.
 3. **`formInfo` survives every server door intact** — Studio's create, update and read, the portal's `addItem`,
    `update` and `/data` — proven by a conformance test against a running server and a store test against PostGIS.
+   **DISCHARGED 2026-11-22**: `AMapLayersFormSurvivesEveryDoorTests` (Conformance, against the local fixture) and
+   `WebMapStoreTests.A_layers_form_is_kept_whole_through_a_create_and_an_update` (Postgres) pass; the form carries every
+   element kind, the utility network element among them, on a layer and on a table.
 4. **The form logic is tested headless**: visibility (and a group's), required (expression and non-nullable),
    editable, calculated values only when not editable, clearing and preserving hidden values, and a failing
-   expression.
+   expression. **DISCHARGED 2026-11-22**: `tests/studio-js/form-info.test.js` (16 tests) on the specification's
+   tree-inspection example.
 5. **ArcGIS Field Maps opens a map whose form Studio wrote**, draws its fields, groups, text and input types, and
    honours its expressions. Open: it needs the Android emulator, which nobody drives in this session.
 6. **The designer and the editor's form are reviewed at phone width** for focus kept across a redraw and live
-   statuses, by the design review every Studio screen passes.
+   statuses, by the design review every Studio screen passes. **PARTLY DISCHARGED 2026-11-22**: `WebMapFormTests` (Console,
+   two tests, against the local fixture) checks that focus stays on the control across a mode change, a redraw of the
+   layer list and the card's evaluation, that the designer's status and the card's change of questions are live
+   regions, and that an empty required field takes the focus; a render at 390 px measured the Forms panel at 0 px of
+   horizontal overflow, with Forms in the phone's layer switch. The design review itself (ux-designer) has not run on
+   either screen.

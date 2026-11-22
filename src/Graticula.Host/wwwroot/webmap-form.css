@@ -1,0 +1,49 @@
+/* A map layer's form — ADR-313: the Forms tool's designer and the editing card's form. Classes start with wmf-. */
+
+.wmf .wmf-h { font-size: 13px; margin: 14px 0 6px; }
+.wmf textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.wmf .wmf-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.wmf input[type=number], .wmf input[type=date] { max-width: 10rem; }
+
+.wmf-list { list-style: none; margin: 0; padding: 0; }
+.wmf-list.wmf-inner { margin: 4px 0 2px 18px; padding-left: 8px; border-left: 2px solid var(--rule); }
+.wmf-row { border: 1px solid var(--rule); border-radius: 4px; padding: 4px 6px; margin-bottom: 5px; background: var(--surface); }
+.wmf-row.chosen { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.wmf-rowhead { display: flex; align-items: center; gap: 4px; }
+.wmf-pick { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 2px 4px;
+  border: 0; background: none; text-align: left; color: var(--ink); font: inherit; overflow-wrap: anywhere; }
+.wmf-pick .lkind { white-space: normal; }
+.wmf-pick[aria-pressed="true"] .wmf-name { font-weight: 600; color: var(--accent-ink); }
+.wmf-add { margin: 10px 0; padding: 8px; border: 1px dashed var(--rule-strong); border-radius: 4px; }
+.wmf-add select { flex: 1; min-width: 8rem; }
+.wmf-editor { margin: 12px 0; padding: 8px; border: 1px solid var(--rule-strong); border-radius: 6px; background: var(--surface-2); }
+.wmf-expr { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--rule); }
+.wmf-expr select { width: 100%; }
+.wmf-answer:empty { display: none; }
+.wmf-answer.bad, .wmf-said.bad, .wmf-tested .bad { color: var(--alert); }
+.wmf-sample { margin: 12px 0; }
+.wmf-sample summary { cursor: pointer; font-size: 13px; }
+.wmf-tested { margin: 4px 0; padding-left: 18px; font-size: 12.5px; }
+.wmf-problems ul { margin: 2px 0 6px; padding-left: 18px; color: var(--alert); font-size: 12.5px; }
+.wmf-acts { margin-top: 10px; }
+
+#identify .wmf-form .wmf-title { font-size: 14px; margin: 0 0 4px; color: var(--ink); }
+#identify .wmf-form .wmf-group { margin: 0 0 10px; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 8px; }
+#identify .wmf-form .wmf-group > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+#identify .wmf-form .wmf-group[hidden], #identify .wmf-form .wmf-el[hidden] { display: none; }
+#identify .wmf-form .wmf-text { margin: 0 0 10px; line-height: 1.45; }
+#identify .wmf-form .wmf-text h3, #identify .wmf-form .wmf-text h4, #identify .wmf-form .wmf-text h5,
+#identify .wmf-form .wmf-text h6 { font-size: 13px; margin: 6px 0 4px; }
+#identify .wmf-form input[type=radio], #identify .wmf-form input[type=checkbox] { width: auto; min-height: 0; }
+#identify .wmf-form label.check { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+#identify .wmf-form .wmf-radios { display: flex; flex-direction: column; }
+#identify .wmf-form .wmf-desc { margin: 0 0 4px; }
+#identify .wmf-form input[readonly], #identify .wmf-form textarea[readonly] { background: var(--surface-2); color: var(--muted); }
+#identify .wmf-form .wmf-exprsays { color: var(--alert); }
+
+@media (max-width: 600px) {
+  .wmf-rowhead .tiny { min-width: 44px; min-height: 44px; }
+  .wmf-pick { min-height: 44px; }
+  .wmf textarea { min-height: 44px; }
+  #identify .wmf-form label.check { min-height: 44px; }
+}
