@@ -232,6 +232,14 @@ internal static partial class ArcGisAdminEndpoints
 
         IFormCollection form = await FormAsync(context, cancellation).ConfigureAwait(false);
 
+        // ADR-312 §5.5: a definition carrying contingent values goes to their door, which answers addedContingentValueIds.
+        if (ContingentDefinition(form["addToDefinition"].ToString()) is { } contingent)
+        {
+            await ContingentValueEndpoints.AddToDefinitionAsync(context, found, contingent, contexts, catalog, audit, cancellation)
+                .ConfigureAwait(false);
+            return;
+        }
+
         if (!TryDefinition(form["addToDefinition"].ToString(), adding: true, out List<HostedDataEndpoints.FieldDesign> fields, out string? error))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
@@ -381,6 +389,30 @@ internal static partial class ArcGisAdminEndpoints
             : new FormCollection(context.Request.Query.ToDictionary(q => q.Key, q => q.Value));
 
     private static bool IsTrue(string value) => value.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The <c>addToDefinition</c> object when it carries a <c>contingentValuesDefinition</c>, or null.</summary>
+    /// <param name="json">The parameter's value.</param>
+    /// <returns>The object, cloned, or null.</returns>
+    internal static JsonElement? ContingentDefinition(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+            return document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("contingentValuesDefinition", out _)
+                    ? document.RootElement.Clone()
+                    : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static Task RefuseAsync(HttpContext context, int code, string message) =>
         Results.Json(new { error = new { code, message, details = Array.Empty<string>() } }, statusCode: code).ExecuteAsync(context);

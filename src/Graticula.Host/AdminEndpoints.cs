@@ -635,6 +635,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/cache", SetCacheLifetimeAsync);
         app.MapPut("/admin/layers/{name}/time-field", SetTimeFieldAsync);
         MapFieldOverrides(app);  // ADR-063 — AdminEndpoints.FieldOverrides.cs
+        ContingentValueEndpoints.MapAdmin(app);  // ADR-312 — ContingentValueEndpoints.cs
         MapViews(app);           // ADR-113 — AdminEndpoints.Views.cs
         MapContentFolders(app);  // ADR-114 — AdminEndpoints.ContentFolders.cs
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs

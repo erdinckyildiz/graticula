@@ -3205,6 +3205,9 @@ public static class Program
                 .Governed(SharingGovernedExtensions.ByService);
             app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/queryDomains", ["GET", "POST"], QueryDomainsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // ADR-312: a layer's contingent values, and every layer's at once — ContingentValueEndpoints.cs.
+            ContingentValueEndpoints.Map(app, prefix);
             app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/calculate", CalculateAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -5017,6 +5020,8 @@ public static class Program
 
         // ADR-311: a layer of a hosted service that tracks its changes says ChangeTracking.
         document = ChangeTrackingFlags.ApplyToLayer(context, document, layer, description);
+        // ADR-312: a layer that keeps contingent values says so.
+        document = ContingentValueEndpoints.ApplyToLayer(context, document, layer, description);
 
         // The service's item and when the layer last changed, as ArcGIS's layer document says them (2026-11-03).
         if (owning is not null)

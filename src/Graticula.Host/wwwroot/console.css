@@ -8091,3 +8091,12 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .forminbox label.check { display: flex; gap: var(--gap-2); align-items: center; min-height: 44px; }
 .forminbox .bad-inline:empty { display: none; }
 .forminbox code { overflow-wrap: anywhere; }
+
+/* ADR-312: a hosted layer's field groups and contingent values, under its Fields (contingent-studio.js). */
+.cvs { margin-top: var(--gap-6); }
+.cvs table { width: 100%; border-collapse: collapse; margin: 0 0 var(--gap-3); }
+.cvs th, .cvs td { padding: 4px 6px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.cvs .cvsfields { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.cvs .cvsnum { width: 6em; }
+.cvs .cvsvalues { overflow-x: auto; margin-top: var(--gap-3); }
+@media (max-width: 640px) { .cvs .cvsgroups { display: block; overflow-x: auto; } }

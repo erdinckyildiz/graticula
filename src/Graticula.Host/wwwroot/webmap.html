@@ -209,6 +209,8 @@
   #pane-analysis .azfoot:empty { display: none; }
   #pane-analysis .bad { color: var(--alert); }
   .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
+  /* ADR-312: a combination the layer's contingent values do not allow — said, never blocking. */
+  .said.cvwarn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 4px; padding: 6px 8px; }
   .said.bad { color: var(--alert); }
 
   button, select, input, textarea { font: inherit; font-size: 13px; }
@@ -917,5 +919,7 @@
 <script src="ground.js" defer></script>
 <script src="analysis.js" defer></script>
 <script src="webmap.js" defer></script>
+<script src="contingent.js" defer></script>
+<script src="contingent-editor.js" defer></script>
 </body>
 </html>

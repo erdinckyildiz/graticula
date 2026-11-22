@@ -368,6 +368,12 @@ public sealed class PublishedLayer
     public bool EditOwnOnly { get; init; }
 
     /// <summary>
+    /// Its field groups and contingent values — ADR-312 — or null for none. Kept whole, groups naming a column the table
+    /// no longer has included; <see cref="Graticula.Catalog.ContingentValues.Served"/> narrows what a client is given.
+    /// </summary>
+    public Graticula.Catalog.ContingentValues? ContingentValues { get; init; }
+
+    /// <summary>
     /// Where a registered layer keeps its attachments — ADR-207: <see cref="AttachmentPlaces.Source"/> beside its table
     /// in its own database, <see cref="AttachmentPlaces.Datastore"/> in Graticula's, or null for none. A hosted layer
     /// keeps them beside its table whatever this says.

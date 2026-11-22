@@ -5298,6 +5298,7 @@ function wmOpenEdit(key) {
         ${wmFieldControl(f, (held.feature.attributes || {})[f.name])}
         <p class="fieldsays" id="${wmEscape(`edit-${f.name}-says`)}"></p></div>`).join("")
         : `<p class="hint">This layer has no attribute that can be changed.</p>`}
+      <p class="said cvwarn" id="editCv" aria-live="polite" hidden></p>
       <p class="said" id="editSays" role="status" aria-live="polite" tabindex="-1"></p>
       <div class="row editacts">
         ${fields.length || held.isNew ? `<button type="submit" class="primary">${held.isNew ? "Create" : "Save"}</button>` : ""}
@@ -5307,6 +5308,8 @@ function wmOpenEdit(key) {
   card.hidden = false;
   card.scrollTop = 0;
   card.querySelector("[data-field]")?.focus();
+  // ADR-312: a combination the layer's contingent values do not allow is said as it is typed (contingent-editor.js).
+  if (typeof cveCheckForm === "function") cveCheckForm(card.querySelector("form.editform"));
 }
 
 /**
@@ -5377,6 +5380,11 @@ async function wmSaveEdit(form) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   wmEditing.saving = true;
   says.textContent = "Saving…";
+  // ADR-312: said again with the save, which goes ahead — the server does not refuse it, and neither does this form.
+  const warned = typeof cveWarnFor === "function"
+    ? await cveWarnFor(held.layer, { ...(held.feature.attributes || {}), ...(held.preset || {}), ...changed },
+      held.isNew ? null : (held.feature.attributes || {}), true).catch(() => "")
+    : "";
   try {
     const edit = held.isNew
       ? { adds: JSON.stringify([{ geometry: held.geometry, attributes: { ...(held.preset || {}), ...changed } }]) }
@@ -5402,9 +5410,9 @@ async function wmSaveEdit(form) {
     if (wmLastClick) await wmIdentify(wmLastClick);
     // After the card is asked again, so its own "… here" does not speak over it.
     const shownNow = !!document.querySelector(`#identify [data-edit="${CSS.escape(focusKey)}"]`);
-    wmSay(held.isNew
+    wmSay((held.isNew
       ? (shownNow ? `${name} created.` : `${name} created, but the layer's filter or the time window hides it here.`)
-      : `${name} saved.`);
+      : `${name} saved.`) + (warned ? ` ${warned}` : ""));
     (document.querySelector(`#identify [data-edit="${CSS.escape(focusKey)}"]`) || wm$("identify").querySelector("button"))?.focus();
   } catch (e) {
     says.textContent = `Not saved: ${e.message || e}`;
@@ -5987,6 +5995,8 @@ async function wmSaveTable() {
   if (!changes.length) return;
   wm$("tableSave").disabled = true;
   wmSayIn("tableStatus", "Saving…");
+  // ADR-312: rows whose values break a restrictive field group are named with the save, which goes ahead.
+  const warned = typeof cveTableWarning === "function" ? await cveTableWarning(layer, changes).catch(() => "") : "";
   try {
     const updates = changes.map(c => ({ attributes: { [oid]: (wmTable.rows[c.index].attributes || {})[oid], ...c.changed } }));
     const answer = await wmFetch(`${layer.url}/applyEdits`, {
@@ -6018,13 +6028,13 @@ async function wmSaveTable() {
       wmSayIn("tableStatus", `${updates.length - refused.length} of ${updates.length} saved. Not saved: ${refused.map(r => {
         const c = changes.find(x => String((wmTable.rows[x.index].attributes || {})[oid]) === String(r.objectId));
         return `${c ? wmTable.named(wmTable.rows[c.index]) : `feature ${r.objectId}`} (${((r.error || {}).description) || "refused"})`;
-      }).join(", ")}.`, true);
+      }).join(", ")}.${warned ? ` ${warned}` : ""}`, true);
       document.querySelector('#tableGrid [aria-invalid="true"]')?.focus();
       return;
     }
     wmRefreshLayer(layer, true);
     await wmLoadTable();
-    wmSayIn("tableStatus", `${updates.length} ${updates.length === 1 ? "row" : "rows"} saved.`);
+    wmSayIn("tableStatus", `${updates.length} ${updates.length === 1 ? "row" : "rows"} saved.${warned ? ` ${warned}` : ""}`);
     document.querySelector("#tableGrid [data-cell]")?.focus();
   } catch (e) {
     wmSayIn("tableStatus", `Not saved: ${e.message || e}`, true);

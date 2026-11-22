@@ -69,7 +69,7 @@ Both are band 1.
 | `queryBins` and `lodBin` | Missing | No match in `src` |
 | Layer query `outDistance` | **Refused (400)** | Refused as an unknown parameter, so a 12.2 client that sends it gets an error |
 | Extract on joined hosted views | Missing | Graticula has no join view (ADR-113 views are single-table) |
-| Contingent values and field groups | Missing on the server | grapy only (ADR-235) |
+| Contingent values and field groups | Have, since 2026-11-22 ([ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md)) | Stored on a hosted layer, served by `contingentValues` and `queryContingentValues`, written from Studio and `addToDefinition`; not enforced by `applyEdits`, as in ArcGIS. Not yet in an offline replica (D-472) or a Pro publish (D-473). grapy has them too (ADR-235) |
 | OGC API Features from a hosted layer | Have | ADR-042, ADR-162 |
 | Shared templates kept on publish | Partly (not verified) | `templates` in the layer document (ADR-065). Not tried from Pro |
 | `GetServiceDatastoreInfo` | Missing | No match in `src` |
@@ -161,7 +161,7 @@ reopens an ADR or a scope line gets its own ADR before any code is written.
 |---|---|---|
 | Offline sync out of prototype (ADR-288, D-401, D-394) | L | ~~ADR-288's own conditions~~ **Done 2026-11-22:** all seven discharged, status `ACCEPTED`; D-401's race is next, measured on the emulator |
 | `extractChanges` on hosted and sync-enabled layers | M | ~~A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it~~ **Decided and built 2026-11-22 — [ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision *"Hosted + webhook"*; `changesUrl` is real** |
-| Contingent values and field groups on the server | M–L | A decision. grapy has them (ADR-235) |
+| Contingent values and field groups on the server | M–L | Decided 2026-11-22 (*"Sakla, sun, Studio'da yaz"*) and built: [ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md) |
 | Map Viewer form authoring and Arcade | L | A decision. This is the work Field Maps Designer does |
 | IWA and PKI sign-in | M | A decision. ADR-015's mTLS is not built |
 | Restore and validate through the API, for DR | M | Reopening ADR-193 §5.5, which chose CLI-only on purpose |

@@ -843,6 +843,18 @@ public interface IAdminCatalog
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Replaces a layer's field groups and contingent values — ADR-312 — or removes them with null or an empty one.
+    /// </summary>
+    /// <param name="layerId">The layer, by identity.</param>
+    /// <param name="values">The whole definition; the caller has checked it against the layer's columns.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Whether a layer was updated.</returns>
+    Task<bool> SetContingentValuesAsync(
+        Guid layerId,
+        Graticula.Catalog.ContingentValues? values,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Creates a feature service with no layers, and its item — ADR-257 §11: the portal's <c>createService</c>, which
     /// ArcGIS clients fill afterwards with <c>addToDefinition</c>.
     /// </summary>
