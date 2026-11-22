@@ -3658,10 +3658,11 @@ document.addEventListener("keydown", event => {
 // ----------------------------------------------------------------------------- the right toolbar (ADR-259)
 
 /** The tools that act on the selected layer, and the map tools under the divider. */
-const WM_LAYER_TOOLS = ["properties", "style", "filter", "popup", "labels"];
+// ADR-313: Forms writes the layer's formInfo; its panel and actions are webmap-form.js's.
+const WM_LAYER_TOOLS = ["properties", "style", "filter", "popup", "form", "labels"];
 const WM_MAP_TOOLS = ["search", "measure", "analysis"];
 const WM_TOOL_NAMES = {
-  properties: "Properties", style: "Styles", filter: "Filter", popup: "Pop-ups", labels: "Labels",
+  properties: "Properties", style: "Styles", filter: "Filter", popup: "Pop-ups", form: "Forms", labels: "Labels",
   search: "Search", measure: "Measure", analysis: "Analysis",
 };
 
@@ -3828,6 +3829,7 @@ function wmLayerToolMarkup(tool, layer) {
   }
   if (tool === "style") return wmStyleMarkup(layer, run, key, title);
   if (tool === "popup") return wmPopupPanel(layer, run, key, title);
+  if (tool === "form") return typeof wmfPanel === "function" ? wmfPanel(layer, run, key) : "";
   if (tool === "labels") return wmLabelPanel(layer, run, key);
   if (tool === "filter") return wmFilterMarkup(layer, run, key, title, (layer.layerDefinition && layer.layerDefinition.definitionExpression) || "");
   return "";
@@ -5279,6 +5281,8 @@ function wmFieldControl(field, value, cell = null) {
 function wmOpenEdit(key) {
   const held = wmIdentified.get(key);
   if (!held) return;
+  // ADR-313: a layer whose map holds a form is edited through it (webmap-form.js); otherwise, as before.
+  if (typeof wmfOpenEdit === "function" && wmfOpenEdit(key)) return;
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const fields = wmEditFields(info);
   const card = wm$("identify");

@@ -85,7 +85,7 @@ Both are band 1.
 | Scheduled tasks (`CreateEnterpriseBackup`, filters) | Partly | Scheduled backups and map area refresh. No portal `tasks` API |
 | Collaboration workspaces | Missing | Partnerships are between organisations in one deployment (ADR-219) |
 | Export Group Content | Missing | — |
-| Map Viewer: forms (basic, choice, attachment elements) | Missing | No `formInfo` in `webmap.js`. Graticula's own XLSForm forms are separate (ADR-287) |
+| Map Viewer: forms (basic, choice, attachment elements) | Built 2026-11-22 | The viewer's Forms tool writes `formInfo` and Studio's editor applies it (ADR-313). Graticula's own XLSForm forms are separate (ADR-287) |
 | Map Viewer: symbol layer order and lock, move-along-line animation, oriented imagery, charts | Missing | — |
 | Map Viewer: time series | Partly | Time slider (ADR-132) |
 | Scene Viewer: Gaussian splats with profile and line of sight | Have | `scene.js` (ADR-272, ADR-278) |
@@ -109,7 +109,7 @@ Both are band 1.
 | Offline sync | Built: on-demand and preplanned areas in Field Maps, Download Map and Sync in Pro | ADR-288 ~~`REQUIRES PROTOTYPE`~~ `ACCEPTED` 2026-11-22; D-401 open |
 | Dashboards, Experience Builder, StoryMaps, Instant Apps | Stored, not run | ADR-264 |
 | Survey123 field app | Not measured (own XLSForm client, ADR-287) | ADR-287 |
-| Map Viewer: Arcade, form authoring, charts | Missing | Forms and Arcade decided 2026-11-22 (ADR-313); charts no decision |
+| Map Viewer: Arcade, form authoring, charts | Partly, 2026-11-22 | Form authoring and a clean-room Arcade core in the browser (ADR-313); charts missing |
 | HA and multi-machine | Phases 0–1 | ADR-012, D-391 |
 | Backup and DR | Partly, restore is CLI-only | ADR-193 |
 | Monitoring | Logs, usage and health. No metrics endpoint found (not verified) | ADR-045, ADR-061, ADR-135 |
