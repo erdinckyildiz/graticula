@@ -275,6 +275,11 @@ geocoding.**
   owner decision:** a queue of new records, sent when the signal returns. The *Inbox* — downloaded records edited
   offline, with conflicts refused on the server — is decided by the same ADR and **not built yet**. That is Graticula's
   own client and server, beside the replica protocol above, not a use of it. *Added rather than rewritten.*
+  **`extractChanges` is in since 2026-11-22 — [ADR-311](adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md),
+  owner decision (*"Hosted + webhook"*):** a hosted feature service with `ChangeTracking` on — turned on through
+  `updateDefinition` or `createService`, which starts each layer's history — answers `extractChanges` from that history,
+  and a feature service webhook's payload carries ArcGIS's `changesUrl`. The struck line above named it among what was
+  not served; it was the last of the four to stay out. *Added rather than rewritten.*
 - **Q-86's §82 debt shrinks to the handful of things actually in v1.**
 
 ### 3e. Formats

@@ -99,6 +99,9 @@ internal static partial class OfflineReplicaEndpoints
             .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
         app.MapMethods($"{at}/replicas/{{replicaId}}", ["GET", "POST"], ReplicaAsync)
             .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
+        app.MapMethods($"{at}/extractChanges", ["GET", "POST"], (HttpContext context, string serviceName, CancellationToken cancellation) =>
+                ExtractChangesAsync(context, serviceName, faces, cancellation))
+            .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
         app.MapMethods($"{at}/jobs/{{jobId:guid}}", ["GET", "POST"], JobAsync)
             .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
         app.MapGet($"{at}/replicafiles/{{jobId:guid}}", FileAsync)
@@ -1323,7 +1326,18 @@ internal static partial class OfflineReplicaEndpoints
             return;
         }
 
-        await Results.Json(OfflineReplicaShapes.Status(job, ResultUrl(context, job))).ExecuteAsync(context).ConfigureAwait(false);
+        // The job runs on another thread: read between the result URL and the status, it could say Completed with no
+        // resultUrl, and a client polling for one would stop with nothing (seen 2026-11-22 on an extractChanges job).
+        // A job's file is set before it is Completed, so asking again once it says Completed finds it.
+        string? result = ResultUrl(context, job);
+        System.Text.Json.Nodes.JsonObject status = OfflineReplicaShapes.Status(job, result);
+
+        if (result is null && status["status"]?.GetValue<string>() == "Completed")
+        {
+            status = OfflineReplicaShapes.Status(job, ResultUrl(context, job));
+        }
+
+        await Results.Json(status).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>A replica job's file — to the caller who asked for it, and nobody else.</summary>
@@ -1354,8 +1368,11 @@ internal static partial class OfflineReplicaEndpoints
     internal sealed record Planned(
         int Id, PublishedLayer Layer, IFeatureSource Source, LayerDescription Described, string Document, Filter Filter)
     {
-        /// <summary>The reference its document states, which its rows are read in.</summary>
-        public int Wkid => OfflineReplicaShapes.WkidOf(JsonDocument.Parse(Document).RootElement) ?? Layer.PublishedSrid;
+        /// <summary>The reference its rows are read in: the one asked for, or the one its document states.</summary>
+        public int Wkid => OutWkid ?? OfflineReplicaShapes.WkidOf(JsonDocument.Parse(Document).RootElement) ?? Layer.PublishedSrid;
+
+        /// <summary>An <c>outSR</c> its rows are read in instead of its document's reference (ADR-311 §5.4), or null.</summary>
+        public int? OutWkid { get; init; }
     }
 
     /// <summary>What a layer's rows are filtered by in a replica.</summary>
@@ -1558,16 +1575,29 @@ internal static partial class OfflineReplicaEndpoints
     private static async Task<ReplicaChanges> ChangesAsync(
         LayerConnections connections, Planned p, OfflineLayer shape, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellation)
     {
-        (HashSet<long> changed, bool emptied) = await ChangedSinceAsync(connections.HistoryFor(p.Layer), from, cancellation)
-            .ConfigureAwait(false);
+        (Dictionary<long, OfflineRow> then, Dictionary<long, OfflineRow> now) =
+            await WindowAsync(connections.HistoryFor(p.Layer), p, shape, from, to, cancellation).ConfigureAwait(false);
+
+        return OfflineReplicaShapes.Diff(then, now, OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!));
+    }
+
+    /// <summary>
+    /// The two sides of a layer's difference between two moments — ADR-288 §5.4: the features its history names since
+    /// <paramref name="from"/>, read as they were then and as they are at <paramref name="to"/>, keyed by object id. Split
+    /// from <see cref="ChangesAsync"/> so <c>extractChanges</c> (ADR-311) can read a deleted feature as it was and compare
+    /// an update's fields and shape, from the same reads.
+    /// </summary>
+    internal static async Task<(Dictionary<long, OfflineRow> Then, Dictionary<long, OfflineRow> Now)> WindowAsync(
+        IFeatureHistory history, Planned p, OfflineLayer shape, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellation)
+    {
+        (HashSet<long> changed, bool emptied) = await ChangedSinceAsync(history, from, cancellation).ConfigureAwait(false);
 
         if (changed.Count == 0 && !emptied)
         {
-            return new ReplicaChanges([], [], []);
+            return ([], []);
         }
 
         int objectIdAt = OfflineReplicaShapes.IndexOf(shape, shape.ObjectIdField);
-        int globalAt = OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!);
 
         // A truncate names no feature, so every feature there was then is a candidate.
         IReadOnlyList<long>? ids = emptied ? null : [.. changed.Order()];
@@ -1590,7 +1620,7 @@ internal static partial class OfflineReplicaEndpoints
         Dictionary<long, OfflineRow> then = await AtAsync(from).ConfigureAwait(false);
         Dictionary<long, OfflineRow> now = await AtAsync(to).ConfigureAwait(false);
 
-        return OfflineReplicaShapes.Diff(then, now, globalAt);
+        return (then, now);
     }
 
     /// <summary>The attachment changes of one layer's download, as the port carries them.</summary>

@@ -84,7 +84,10 @@ internal static partial class ArcGisAdminEndpoints
             currentVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
             serviceDescription = service.Description ?? string.Empty,
             copyrightText = service.CopyrightText ?? string.Empty,
-            capabilities = Capabilities(stewardship) + (SyncFlags.IsOn(service) ? ",Sync" : string.Empty),
+            capabilities = Capabilities(stewardship) + (SyncFlags.IsOn(service) ? ",Sync" : string.Empty)
+
+                // ADR-311: the owner's switch, so capabilities read here and sent back to updateDefinition keep it.
+                + (service.ChangeTracking ? "," + ChangeTrackingFlags.Capability : string.Empty),
 
             // ADR-288: whether its owner turned offline sync on.
             syncEnabled = SyncFlags.IsOn(service),
@@ -228,6 +231,10 @@ internal static partial class ArcGisAdminEndpoints
         // it is, because turning it off unregisters every replica and a capabilities string written for editing alone
         // must not do that by omission. `syncEnabled` says it outright either way.
         bool? syncAsked = null;
+
+        // ADR-311 §5.2: ChangeTracking in capabilities turns change tracking on, and a capabilities string without it turns
+        // it off, as the reference says — turning it off destroys nothing, because the history is kept.
+        bool? trackingAsked = null;
         if (definition.TryGetProperty("capabilities", out JsonElement capabilities))
         {
             HashSet<string> asked = new(
@@ -249,12 +256,14 @@ internal static partial class ArcGisAdminEndpoints
                 syncAsked = true;
             }
 
+            trackingAsked = asked.Remove(ChangeTrackingFlags.Capability);
+
             string[] other = [.. asked.Where(op => !AdminEndpoints.OwnerOperations.Contains(op, StringComparer.OrdinalIgnoreCase))];
             if (other.Length > 0)
             {
                 await RefuseAsync(context, 400,
-                    $"{string.Join(", ", other)}: not offered here — ChangeTracking (extractChanges) is not served; Sync is, through "
-                    + "syncEnabled or Sync in capabilities (ADR-288). Nothing was changed.").ConfigureAwait(false);
+                    $"{string.Join(", ", other)}: not offered here. This server offers Query, Create, Update, Delete and Extract, "
+                    + "Sync (ADR-288) and ChangeTracking (extractChanges, ADR-311). Nothing was changed.").ConfigureAwait(false);
                 return;
             }
 
@@ -323,6 +332,12 @@ internal static partial class ArcGisAdminEndpoints
         if (syncAsked is true && service.SyncEnabled is false && SyncFlags.Refusal(service) is { } syncRefused)
         {
             await RefuseAsync(context, 409, syncRefused + " Nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        if (trackingAsked is true && ChangeTrackingFlags.Refusal(service, needsLayers: false) is { } trackingRefused)
+        {
+            await RefuseAsync(context, 409, "ChangeTracking: " + trackingRefused + " Nothing was changed.").ConfigureAwait(false);
             return;
         }
 
@@ -429,6 +444,14 @@ internal static partial class ArcGisAdminEndpoints
             }
         }
 
+        // ADR-311: change tracking next, for the same reason — turning it on starts each layer's history.
+        if (trackingAsked is { } trackTo && trackTo != service.ChangeTracking
+            && await ChangeTrackingFlags.SwitchAsync(context, service, folder, trackTo, cancellation).ConfigureAwait(false) is { } trackFailed)
+        {
+            await RefuseAsync(context, trackFailed.Status, trackFailed.Message).ConfigureAwait(false);
+            return;
+        }
+
         if (offered is not null)
         {
             await catalog.SetEditingOfferedAsync(service.Name, folder, offered, cancellation).ConfigureAwait(false);
@@ -524,8 +547,8 @@ internal static partial class ArcGisAdminEndpoints
 
     /// <summary>What the refusals name as accepted.</summary>
     private const string Accepted =
-        "This server's updateDefinition changes capabilities, serviceDescription, copyrightText, maxRecordCount and "
-        + "editorTrackingInfo and syncEnabled (with Sync in capabilities, ADR-288), and accepts hasStaticData, "
+        "This server's updateDefinition changes capabilities (ChangeTracking among them, ADR-311), serviceDescription, "
+        + "copyrightText, maxRecordCount and editorTrackingInfo and syncEnabled (with Sync in capabilities, ADR-288), and accepts hasStaticData, "
         + "allowGeometryUpdates, syncCapabilities, name and ownershipBasedAccessControlForFeatures where they agree with the "
         + "rest. Nothing was changed.";
 

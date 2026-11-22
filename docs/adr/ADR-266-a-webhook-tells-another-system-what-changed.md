@@ -140,13 +140,22 @@ owner (`on delete cascade`) and with the service.
   service's address). **Not raised:** LayerDefinitionChanged — this server has no layer-level `updateDefinition` — and a
   webhook naming only it is refused at creation; a webhook's document lists `changeTypesRaised`.
 
-### 5.3 What a feature-service payload carries instead of `changesUrl`
+### 5.3 What a feature-service payload carries ~~instead of~~ beside `changesUrl`
 
-ArcGIS's `changesUrl` names an `extractChanges` request against server generations, which needs sync and change
-tracking this server does not have (ADR-082). **The payload carries what that request would return the keys of** —
+~~ArcGIS's `changesUrl` names an `extractChanges` request against server generations, which needs sync and change
+tracking this server does not have (ADR-082).~~ **The payload carries what that request would return the keys of** —
 `objectIds: {adds, updates, deletes}`, at most 1,000 of each with `truncated` when there were more — and `layerUrl`, and
-`queryUrl`, a `query` for the added and updated ids when there are at most a hundred. `changesUrl` is absent rather than
-pointed at something that answers differently. (`INFERRED`, §5.10 Q2.)
+`queryUrl`, a `query` for the added and updated ids when there are at most a hundred. ~~`changesUrl` is absent rather than
+pointed at something that answers differently. (`INFERRED`, §5.10 Q2.)~~
+
+> **Amended 2026-11-22 by [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision
+> (*"Hosted + webhook"*).** This server now serves `extractChanges` on a hosted service with `ChangeTracking` on, so the
+> reason above is gone. **Where the edited service tracks changes, the payload carries ArcGIS's `changesUrl`**: an
+> `extractChanges` request with `serverGens=[g0,g1]` — the moment before the edit's transaction began and the moment
+> after it committed — `async=true`, and the `return*=false` flags ArcGIS's examples give for the change type
+> (ADR-311 §5.11). Following it returns the change that fired the event. Where the service does not track changes,
+> `changesUrl` stays absent. **`objectIds`, `layerUrl` and `queryUrl` stay in every payload**, so a receiver built on
+> them is not broken. The struck sentences are kept so that the earlier decision stays visible.
 
 ### 5.4 Where a webhook may post — the SSRF rule
 
@@ -218,9 +227,11 @@ that was raised while it was off.
 
 - **Q1 — Who makes an organisation's webhook.** `admin:manageSecurity` and `admin:viewAllContent`. Alternative: any
   administrator role, or a new privilege `admin:manageWebhooks`.
-- **Q2 — `changesUrl`.** Absent; `objectIds`, `layerUrl` and `queryUrl` in its place. Alternative: `changesUrl` pointing
+- ~~**Q2 — `changesUrl`.** Absent; `objectIds`, `layerUrl` and `queryUrl` in its place. Alternative: `changesUrl` pointing
   at the `query`, which a client that only follows the link would read, and one that parses `extractChanges` would
-  misread.
+  misread.~~ **Changed 2026-11-22 by [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner
+  decision (*"Hosted + webhook"*):** `changesUrl` is a real `extractChanges` request where the service tracks changes,
+  and `objectIds`, `layerUrl` and `queryUrl` stay beside it.
 - **Q3 — The private-network setting** and plain HTTP to a private receiver with it on. Alternative: HTTPS always, and a
   receiver on the private network must present a certificate this server trusts.
 - **Q4 — `scheduleInfo`** kept and not honoured; one event per delivery. Alternative: gather a webhook's events over its
@@ -313,5 +324,6 @@ that was raised while it was off.
 - [ADR-011](ADR-011-job-system.md) §3.2 — the `skip locked` claim, and the lease (D-243).
 - [ADR-017](ADR-017-admin-api.md) §5d — the audit log the portal events are raised from.
 - [ADR-067](ADR-067-duckdb-sources-beyond-a-local-folder.md) §5.2 — the private-address rule.
-- [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) — why there is no `extractChanges`.
+- [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) — ~~why there is no `extractChanges`~~ why there was none until
+  [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md) (2026-11-22).
 - [ADR-204](ADR-204-one-deployment-holds-several-organisations.md) — the floor both tables are under.

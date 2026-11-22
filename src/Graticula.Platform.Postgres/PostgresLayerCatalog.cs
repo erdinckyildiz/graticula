@@ -177,7 +177,10 @@ public sealed class PostgresLayerCatalog
         l.data_changed_at, l.schema_changed_at,
 
         -- ADR-288, migration 138: whether its service is sync-enabled. On the end, read by name.
-        s.sync_enabled as service_sync_enabled
+        s.sync_enabled as service_sync_enabled,
+
+        -- ADR-311, migration 145: whether its service tracks changes. On the end, read by name.
+        s.change_tracking as service_change_tracking
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -623,6 +626,7 @@ public sealed class PostgresLayerCatalog
 
             // ADR-288, migration 138.
             ServiceSyncEnabled = reader.GetBoolean(reader.GetOrdinal("service_sync_enabled")),
+            ServiceChangeTracking = reader.GetBoolean(reader.GetOrdinal("service_change_tracking")),
 
             // Migration 127.
             DataChangedAt = reader.IsDBNull(reader.GetOrdinal("data_changed_at"))
@@ -1010,6 +1014,7 @@ public sealed class PostgresLayerCatalog
         Dictionary<Guid, (string? Fees, string? Access)> ogcTerms = [];
         Dictionary<Guid, string?> credits = [];
         Dictionary<Guid, bool> syncs = [];
+        Dictionary<Guid, bool> tracking = [];
         Dictionary<Guid, string> titles = [];
         Dictionary<Guid, Graticula.Catalog.InspireSettings?> ogcInspire = [];
 
@@ -1098,6 +1103,7 @@ public sealed class PostgresLayerCatalog
                     ogcInspire[owning] = Graticula.Catalog.InspireSettings.Parse(Nullable(reader, "service_ogc_inspire"));
                     credits[owning] = Nullable(reader, "service_copyright_text");
                     syncs[owning] = reader.GetBoolean(reader.GetOrdinal("service_sync_enabled"));
+                    tracking[owning] = reader.GetBoolean(reader.GetOrdinal("service_change_tracking"));
                     titles[owning] = reader.GetString(reader.GetOrdinal("service_title"));
                 }
 
@@ -1180,6 +1186,7 @@ public sealed class PostgresLayerCatalog
                 Inspire = ogcInspire.GetValueOrDefault(id),
                 CopyrightText = credits.GetValueOrDefault(id),
                 SyncEnabled = syncs.GetValueOrDefault(id),
+                ChangeTracking = tracking.GetValueOrDefault(id),
                 Title = titles.GetValueOrDefault(id) ?? head.Name,
             });
         }

@@ -123,9 +123,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     /// <summary>
     /// Told each edit that committed, with what it kept, for the feature-service webhooks that listen (ADR-266) — set at
-    /// start, as <see cref="DataChanged"/> is; null tells nothing.
+    /// start, as <see cref="DataChanged"/> is; null tells nothing. The moment is taken before the edit's transaction
+    /// began, so a webhook's <c>changesUrl</c> window starts before the history stamps the edit (ADR-311 §5.11).
     /// </summary>
-    public Func<PublishedLayer, EditOutcome, CancellationToken, Task>? Edited { get; set; }
+    public Func<PublishedLayer, EditOutcome, DateTimeOffset, CancellationToken, Task>? Edited { get; set; }
 
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
@@ -730,6 +731,9 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(edits);
 
+        // ADR-311 §5.11: before the transaction begins, for the webhooks' changesUrl.
+        DateTimeOffset began = DateTimeOffset.UtcNow;
+
         if (!OneTransactionHolds(edits))
         {
             throw new InvalidOperationException("These layers are not in one database, so one transaction cannot hold their edits.");
@@ -754,7 +758,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 .ConfigureAwait(false);
 
             await RemoveAttachmentsOfDeletedAsync(edits, together, cancellation).ConfigureAwait(false);
-            await TellEditedAsync(edits, together, cancellation).ConfigureAwait(false);
+            await TellEditedAsync(edits, together, began, cancellation).ConfigureAwait(false);
             return together;
         }
 
@@ -822,13 +826,13 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             }
         }
 
-        await TellEditedAsync(edits, outcomes, cancellation).ConfigureAwait(false);
+        await TellEditedAsync(edits, outcomes, began, cancellation).ConfigureAwait(false);
         return outcomes;
     }
 
     /// <summary>After a transaction across layers commits, each layer's edit to the webhooks that listen (ADR-266).</summary>
     private async Task TellEditedAsync(
-        IReadOnlyList<LayerEdit> edits, IReadOnlyList<EditOutcome> outcomes, CancellationToken cancellation)
+        IReadOnlyList<LayerEdit> edits, IReadOnlyList<EditOutcome> outcomes, DateTimeOffset began, CancellationToken cancellation)
     {
         if (Edited is not { } edited)
         {
@@ -837,7 +841,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         for (int i = 0; i < edits.Count && i < outcomes.Count; i++)
         {
-            await edited(edits[i].Layer, outcomes[i], cancellation).ConfigureAwait(false);
+            await edited(edits[i].Layer, outcomes[i], began, cancellation).ConfigureAwait(false);
         }
     }
 
@@ -1322,13 +1326,15 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
 /// <summary>A layer's writer that tells the webhooks what each batch kept, after it was kept — ADR-266.</summary>
 internal sealed class EditTellingWriter(
-    IFeatureWriter inner, PublishedLayer layer, Func<PublishedLayer, EditOutcome, CancellationToken, Task> edited) : IFeatureWriter
+    IFeatureWriter inner, PublishedLayer layer, Func<PublishedLayer, EditOutcome, DateTimeOffset, CancellationToken, Task> edited) : IFeatureWriter
 {
     /// <inheritdoc/>
     public async Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken)
     {
+        // ADR-311 §5.11: before the inner writer's transaction begins.
+        DateTimeOffset began = DateTimeOffset.UtcNow;
         EditOutcome outcome = await inner.ApplyAsync(batch, cancellationToken).ConfigureAwait(false);
-        await edited(layer, outcome, cancellationToken).ConfigureAwait(false);
+        await edited(layer, outcome, began, cancellationToken).ConfigureAwait(false);
         return outcome;
     }
 }

@@ -64,7 +64,7 @@ Both are band 1.
 | Append points from addresses in CSV or Excel | Missing | `PortalEndpoints.ContentAdds.cs:431` refuses any `locationType` other than coordinates. ADR-257's trigger for revisiting this ("when a geocoder is offered") fired with ADR-258 |
 | Append to a reference (registered) layer, including Excel, shapefile and JSONL | Missing | `supportsAppend = layer.IsHosted` (`FeatureServerMetadataWriter.cs:1182`) |
 | `catalogID` of relationships in a replica's mobile geodatabase | Missing (not verified) | Not found in `Graticula.Offline.Sqlite` |
-| Extract Changes with `layerQueries` and `geometry` | Missing | `extractChanges` is served only for 3D meshes (`AdminEndpoints.Meshes.cs:81`) |
+| Extract Changes with `layerQueries` and `geometry` | ~~Missing~~ **Have, since 2026-11-22 ([ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md))** on a hosted service with `ChangeTracking` on; a point or line `geometry` is refused (D-469) | ~~`extractChanges` is served only for 3D meshes (`AdminEndpoints.Meshes.cs:81`)~~ `OfflineReplicaEndpoints.ExtractChanges.cs` |
 | queryAttachments `returnCountOnly` | **Wrong answer** | See the verdict |
 | `queryBins` and `lodBin` | Missing | No match in `src` |
 | Layer query `outDistance` | **Refused (400)** | Refused as an unknown parameter, so a 12.2 client that sends it gets an error |
@@ -160,7 +160,7 @@ reopens an ADR or a scope line gets its own ADR before any code is written.
 | Item | Size | Waiting on |
 |---|---|---|
 | Offline sync out of prototype (ADR-288, D-401, D-394) | L | ~~ADR-288's own conditions~~ **Done 2026-11-22:** all seven discharged, status `ACCEPTED`; D-401's race is next, measured on the emulator |
-| `extractChanges` on hosted and sync-enabled layers | M | A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it |
+| `extractChanges` on hosted and sync-enabled layers | M | ~~A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it~~ **Decided and built 2026-11-22 — [ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision *"Hosted + webhook"*; `changesUrl` is real** |
 | Contingent values and field groups on the server | M–L | A decision. grapy has them (ADR-235) |
 | Map Viewer form authoring and Arcade | L | A decision. This is the work Field Maps Designer does |
 | IWA and PKI sign-in | M | A decision. ADR-015's mTLS is not built |

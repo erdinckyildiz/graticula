@@ -228,7 +228,9 @@ measurable question. The two device claims are, so they are conditions and not a
      shows both versions side by side and the user chooses. A record deleted on the server while edited on a device is
      kept on the device, marked, and shown to its author. The last writer never wins without being told.
    - **What ADR-082 still keeps out:** ArcGIS's replica protocol, `createReplica`, `synchronizeReplica`,
-     `unRegisterReplica` and `extractChanges`. Field Maps' offline areas and Pro's *Download Map* still do not work
+     `unRegisterReplica` and `extractChanges` *(all four served since — the replica operations by
+     [ADR-288](ADR-288-offline-sync-is-in.md), `extractChanges` by
+     [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md) on 2026-11-22)*. Field Maps' offline areas and Pro's *Download Map* still do not work
      against this server, and every layer still says `supportsDisconnectedEditing: false`. The Inbox is Graticula's own
      client talking to Graticula's own server. It is not a replica that ArcGIS's clients could open.
    - **What the Inbox downloads is bounded** by the publisher's filter and a record limit per form (owner decision 2026-11-09,

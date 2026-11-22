@@ -394,7 +394,10 @@ removed. **No extent control in v1** (INFERRED): Overview has no map, and the AP
 
 ### 5.10 What does not change
 
-`createReplica`, `synchronizeReplica`, `unRegisterReplica`, `extractData` and `extractChanges` stay unserved and
+`createReplica`, `synchronizeReplica`, `unRegisterReplica`, `extractData` and `extractChanges` stay unserved *(the first
+three are served since [ADR-288](ADR-288-offline-sync-is-in.md), and `extractChanges` since
+[ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), 2026-11-22, on a hosted service with change
+tracking on; `extractData` still is not)* and
 every layer keeps saying `supportsDisconnectedEditing: false` ([ADR-082](ADR-082-offline-sync-is-not-in-v1.md)). An
 export is a copy handed out once; nothing comes back. **Attachments are not exported** (owner decision 4).
 `query` answers as it did.

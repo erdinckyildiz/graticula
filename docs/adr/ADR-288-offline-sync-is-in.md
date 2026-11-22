@@ -12,6 +12,12 @@
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
 
+> **Built on 2026-11-22 by [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision
+> (*"Hosted + webhook"*).** This decision said nothing about `extractChanges`. ADR-311 serves it on hosted services with
+> `ChangeTracking` on, from this ADR's machinery — the difference of §5.4 (`ChangesAsync`, now split so the two moments'
+> rows can be read), the replica filters, the attachment record of ADR-290 and the replica jobs — and stands on D-401's
+> race exactly as a download does (ADR-311 §5.9). Nothing in this ADR's protocol changes.
+
 ---
 
 ## 1. Context
