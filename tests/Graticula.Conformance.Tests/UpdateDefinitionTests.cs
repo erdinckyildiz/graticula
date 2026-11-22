@@ -86,16 +86,16 @@ public sealed class UpdateDefinitionTests : ArcGisClient
         Assert.Contains("hasStaticData", body, StringComparison.Ordinal);
         Assert.Equal(before, (await GetJsonAsync(admin)).GetProperty("serviceDescription").GetString() ?? string.Empty);
 
-        // Sync is kept since ADR-288 (UpdateDefinitionTests.Sync_is_turned_on_and_off_through_update_definition);
-        // ChangeTracking is still not served, and is refused by name.
+        // Sync is kept since ADR-288 (UpdateDefinitionTests.Sync_is_turned_on_and_off_through_update_definition), and
+        // ChangeTracking since ADR-311 (ExtractChangesTests); a capability this server does not offer is refused by name.
         (HttpStatusCode tracking, string trackingBody) = await PostAsync($"{admin}/updateDefinition", new()
         {
-            ["updateDefinition"] = JsonSerializer.Serialize(new { capabilities = "Query,ChangeTracking" }),
+            ["updateDefinition"] = JsonSerializer.Serialize(new { capabilities = "Query,Uploads" }),
             ["f"] = "json",
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, tracking);
-        Assert.Contains("ChangeTracking", trackingBody, StringComparison.Ordinal);
+        Assert.Contains("Uploads", trackingBody, StringComparison.Ordinal);
     }
 
     /// <summary>

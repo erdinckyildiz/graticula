@@ -1326,7 +1326,18 @@ internal static partial class OfflineReplicaEndpoints
             return;
         }
 
-        await Results.Json(OfflineReplicaShapes.Status(job, ResultUrl(context, job))).ExecuteAsync(context).ConfigureAwait(false);
+        // The job runs on another thread: read between the result URL and the status, it could say Completed with no
+        // resultUrl, and a client polling for one would stop with nothing (seen 2026-11-22 on an extractChanges job).
+        // A job's file is set before it is Completed, so asking again once it says Completed finds it.
+        string? result = ResultUrl(context, job);
+        System.Text.Json.Nodes.JsonObject status = OfflineReplicaShapes.Status(job, result);
+
+        if (result is null && status["status"]?.GetValue<string>() == "Completed")
+        {
+            status = OfflineReplicaShapes.Status(job, ResultUrl(context, job));
+        }
+
+        await Results.Json(status).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>A replica job's file — to the caller who asked for it, and nobody else.</summary>
