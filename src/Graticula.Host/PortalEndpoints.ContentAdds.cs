@@ -344,7 +344,9 @@ internal static partial class PortalEndpoints
             : "layer";
 
     /// <summary>What a <c>publishParameters</c> document asks of a data item's publish.</summary>
-    internal sealed record DataPublish(string? Name, string? LocationType, string? X, string? Y, int? Srid);
+    internal sealed record DataPublish(
+        string? Name, string? LocationType, string? X, string? Y, int? Srid,
+        string? AddressTemplate = null, string? AddressFields = null, string? SourceCountry = null);
 
     /// <summary>
     /// Reads <c>publishParameters</c>: the service <c>name</c>, the CSV's <c>locationType</c> and its
@@ -382,8 +384,14 @@ internal static partial class PortalEndpoints
                     ? wkid
                     : null;
 
+            // ADR-310: a table of addresses — the template or the columns that make an address, and the country to look in.
+            string? fields = root.TryGetProperty("addressFields", out JsonElement mapped) && mapped.ValueKind == JsonValueKind.Object
+                ? mapped.GetRawText()
+                : null;
+
             return new DataPublish(
-                Text(root, "name"), Text(root, "locationType"), Text(root, "longitudeFieldName"), Text(root, "latitudeFieldName"), srid);
+                Text(root, "name"), Text(root, "locationType"), Text(root, "longitudeFieldName"), Text(root, "latitudeFieldName"), srid,
+                Text(root, "addressTemplate"), fields, Text(root, "sourceCountry"));
         }
         catch (JsonException bad)
         {
@@ -428,12 +436,16 @@ internal static partial class PortalEndpoints
             return PortalError(400, unreadable!);
         }
 
-        // Only coordinates: Studio's import reads x and y, or WKT, and does not geocode (ADR-112).
-        if (asked.LocationType is { } location && !location.Equals("coordinates", StringComparison.OrdinalIgnoreCase))
+        // Coordinates, or since ADR-310 addresses, which the geocoder the operator configured locates (and which is refused,
+        // in the geocoder's own sentence, when there is none). `lookup` and `none` stay out: a table is published from its
+        // coordinate columns (x and y, longitude and latitude, or WKT), or from its addresses.
+        if (asked.LocationType is { } location
+            && !location.Equals("coordinates", StringComparison.OrdinalIgnoreCase)
+            && !location.Equals("address", StringComparison.OrdinalIgnoreCase))
         {
             return PortalError(400,
                 $"locationType '{location}' is not offered: a table is published from its coordinate columns (x and y, "
-                + "longitude and latitude, or WKT). Nothing was written.");
+                + "longitude and latitude, or WKT), or from its addresses when this server has a geocoder. Nothing was written.");
         }
 
         (bool known, Guid? folder) = await PathFolderAsync(context, current.Principal.Id, cancellation).ConfigureAwait(false);
@@ -463,6 +475,26 @@ internal static partial class PortalEndpoints
         if (asked.Srid is { } srid)
         {
             fields["srid"] = srid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (asked.LocationType is { } located && located.Equals("address", StringComparison.OrdinalIgnoreCase))
+        {
+            fields["locationType"] = "address";
+
+            if (asked.AddressTemplate is { } template)
+            {
+                fields["addressTemplate"] = template;
+            }
+
+            if (asked.AddressFields is { } addressFields)
+            {
+                fields["addressFields"] = addressFields;
+            }
+
+            if (asked.SourceCountry is { } country)
+            {
+                fields["sourceCountry"] = country;
+            }
         }
 
         using MemoryStream bytes = new(content, writable: false);

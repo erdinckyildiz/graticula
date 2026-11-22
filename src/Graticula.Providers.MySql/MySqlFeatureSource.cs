@@ -402,6 +402,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             AnswersHaving = true,
             AnswersTopFeatures = true,
             AnswersCentroid = true,
+            AnswersBins = false,
             AnswersStatisticExpressions = true,
             AnswersRelations = _engine is not null,
             SpatiallyIndexed = _layer.IsTable ? null : true,

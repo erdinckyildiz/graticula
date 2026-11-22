@@ -258,6 +258,12 @@ public sealed record LayerDescription(
     public bool AnswersStatisticExpressions { get; init; } = true;
 
     /// <summary>
+    /// Whether <c>queryBins</c> is answered — a group by an expression of the bin's index, which only the PostGIS provider
+    /// writes (ADR-309 §4). The layer document's <c>queryBinsCapabilities</c> is read from here.
+    /// </summary>
+    public bool AnswersBins { get; init; } = true;
+
+    /// <summary>
     /// Whether the geometry column has a spatial index — true or false for a PostGIS table, null where the
     /// question has no answer here: a view, a foreign table, a file.
     /// </summary>

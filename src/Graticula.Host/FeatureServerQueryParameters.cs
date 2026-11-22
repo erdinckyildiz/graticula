@@ -77,7 +77,9 @@ internal static class FeatureServerQueryParameters
         // day; these five cannot be implemented without something the product
         // does not have.
         //
-        //   gdbVersion            — there is no version tree.
+        //   gdbVersion            — there is no version tree. Not in this list: a name here is refused
+        //                           whatever its value, and the default version is the one this server has,
+        //                           so it is checked by `TryGdbVersion` instead (ADR-309 §2).
         //   historicMoment        — answered on a layer that keeps its history since
         //                           2026-09-19 (ADR-078), refused on one that does not.
         //   fullText              — needs a tsvector column and an index nobody
@@ -162,7 +164,6 @@ internal static class FeatureServerQueryParameters
         ["datumTransformation"] = "the transformation for the datum pair is the database's "
             + "default and cannot be chosen; coordinates may differ by a few metres from a "
             + "client that names one",
-        ["gdbVersion"] = "there is no version tree",
         // <b>It is not ignored, and saying so was wrong for a day.</b> This read
         // *authentication is by header* until 2026-08-20, and by then `?token=`
         // authenticated on every route — which is what the security gate proved by
@@ -238,6 +239,13 @@ internal static class FeatureServerQueryParameters
         ["uniqueIds"] = ("", "unique ids are an ArcGIS 12.1 concept with no counterpart in this server"),
         ["timeRelation"] = ("esriTimeRelationOverlaps", "a time filter here is the overlap of the window and the feature's time"),
         ["outTimeReference"] = ("", "every date is written in UTC; no other time zone is produced"),
+
+        // <b>New at 12.2 for hosted layers, and refused rather than guessed — ADR-309 §3.</b> The public reference names it in
+        // the 12.2 list of changes and does not describe its value, its unit or what it adds to the answer, so no behaviour
+        // can be implemented from public documentation, and ignoring it would answer a question with a missing column.
+        // Sent empty it asks for nothing and is accepted; given a value it is refused here by name instead of falling
+        // through to *not a parameter this server understands*, which told a 12.2 client nothing.
+        ["outDistance"] = ("", "outDistance is new at ArcGIS Enterprise 12.2 and its output is not described in the public reference, so it is not computed here"),
     };
 
     /// <summary>Parses, or explains why not.</summary>
@@ -669,6 +677,21 @@ internal static class FeatureServerQueryParameters
 
         foreach (string name in parameters.Keys)
         {
+            // <b>Refused when it names a version other than the default — ADR-309 §2.</b> It sat on the ignored list with
+            // the reason *there is no version tree*, and an ignored value is only harmless if it names the one version
+            // there is: a client asking for `gdbVersion=Edits` and answered from the default was handed a different
+            // question's answer, which is what this class's header forbids.
+            if (string.Equals(name, "gdbVersion", StringComparison.OrdinalIgnoreCase))
+            {
+                if (GdbVersionRefusal(parameters[name].ToString()) is { } versionRefusal)
+                {
+                    error = versionRefusal;
+                    return false;
+                }
+
+                continue;
+            }
+
             // <b>Names in any case — N3.</b> ArcGIS reads `Where` as `where`, and so does every value read here (the query
             // collection is case-insensitive); only this list compared them exactly, so `Where=1=1` was refused.
             if (Known.Contains(name)
@@ -2609,6 +2632,34 @@ internal static class FeatureServerQueryParameters
 
         envelope = new Envelope(ordinates[0], ordinates[1], ordinates[2], ordinates[3]);
         return true;
+    }
+
+    /// <summary>
+    /// Why a <c>gdbVersion</c> is refused, or null when it names the one version this server has — ADR-309 §2.
+    /// </summary>
+    /// <remarks>
+    /// <b>Empty, <c>sde.DEFAULT</c> and <c>DEFAULT</c>, in any case, name the default version</b>: ArcGIS's reference gives
+    /// <c>SDE.DEFAULT</c> as the example and says the published map's version applies when none is named. A server has no
+    /// other version, so the answer for any other name would silently be the default's. The reference says the parameter
+    /// applies only where a layer's <c>isDataVersioned</c> is true, and ours is false everywhere, so ArcGIS itself would ignore
+    /// it here; refusing is the stricter reading, taken because ignoring a name that is not the default hides a client's
+    /// mistake about where its edits or its reads land (INFERRED, ADR-309 §2). One helper so the read and edit faces agree.
+    /// </remarks>
+    /// <param name="value">What the caller sent.</param>
+    /// <returns>The refusal, or null.</returns>
+    internal static string? GdbVersionRefusal(string? value)
+    {
+        string version = (value ?? string.Empty).Trim();
+
+        if (version.Length == 0
+            || string.Equals(version, "sde.DEFAULT", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(version, "DEFAULT", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return $"'gdbVersion={version}' is refused: this server has no version tree, so the answer would be the default "
+            + "version's and not the one asked for. Send no gdbVersion, or 'sde.DEFAULT'.";
     }
 
     /// <summary>Whether a parameter is knowingly ignored, and why.</summary>

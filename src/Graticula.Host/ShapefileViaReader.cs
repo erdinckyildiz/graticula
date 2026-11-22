@@ -82,6 +82,10 @@ internal static class ShapefileViaReader
     /// One layer of an archive that holds several — a geodatabase Pro overwrites with (ADR-191) — or null for the
     /// one layer a shapefile archive holds. With a layer named, an <paramref name="srid"/> of 0 takes the reader's.
     /// </param>
+    /// <param name="locatedLater">
+    /// Whether a layer with no geometry is a table whose rows get one afterwards — addresses a geocoder locates (ADR-310) —
+    /// rather than one this server does not publish.
+    /// </param>
     /// <returns>The dataset, or the sentence to refuse with.</returns>
     public static async Task<(ImportedDataset? Dataset, string? Error)>
         ReadAsync(
@@ -91,7 +95,8 @@ internal static class ShapefileViaReader
         string? encoding,
         ImportLimits limits,
         CancellationToken cancellation,
-        string? layer = null)
+        string? layer = null,
+        bool locatedLater = false)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentException.ThrowIfNullOrWhiteSpace(archive);
@@ -115,7 +120,7 @@ internal static class ShapefileViaReader
                 return (null, listError);
             }
 
-            if (!Single(listed.RootElement, layer, out layerName, out kind, out string? whichError))
+            if (!Single(listed.RootElement, layer, locatedLater, out layerName, out kind, out string? whichError))
             {
                 return (null, whichError);
             }
@@ -305,7 +310,7 @@ internal static class ShapefileViaReader
             new ImportedDataset(
                 features,
                 [.. Ordered(order, columns)],
-                seen ?? kind!.Value,
+                seen ?? kind ?? GeometryKind.Point,
                 srid),
             null);
     }
@@ -385,7 +390,7 @@ internal static class ShapefileViaReader
     /// because the sentence it produces is better than an index out of range.
     /// </remarks>
     private static bool Single(
-        JsonElement answer, string? wanted, out string? name, out GeometryKind? kind, out string? error)
+        JsonElement answer, string? wanted, bool locatedLater, out string? name, out GeometryKind? kind, out string? error)
     {
         name = null;
         kind = null;
@@ -441,6 +446,12 @@ internal static class ShapefileViaReader
         kind = KindOf(only.TryGetProperty("geometry", out JsonElement shape)
             ? shape.GetString()
             : null);
+
+        // A table of addresses has no geometry yet, and whatever the reader calls that, the rows are given a point afterwards.
+        if (kind is null && locatedLater)
+        {
+            kind = GeometryKind.Point;
+        }
 
         if (kind is null)
         {

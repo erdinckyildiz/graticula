@@ -72,7 +72,7 @@ Both are more moving parts than a forty-line trigger function.
 
 **Against.** It answers a different question — *edit in private, then reconcile* — and it is an order of
 magnitude larger. Nobody asked for it. `gdbVersion` stays on the ignored list with *"there is no version
-tree"*, which remains true.
+tree"*, which remains true. *(Amended 2026-11-21, [ADR-309](ADR-309-the-12-2-query-gaps-are-closed-where-the-public-reference-says-how.md) §5.2: it left the ignored list that day. The sentence is still true, and ignoring a name that is not the default answered from the default version without saying so, so a version other than `sde.DEFAULT` is refused.)*
 
 ## 3. Counterarguments to the preferred option
 

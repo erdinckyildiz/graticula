@@ -123,6 +123,52 @@ public sealed class PortalContentAddsTests : ArcGisClient
         return await LoginAsync(issued + "X1");
     }
 
+    /// <summary>
+    /// ADR-310: <c>locationType: address</c> on a publish. Refused in a sentence when the server has no geocoder, and located
+    /// by it when there is one — the unmatched row is not written and is counted.
+    /// </summary>
+    [Fact]
+    public async Task A_csv_of_addresses_is_published_by_the_geocoder_or_refused_when_there_is_none()
+    {
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string name = $"zz_addrpub_{tag}";
+        string? item = null;
+        bool published = false;
+
+        // The locator is in the directory only when the operator configured one.
+        JsonElement locator = await SendAsync(HttpMethod.Get, "/rest/services/Utilities/Geocode/GeocodeServer?f=json");
+        bool geocoder = locator.ValueKind == JsonValueKind.Object && locator.TryGetProperty("capabilities", out _);
+
+        try
+        {
+            item = await AddCsvAsync($"zz addresses {tag}", "name,addr\nKizilay,Kizilay Ankara\nNowhere,Zzzzz Qqqqq\n", "addresses.csv");
+
+            JsonElement answer = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/publish", Form(new()
+            {
+                ["itemid"] = item,
+                ["filetype"] = "csv",
+                ["publishParameters"] = JsonSerializer.Serialize(new { name, locationType = "address", addressTemplate = "{addr}" }),
+                ["f"] = "json",
+            }));
+
+            if (!geocoder)
+            {
+                Assert.Contains("Graticula:Geocoding:PhotonUrl", ErrorOf(answer), StringComparison.Ordinal);
+                return;
+            }
+
+            Assert.True(answer.GetProperty("services")[0].GetProperty("success").GetBoolean(), answer.GetRawText());
+            published = true;
+
+            // One of the two was located; the other is not written.
+            Assert.Equal(1, await CountAsync(name));
+        }
+        finally
+        {
+            await RemoveAsync(published ? name : null, item);
+        }
+    }
+
     [Fact]
     public async Task A_csv_added_and_published_through_the_portal_is_a_queryable_layer_and_a_studio_document()
     {

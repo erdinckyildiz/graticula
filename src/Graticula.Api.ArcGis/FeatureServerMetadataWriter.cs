@@ -420,6 +420,11 @@ public static class FeatureServerMetadataWriter
     /// </remarks>
     public const string HostedFolder = "hosted";
 
+    /// <summary>
+    /// What <c>supportedAppendFormats</c> says, on a layer and on a service — the formats <c>append</c> reads (ADR-105, ADR-257, ADR-310).
+    /// </summary>
+    public const string AppendFormats = "geojson,jsonl,shapefile,csv,excel";
+
     /// <summary>One layer's entry in a service document.</summary>
     /// <param name="Id">Its number within the service, which is the URL segment.</param>
     /// <param name="Name">Its name.</param>
@@ -1035,6 +1040,20 @@ public static class FeatureServerMetadataWriter
             // that refuses it is worse than not declaring it.
             hasAttachments = attachments ?? layer.IsHosted,
 
+            // <b>What queryAttachments can filter and read — ADR-309 §1.</b> `keywords` and the rest are the properties
+            // the endpoint answers; `exifInfo` is disabled because no EXIF is read, and the answer carries it as null.
+            // Said only where attachments are kept, because a client that finds this list offers to query by it.
+            attachmentProperties = (attachments ?? layer.IsHosted)
+                ? new object[]
+                {
+                    new { name = "name", isEnabled = true },
+                    new { name = "size", isEnabled = true },
+                    new { name = "contentType", isEnabled = true },
+                    new { name = "keywords", isEnabled = true },
+                    new { name = "exifInfo", isEnabled = false },
+                }
+                : null,
+
             // <b>Declared relationships, so a client can find them.</b> A
             // relationship a client cannot discover is one nobody follows —
             // queryRelatedRecords needs an id, and this document is the only
@@ -1106,6 +1125,10 @@ public static class FeatureServerMetadataWriter
 
                 // <b>queryAttachments answers where attachments do — 2026-09-15.</b>
                 supportsQueryAttachments = attachments ?? layer.IsHosted,
+                // ADR-309 §1: read by queryAttachments since 2026-11-21. Ordering the attachments is refused, so its flag is false.
+                supportsQueryAttachmentsCountOnly = attachments ?? layer.IsHosted,
+                supportsQueryAttachmentsWithReturnUrl = attachments ?? layer.IsHosted,
+                supportsQueryAttachmentOrderByFields = false,
                 // <b>From the source, since a layer's file cannot answer it — ADR-066.</b>
                 supportsQueryWithDistance = description.AnswersDistance,
                 // <b>False from 2026-08-16 until the clause was parsed the way `where` is — D-41, Q-109.</b> It was
@@ -1147,6 +1170,31 @@ public static class FeatureServerMetadataWriter
                 supportsQueryWithHistoricMoment = description.Archived,
             },
 
+            // <b>What queryBins answers — ADR-309 §4.</b> Said where the source answers it (PostGIS) and nowhere else, one flag
+            // for each thing the endpoint does and false for each it refuses by name. The reference defines the flags in
+            // `queryBinsCapabilities`; where they sit in the layer document is INFERRED (the layer's top level).
+            queryBinsCapabilities = description.AnswersBins
+                ? new
+                {
+                    supportsAsync = false,
+                    supportsAutoIntervalBin = true,
+                    supportsFixedIntervalBin = true,
+                    supportsFixedBoundariesBin = true,
+                    supportsDateBin = true,
+                    supportsStackBy = false,
+                    supportsSplitBy = false,
+                    supportsFirstDayOfWeek = true,
+                    supportsSnapToData = true,
+                    supportsReturnFullIntervalBin = true,
+                    supportsNormalization = false,
+                    supportsClassificationBin = false,
+                    supportedStatisticTypes = new[]
+                    {
+                        "count", "sum", "min", "max", "avg", "stddev", "var", "percentile_cont", "percentile_disc",
+                    },
+                }
+                : null,
+
             // <b>What the column declares, since `query` returns it — ADR-077, step 3.</b> These were false
             // as literals while the model could hold x and y only, and ADR-074 argued that true would offer
             // an elevation `query` never returned. It returns it now to a caller who sends `returnZ=true`,
@@ -1179,8 +1227,14 @@ public static class FeatureServerMetadataWriter
             // two formats it reads; a registered table is appended to by nobody. A CSV and a workbook since ADR-257,
             // which the same reader takes (ArcGisAppendEndpoints.Formats).
             cacheMaxAge = cacheMaxAge ?? 0,
-            supportsAppend = layer.IsHosted,
-            supportedAppendFormats = layer.IsHosted ? "geojson,shapefile,csv,excel" : string.Empty,
+            //
+            // <b>Registered layers too since ADR-310</b>, where the caller may add features and the source takes writes: the
+            // file's features go through the layer's edit writer, as an applyEdits adds do. JSON Lines since the same
+            // decision, read by the reader that reads the others.
+            supportsAppend = layer.IsHosted || (capabilities.Contains("Create", StringComparison.Ordinal) && description.Writable == true),
+            supportedAppendFormats = layer.IsHosted || (capabilities.Contains("Create", StringComparison.Ordinal) && description.Writable == true)
+                ? AppendFormats
+                : string.Empty,
 
             // <b>What the query answers, which was nine relations while this said one.</b> A client
             // that reads the list offers only what is in it, so the Maps SDK's spatial filter

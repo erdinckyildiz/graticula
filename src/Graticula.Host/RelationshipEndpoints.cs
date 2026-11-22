@@ -431,6 +431,13 @@ internal static class RelationshipEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
+        // ADR-309 §2: a version other than the default is refused, as the layer query refuses it.
+        if (FeatureServerQueryParameters.GdbVersionRefusal(Value(context, "gdbVersion")) is { } versionRefusal)
+        {
+            await Fail(context, 400, versionRefusal).ConfigureAwait(false);
+            return;
+        }
+
         string relationshipId = Value(context, "relationshipId");
         string objectIdsRaw = Value(context, "objectIds");
 

@@ -222,7 +222,8 @@ internal static class Program
             "tabular" => Tabular(
                 Text(request, "in"), Text(request, "out"),
                 request.TryGetProperty("x", out JsonElement xs) ? xs.GetString() : null,
-                request.TryGetProperty("y", out JsonElement ys) ? ys.GetString() : null),
+                request.TryGetProperty("y", out JsonElement ys) ? ys.GetString() : null,
+                request.TryGetProperty("geometryOptional", out JsonElement optional) && optional.ValueKind == JsonValueKind.True),
 
             // ADR-106 conditions 1 and 2: `domains`, when sent, are written into a GeoPackage or File Geodatabase as
             // domains and each listed field is pointed at its own.
@@ -1384,7 +1385,7 @@ internal static class Program
     /// then the usual English and Turkish names. A workbook is written to CSV first, because the Excel driver reads
     /// attributes and has no X/Y option. Numbers stay numbers (<c>AUTODETECT_TYPE</c>).
     /// </remarks>
-    private static object Tabular(string input, string output, string? x, string? y)
+    private static object Tabular(string input, string output, string? x, string? y, bool geometryOptional = false)
     {
         List<string> said = [];
         _messages = said;
@@ -1441,7 +1442,9 @@ internal static class Program
             {
                 Layer? first = table.GetLayerCount() > 0 ? table.GetLayer(0) : null;
 
-                if (first is null || first.GetGeomType() == wkbGeometryType.wkbNone)
+                // <b>`geometryOptional`: rows that are located later</b> (ADR-310 — a table of addresses the host geocodes). The rows
+                // are written as GeoJSON features with no geometry, and the host puts one on each it can.
+                if (!geometryOptional && (first is null || first.GetGeomType() == wkbGeometryType.wkbNone))
                 {
                     return new
                     {
