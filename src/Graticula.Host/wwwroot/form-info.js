@@ -546,10 +546,84 @@
     return out;
   }
 
+  /** The field names an Arcade source reads from `$feature`: `$feature.name` and `$feature["name"]`. */
+  function featureNames(source) {
+    const out = [];
+    const pattern = /\$feature\s*(?:\.\s*([A-Za-z_][A-Za-z0-9_]*)|\[\s*(["'])([^"'\]]*)\2\s*\])/gi;
+    for (const m of String(source || "").matchAll(pattern)) out.push(m[1] || m[3]);
+    return out;
+  }
+
+  /**
+   * What is probably wrong with a form but does not stop it being applied, as sentences: an expression that reads a
+   * field the layer does not have, and a `{name}` in a text element that is neither an expression nor a field. Arcade
+   * answers such a field with an error when it runs, so the form still works where the field exists — another layer
+   * the form is copied to, or a field added later (UX review of ADR-313, 2026-11-22, finding 15).
+   */
+  function warnings(formInfo, fields) {
+    const out = [];
+    if (!formInfo) return out;
+    const known = new Set((fields || []).map(f => String(f.name).toLowerCase()));
+    const said = new Set();
+    const label = element => element.label || element.fieldName || element.type;
+    for (const { element } of walk(formInfo)) {
+      if (!element || typeof element !== "object") continue;
+      for (const property of EXPRESSION_PROPERTIES) {
+        const name = element[property];
+        if (typeof name !== "string") continue;
+        const info = expressionInfo(formInfo, name);
+        if (!info) continue;
+        for (const field of featureNames(info.expression)) {
+          if (known.has(field.toLowerCase())) continue;
+          const sentence = `The ${(TITLES[property] || property).toLowerCase()} expression of “${label(element)}” reads $feature.${field}, which the layer does not have.`;
+          if (!said.has(sentence)) { said.add(sentence); out.push(sentence); }
+        }
+      }
+      if (element.type === "text") {
+        for (const m of String(element.text || "").matchAll(/\{([^{}]+)\}/g)) {
+          const name = m[1].trim();
+          if (expressionInfo(formInfo, name) || known.has(name.toLowerCase())) continue;
+          const sentence = `The text “${textTitle(element.text)}” shows {${name}}, which is neither a field of the layer nor an expression of the form.`;
+          if (!said.has(sentence)) { said.add(sentence); out.push(sentence); }
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * A text element's name in a list: its first non-empty line without markdown's marks — a heading's #, a list's
+   * bullet, emphasis' * and _ — at most 60 characters. An underscore inside a word (a field name) is kept.
+   */
+  function textTitle(text) {
+    const line = String(text || "").split(/\r?\n/).map(l => l.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)/, "")
+      .replace(/\*+/g, "").replace(/(^|[^A-Za-z0-9])_+|_+(?=[^A-Za-z0-9]|$)/g, "$1").replace(/#+/g, "").trim()).find(Boolean) || "";
+    return line.length > 60 ? `${line.slice(0, 59)}…` : line;
+  }
+
+  /**
+   * The most characters a text field holds, or null when it has none: 2^30 − 2 (1,073,741,822) is what the layer reports
+   * for a text column with no length, and a form that said "the field holds 1073741822" said nothing (finding 10).
+   */
+  function lengthLimit(field) {
+    const length = Number(field && field.length);
+    return Number.isFinite(length) && length > 0 && length < 2 ** 30 - 2 ? length : null;
+  }
+
+  /**
+   * The element focus goes to when the one at `key` is removed: the next in its list, else the one before, else the
+   * group that held it; null when it was the form's only element.
+   */
+  function neighbourOf(formInfo, key) {
+    const { list, index, group } = locate(formInfo, key);
+    return list[index + 1] || list[index - 1] || group || null;
+  }
+
   const api = {
     SYSTEM_TRUE, SYSTEM_FALSE, INPUT_LABELS, EXPRESSION_PROPERTIES, inputTypesFor, defaultInput, fromFields, walk,
     fieldElements, locate, setExpression, setFixed, modeOf, prune, expressionInfo, returnTypeFor, compile, evaluate,
     missing, substitute, markdownHtml, problems, toArcade, fromArcade, codedValues,
+    featureNames, warnings, textTitle, lengthLimit, neighbourOf,
   };
 
   if (typeof module === "object" && module.exports) module.exports = api;
