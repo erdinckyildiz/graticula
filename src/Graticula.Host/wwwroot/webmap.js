@@ -152,6 +152,13 @@ function wmSayIn(id, text, bad = false) {
   if (!line) return;
   line.textContent = text;
   line.classList.toggle("bad", bad);
+  // A layer tool's sentence is written to the Layers panel's status; while that panel is not shown — closed, or given
+  // up for the right panel — a live region there is not read, so the right panel's own region says it (UX review of
+  // ADR-313, 2026-11-22, finding 7: what else carries this). That region is beside #layerTool, never redrawn.
+  if (id === "layersStatus" && !line.getClientRects().length) {
+    const side = wm$("layerToolSays");
+    if (side && !side.closest("[hidden]")) side.textContent = text;
+  }
 }
 
 function wmMarkDirty() {
@@ -3698,9 +3705,11 @@ function wmOpenTool(tool, focus = false) {
   }
   wmSide.tool = tool;
   document.body.classList.add("ropen");
+  // ADR-313: Forms is drawn wide, and full height on a phone (webmap-form.css), as Map Viewer's form builder takes the page.
+  document.body.classList.toggle("rform", tool === "form");
   wm$("side").hidden = false;
   // One sheet at a time on a phone; a wide window that cannot hold both panels and a map gives up the left one.
-  if (WM_PHONE.matches || window.innerWidth < 1100) {
+  if (WM_PHONE.matches || window.innerWidth < 1100 || tool === "form") {
     if (wmLeftOpen) wmOpenSheet(false);
   }
 
@@ -3721,7 +3730,7 @@ function wmOpenTool(tool, focus = false) {
 function wmCloseTool() {
   if (wmSide.tool === "measure") wmStopMeasuring();
   wmSide.tool = null;
-  document.body.classList.remove("ropen");
+  document.body.classList.remove("ropen", "rform");
   wm$("side").hidden = true;
   wmDrawSide();
   wmResized();
@@ -4898,7 +4907,7 @@ function wmLabelPanel(layer, run, key) {
     </fieldset>
     ${raw ? `<div class="row"><button class="tiny" data-act="labelsReset" data-layer="${k}" data-focus="labelsReset:${k}"
       data-focus-fallback="labOn:${k}">Remove labels</button></div>` : ""}
-    <p class="lsnote" id="labSays-${k}" role="status" aria-live="polite">${wmEscape(run.labelSaid
+    <p class="lsnote" id="labSays-${k}">${wmEscape(run.labelSaid
       || (label ? `Labels: ${label.field}, ${label.size} pt.` : unread
         ? "This map labels the layer with an expression this viewer does not draw; a change here replaces it."
         : "Choose a field to label with."))} Labels that would overlap are hidden.</p>
@@ -4977,6 +4986,7 @@ function wmApplyLabels(layer, reset = false) {
   wmMarkDirty();
   wmRestyle(layer);
   wmDrawLayerList();
+  wmSayIn("layersStatus", said);
 }
 
 

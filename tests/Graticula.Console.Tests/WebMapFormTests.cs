@@ -68,10 +68,21 @@ public sealed class WebMapFormTests : ConsoleTest
         await Browser.EvaluateAsync<bool>("(document.querySelector('[data-wmf-expr=valueExpression]').focus(), wmDrawLayerList(), true)");
         Assert.True(await Browser.EvaluateAsync<bool>("document.activeElement === document.querySelector('[data-wmf-expr=valueExpression]')"),
             "A redraw of the layer list took the focus out of the expression being written.");
-        Assert.Equal("polite", await Browser.EvaluateAsync<string>("document.querySelector('.wmf-said').getAttribute('aria-live')"));
+        // What the designer says is announced from a region outside the markup a redraw replaces (UX review, finding 7).
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "(() => { const r = document.getElementById('layerToolSays'); const tool = document.getElementById('layerTool');"
+            + " return r.getAttribute('aria-live') === 'polite' && !tool.contains(r) && !tool.querySelector('[aria-live], [role=status]'); })()"),
+            "The designer's status is not a live region outside #layerTool, or a live region is drawn inside it.");
+
+        // The preview is the card's markup for the sample, and follows what is typed (UX review, finding 2).
+        await Browser.EvaluateAsync<bool>(Type("[data-wmf-el=label]", "Station"));
+        await WaitForAsync("document.querySelector('.wmf-preview .wmf-pvform') && document.querySelector('.wmf-preview').textContent.includes('Station')"
+            + " && !document.querySelector('.wmf-preview [data-field]') && document.activeElement === document.querySelector('[data-wmf-el=label]')",
+            "The preview did not follow the label typed, drew controls the card reads, or took the focus.");
 
         await ClickAsync("[data-wmf-act=apply]");
-        await WaitForAsync("document.querySelector('.wmf-said').textContent.includes('is set in this map')", "Apply did not say the form was set.");
+        await WaitForAsync("document.querySelector('.wmf-said').textContent.includes('is set in this map')"
+            + " && document.getElementById('layerToolSays').textContent.includes('is set in this map')", "Apply did not say the form was set.");
         Assert.True(await Browser.EvaluateAsync<bool>(
             "(() => { const f = wmLayers()[0].formInfo; const label = f.formElements.find(e => e.fieldName === 'label');"
             + " const info = n => f.expressionInfos.find(e => e.name === n);"
@@ -95,7 +106,7 @@ public sealed class WebMapFormTests : ConsoleTest
               wmLayers()[0].formInfo = {
                 title: "Readings",
                 formElements: [
-                  { type: "field", fieldName: "reading", label: "Reading", inputType: { type: "text-box" }, requiredExpression: "expr/system/true" },
+                  { type: "field", fieldName: "reading", label: "Reading", description: "Metres above the datum", inputType: { type: "text-box" }, requiredExpression: "expr/system/true" },
                   { type: "group", label: "Details", visibilityExpression: "expr/0", formElements: [
                     { type: "field", fieldName: "label", label: "Label", inputType: { type: "text-box" }, hint: "a name" },
                     { type: "text", textFormat: "markdown", text: "**Reading** is {reading}" } ] } ],
@@ -140,9 +151,14 @@ public sealed class WebMapFormTests : ConsoleTest
         await WaitForAsync("document.getElementById('edit-reading-says').textContent === 'Reading is required.'"
             + " && document.activeElement === document.getElementById('edit-reading')", "An empty required field was not refused on itself.");
         Assert.Empty(await WritesAsync());
+        Assert.Equal("edit-reading-desc edit-reading-says", await Browser.EvaluateAsync<string>("document.getElementById('edit-reading').getAttribute('aria-describedby')"));
+
+        // The error goes as soon as the field holds a value, not at the next save (UX review, finding 5).
+        await Browser.EvaluateAsync<bool>(Type("#edit-reading", "3"));
+        await WaitForAsync("!document.getElementById('edit-reading').hasAttribute('aria-invalid') && document.getElementById('edit-reading-says').textContent === ''",
+            "A required field that was filled in still says it is required.");
 
         // A valid form sends the reading and the cleared label through applyEdits.
-        await Browser.EvaluateAsync<bool>(Type("#edit-reading", "3"));
         await ClickAsync("#identify form.wmf-form button[type=submit]");
         await WaitForAsync("window.__writes.some(w => w.includes('/FeatureServer/0/applyEdits'))", "Saving the form sent nothing to applyEdits.");
         string sent = (await Browser.EvaluateAsync<string[]>("window.__bodies") ?? []).Last();

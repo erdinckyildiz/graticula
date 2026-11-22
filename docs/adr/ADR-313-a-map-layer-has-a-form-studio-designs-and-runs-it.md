@@ -155,6 +155,15 @@ fetched; the pages were read through a summarising fetcher, so the examples were
    writes the four expressions, each tested against a sample feature — one read from the layer, or values typed in
    — with the result or the error shown. *Apply to this map* writes `formInfo` on the layer, and saving the map keeps
    it.
+   - **Its shape is Map Viewer's form builder** (amended 2026-11-23 after the design review rejected the first one,
+     §11 condition 6): the element list, the form as the editing card draws it — the card's own markup, evaluated by
+     the card's own function against the sample feature, read-only, an element the sample hides shown faded and
+     saying so — and the chosen element's properties, side by side, the properties and the preview each staying in
+     view while the list scrolls. Choosing an element in the preview chooses it in the list. Forms widens the right
+     panel to at most 1,000 px and gives up the Layers panel while it is open (INFERRED, §7 n), as Map Viewer's builder
+     takes the page. Below 1,000 px, and on a phone, it is one column with the properties opened under the chosen row,
+     and on a phone the sheet is full height. An expression that reads a field the layer does not have is a warning
+     shown after *Apply*, not a refusal: the form still works where the field exists.
    - Fixed choices are written as expressions, since the specification has no Boolean for them: always required is
      `requiredExpression` naming `expr/system/true`, read-only is `editableExpression` naming `expr/system/false`, with
      those expression infos holding `true` and `false` (INFERRED from the `expr/system/true` name in the
@@ -198,7 +207,7 @@ are not edited in Studio's form (D-477). The table view of the map viewer edits 
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | INFERRED, listed for confirmation: (a) a failing expression is treated as absent and its error shown; (b) `{name}` in a text element is an expression first, then a field; (c) markdown is a safe subset; (d) fixed required and read-only are written as `expr/system/true` and `expr/system/false`; (e) designer expression names `expr/<n>` and `returnType` from the property or field; (f) dates execute in the browser's time zone; (g) calculated values in form order, at most four passes; (h) `$originalFeature` of a new feature has every field null; (i) JavaScript's operator precedence (ADR-235 §5.8 b); (j) a calculated value for a whole-number field is rounded, and one too long for a text field is not written and is reported; (k) a switch is offered only for a field with exactly two coded values; (l) a field hidden when the form opens keeps its value, since only a shown-then-hidden field is cleared; (m) the step budget of a million steps | Unconfirmed |
+| — | INFERRED, listed for confirmation: (a) a failing expression is treated as absent and its error shown; (b) `{name}` in a text element is an expression first, then a field; (c) markdown is a safe subset; (d) fixed required and read-only are written as `expr/system/true` and `expr/system/false`; (e) designer expression names `expr/<n>` and `returnType` from the property or field; (f) dates execute in the browser's time zone; (g) calculated values in form order, at most four passes; (h) `$originalFeature` of a new feature has every field null; (i) JavaScript's operator precedence (ADR-235 §5.8 b); (j) a calculated value for a whole-number field is rounded, and one too long for a text field is not written and is reported; (k) a switch is offered only for a field with exactly two coded values; (l) a field hidden when the form opens keeps its value, since only a shown-then-hidden field is cleared; (m) the step budget of a million steps; (n) the designer, open, takes the Layers panel's room and widens the right panel to at most 1,000 px, as Map Viewer's form builder takes the page (2026-11-23) | Unconfirmed |
 
 ## 8. Dependencies
 
@@ -245,5 +254,10 @@ None recorded.
    two tests, against the local fixture) checks that focus stays on the control across a mode change, a redraw of the
    layer list and the card's evaluation, that the designer's status and the card's change of questions are live
    regions, and that an empty required field takes the focus; a render at 390 px measured the Forms panel at 0 px of
-   horizontal overflow, with Forms in the phone's layer switch. The design review itself (ux-designer) has not run on
-   either screen.
+   horizontal overflow, with Forms in the phone's layer switch. The design review (ux-designer) ran on 2026-11-22 and
+   **rejected** the designer, with sixteen findings, four of them in the card. All sixteen were repaired on 2026-11-23
+   (branch `b2-fix-forms`): the designer took Map Viewer's shape (§5.3), the layer tools say what they did from
+   `#layerToolSays` outside the markup a redraw replaces — Pop-ups and Labels with it — and each finding was driven in
+   headless Chrome at 390 and 1440 px against the local fixture, with focus checked after every redraw;
+   `WebMapFormTests` checks the preview, the status region and the required error clearing as the field is filled.
+   It stays PARTLY DISCHARGED until the review runs again on the repaired screens.

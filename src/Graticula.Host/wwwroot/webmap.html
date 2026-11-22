@@ -583,7 +583,9 @@
     #rtools .rsep { margin: 2px 6px; }
     /* One Layer tool on a phone: a column of eight unlabelled icons reached under a tall sheet (UX review 2026-11-03). */
     #rtools #tool-style, #rtools #tool-filter, #rtools #tool-popup, #rtools #tool-form, #rtools #tool-labels { display: none; }
-    #layerSwitch button { min-height: 44px; }
+    #layerSwitch button { min-height: 44px; flex: none; }
+    /* Six settings in one row that scrolls sideways: wrapped to two rows they took the sheet's room (ADR-313 review, finding 8). */
+    #layerSwitch { flex: none; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
     #side { position: absolute; z-index: 60; left: 0; right: 0; bottom: 57px; max-height: 55%; grid-column: auto; grid-row: auto;
             border-left: 0; border-top: 1px solid var(--rule-strong); border-radius: 12px 12px 0 0; box-shadow: var(--float); }
     #side .tabpanel { flex: 0 1 auto; }
@@ -876,6 +878,9 @@
       </div>
       <section class="tabpanel" id="pane-layer" hidden>
         <div id="layerTool"></div>
+        <!-- What a layer tool did, said from here: #layerTool is redrawn, and a live region drawn inside it is a new node
+             each time, which a screen reader often does not read (UX review of ADR-313, finding 7). -->
+        <p class="sr" id="layerToolSays" role="status" aria-live="polite"></p>
       </section>
 
       <section class="tabpanel" id="pane-search" hidden>
