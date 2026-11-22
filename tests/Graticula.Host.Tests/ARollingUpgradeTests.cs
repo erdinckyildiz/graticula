@@ -74,7 +74,10 @@ internal sealed class Balancer : IAsyncDisposable
                 try
                 {
                     using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
-                    limit.CancelAfter(TimeSpan.FromSeconds(2));
+                    // Caddy's own health_timeout default (5 s), which the shipped configuration keeps (deployment.md):
+                    // at 2 s the surviving node, carrying the whole load while the other restarts, missed a check on
+                    // CI runners and the stand-in took the site's last ready node out, which Caddy would not have.
+                    limit.CancelAfter(TimeSpan.FromSeconds(5));
                     using HttpResponseMessage ready = await http.GetAsync("/healthz/ready", limit.Token);
                     _healthy[name] = ready.IsSuccessStatusCode;
                 }
