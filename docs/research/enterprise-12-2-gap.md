@@ -106,7 +106,7 @@ Both are band 1.
 | Network analysis service | Missing (algorithms in grapy, ADR-239) | No decision |
 | Stream services | Missing | No decision. GeoEvent is deprecated (last release 12.3) |
 | Knowledge graph, Notebooks, Workflow Manager, Hub | Missing | No decision (`supportsHostedNotebooks = false`) |
-| Offline sync | Built: on-demand and preplanned areas in Field Maps, Download Map and Sync in Pro | ADR-288 ~~`REQUIRES PROTOTYPE`~~ `ACCEPTED` 2026-11-22; D-401 open |
+| Offline sync | Built: on-demand and preplanned areas in Field Maps, Download Map and Sync in Pro | ADR-288 ~~`REQUIRES PROTOTYPE`~~ `ACCEPTED` 2026-11-22; D-401 repaid |
 | Dashboards, Experience Builder, StoryMaps, Instant Apps | Stored, not run | ADR-264 |
 | Survey123 field app | Not measured (own XLSForm client, ADR-287) | ADR-287 |
 | Map Viewer: Arcade, form authoring, charts | Partly, 2026-11-22 | Form authoring and a clean-room Arcade core in the browser (ADR-313); charts missing |
@@ -159,7 +159,7 @@ reopens an ADR or a scope line gets its own ADR before any code is written.
 
 | Item | Size | Waiting on |
 |---|---|---|
-| Offline sync out of prototype (ADR-288, D-401, D-394) | L | ~~ADR-288's own conditions~~ **Done 2026-11-22:** all seven discharged, status `ACCEPTED`; D-401's race is next, measured on the emulator |
+| Offline sync out of prototype (ADR-288, D-401, D-394) | L | ~~ADR-288's own conditions~~ **Done 2026-11-22:** all seven discharged, status `ACCEPTED`; D-401's race measured on the emulator and repaid the same day |
 | `extractChanges` on hosted and sync-enabled layers | M | ~~A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it~~ **Decided and built 2026-11-22 — [ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision *"Hosted + webhook"*; `changesUrl` is real** |
 | Contingent values and field groups on the server | M–L | Decided 2026-11-22 (*"Sakla, sun, Studio'da yaz"*) and built: [ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md) |
 | Map Viewer form authoring and Arcade | L | A decision. This is the work Field Maps Designer does |

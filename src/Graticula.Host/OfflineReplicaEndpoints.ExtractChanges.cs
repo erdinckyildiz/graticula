@@ -104,7 +104,11 @@ internal static partial class OfflineReplicaEndpoints
         }
 
         ReplicaJobs jobs = services.GetRequiredService<ReplicaJobs>();
-        long now = jobs.Now.ToUnixTimeMilliseconds();
+        // D-401: "now" is no later than any transaction still writing, so the client's next window starts before it.
+        long now = (await ClosedGenerationAsync(
+                services.GetRequiredService<LayerConnections>(), request.Layers.Select(id => service.LayerOrTable(id)!), jobs.Now,
+                cancellation).ConfigureAwait(false))
+            .ToUnixTimeMilliseconds();
         List<(Planned Plan, ExtractWindow Window, long To, long Min)> planned = [];
 
         foreach (int id in request.Layers)

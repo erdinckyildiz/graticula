@@ -4587,7 +4587,12 @@ public static class Program
         document = ChangeTrackingFlags.ApplyToService(
             context, document, service,
             [.. ((IEnumerable<PublishedLayer>)[.. service.Layers, .. service.Tables]).Zip(shapes)],
-            context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow());
+            service.ChangeTracking
+                // D-401: the serverGen a client starts extracting from is no later than any transaction still writing.
+                ? await OfflineReplicaEndpoints.ClosedGenerationAsync(
+                    context.RequestServices.GetRequiredService<LayerConnections>(), [.. service.Layers, .. service.Tables],
+                    context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow(), context.RequestAborted).ConfigureAwait(false)
+                : context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow());
 
         // ADR-310: a service with a hosted layer takes the service-level append, and says so once it does.
         document = AppendFlags.Apply(context, document, service);

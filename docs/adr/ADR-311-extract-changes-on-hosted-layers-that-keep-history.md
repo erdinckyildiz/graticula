@@ -315,4 +315,4 @@ None recorded. The case against §5.10 is in §3 and is the reference's own sent
    request, ids only included, which this server refused as the reference's rule says; it is now ignored where it
    cannot apply (§5.4), and the second run answered. No webhook integration (Power Automate, Make) was tried.
 3. **The owner confirms or changes the eleven `INFERRED` points of §5.12.**
-4. **When D-401 closes**, this operation's window is re-read against the fix, and D-468 closes or is restated.
+4. **When D-401 closes**, this operation's window is re-read against the fix, and D-468 closes or is restated. **DISCHARGED 2026-11-22**: D-401 closed by closing each generation at the oldest open writer, and `extractChanges`' *now* is taken the same way (`OfflineReplicaEndpoints.ClosedGenerationAsync`); D-468 is repaid with it, and the repeat it allows is stated there.

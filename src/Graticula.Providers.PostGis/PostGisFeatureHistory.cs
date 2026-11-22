@@ -130,6 +130,33 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
             + LayerDefinition.Quote(layer.TableName);
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// <b>Writing transactions only</b>: a backend has a <c>backend_xid</c> once it has written, and a reader never holds a
+    /// history stamp back. This connection is left out, and so is every other database on the server.
+    /// </para>
+    /// <para>
+    /// <b>What it cannot see:</b> PostgreSQL shows another role's <c>xact_start</c> only to a member of
+    /// <c>pg_read_all_stats</c>. Every edit of a hosted layer is written by this server's own role, which sees its own
+    /// sessions; a transaction opened in the database by another role is not seen and keeps D-401's race for itself.
+    /// </para>
+    /// </remarks>
+    public async Task<DateTimeOffset?> OldestOpenWriteAsync(CancellationToken cancellationToken)
+    {
+        // A plain connection: nothing here is read on a reader's behalf, so no reader session (ADR-300 §5.3) is opened.
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand command = new(
+            "select min(xact_start) from pg_stat_activity "
+            + "where datname = current_database() and backend_xid is not null and pid <> pg_backend_pid()",
+            connection);
+        object? oldest = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+        return oldest is DateTime at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc))
+            : oldest is DateTimeOffset offset ? offset
+            : null;
+    }
+
     /// <summary>Whether this layer keeps its history: the table exists and the trigger is on it.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether history is on.</returns>

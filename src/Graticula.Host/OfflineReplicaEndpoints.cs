@@ -374,7 +374,10 @@ internal static partial class OfflineReplicaEndpoints
             await OfflinePackager.PrepareAttachmentsAsync(services, plan!.Layers.Select(l => l.Layer), cancellation).ConfigureAwait(false);
         }
 
-        DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
+        // D-401: no later than any transaction still writing, so a late commit lands in the first sync's window.
+        DateTimeOffset generation = await ClosedGenerationAsync(
+            services.GetRequiredService<LayerConnections>(), plan!.Layers.Select(l => l.Layer), jobs.Now, cancellation)
+            .ConfigureAwait(false);
         string serviceUrl = TileFaces.Origin(context) + FeatureServerPath(context);
         ReplicaOwner owner = new(caller.Principal.Id, caller.Principal.Name);
 
@@ -727,13 +730,17 @@ internal static partial class OfflineReplicaEndpoints
         // The new generation is taken after the upload, so the client's own edits are inside this download's window and
         // are left out of it by GlobalID (`uploaded`).
         DateTimeOffset afterUpload = jobs.Now;
-        DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(afterUpload.ToUnixTimeMilliseconds());
+        // D-401: and no later than any transaction still writing, whose rows then fall in the next window.
+        DateTimeOffset generation = await ClosedGenerationAsync(connections, planned.Select(p => p.Layer), afterUpload, cancellation)
+            .ConfigureAwait(false);
 
         // D-401: an upload-only sync's GlobalIDs are remembered at the first whole millisecond at or after the upload
         // ended, not at the generation. The generation is floored to a millisecond, so the upload's own writes can sit
         // later in that same millisecond; read back from the floor they looked like the server's change and were sent to
         // the device again. CI's faster runner did that (AnUploadOnlySyncIsNotEchoedTests); this machine never had.
-        DateTimeOffset uploadedBy = afterUpload > generation ? generation.AddMilliseconds(1) : generation;
+        // Taken from the upload's end and not from the generation, which may now be earlier still (ClosedGenerationAsync).
+        DateTimeOffset floored = DateTimeOffset.FromUnixTimeMilliseconds(afterUpload.ToUnixTimeMilliseconds());
+        DateTimeOffset uploadedBy = afterUpload > floored ? floored.AddMilliseconds(1) : floored;
 
         async Task WorkAsync(IServiceProvider scoped, CancellationToken stopping)
         {
@@ -1365,6 +1372,58 @@ internal static partial class OfflineReplicaEndpoints
     // ------------------------------------------------------------------------------------------------ reading rows
 
     /// <summary>A layer of a replica, with what its rows are read through.</summary>
+    /// <summary>
+    /// A generation no later than the start of any transaction still writing to these layers' databases — D-401.
+    /// </summary>
+    /// <param name="connections">Where the layers' histories are.</param>
+    /// <param name="layers">The layers the generation is for.</param>
+    /// <param name="now">The generation as it would otherwise be.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns><paramref name="now"/>, or a millisecond before the oldest open writing transaction began, floored.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why:</b> a history row is stamped with its transaction's start. A transaction that began before a generation
+    /// and committed after the read was in neither window and never reached the replica. A generation taken before it
+    /// began puts its rows in the next window.
+    /// </para>
+    /// <para>
+    /// <b>What that costs, measured:</b> the next window can overlap this one, so a row already sent may be sent again —
+    /// an insert of a GlobalID the client holds, or a delete of one it no longer has. Field Maps 26.2.2 takes both
+    /// quietly and applies a repeated insert's values as an update (2026-11-22, on the emulator against dev; D-401). The
+    /// overlap only happens while a writer was open, which is exactly when the gap it replaces would have happened.
+    /// </para>
+    /// <para>
+    /// <b>A history that cannot say</b> (another engine, a file, a failed read) leaves <paramref name="now"/> as it was,
+    /// which is the generation this server took before.
+    /// </para>
+    /// </remarks>
+    internal static async Task<DateTimeOffset> ClosedGenerationAsync(
+        LayerConnections connections, IEnumerable<PublishedLayer> layers, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        DateTimeOffset closed = now;
+
+        foreach (PublishedLayer layer in layers.DistinctBy(l => l.ConnectionString))
+        {
+            DateTimeOffset? oldest;
+
+            try
+            {
+                oldest = await connections.HistoryFor(layer).OldestOpenWriteAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                oldest = null;
+            }
+
+            if (oldest is { } began && began <= closed)
+            {
+                closed = began.AddMilliseconds(-1);
+            }
+        }
+
+        return DateTimeOffset.FromUnixTimeMilliseconds(closed.ToUnixTimeMilliseconds());
+    }
+
     internal sealed record Planned(
         int Id, PublishedLayer Layer, IFeatureSource Source, LayerDescription Described, string Document, Filter Filter)
     {
