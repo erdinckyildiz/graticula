@@ -229,6 +229,10 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
 - **State.** The GeoPackage the tool works on holds up to five grapy tables and, after EvaluateRules, up to four
   validation error tables. Nothing goes in the catalogue or on the server. A hosted layer imported from a tool's
   output carries neither rules nor contingent values: ADR-223 §5.5 copies features, not models.
+  *(Amended 2026-11-22 by [ADR-312](ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md): a hosted layer on the
+  server now keeps contingent values of its own, in this ADR's model — field groups and `[field, type, value]` entries —
+  in its catalogue row rather than a GeoPackage. The two stores stay apart; what they share is the model. The server does
+  not enforce them on `applyEdits`, which is ArcGIS's behaviour; grapy's cursors still do, which is arcpy's.)*
 - Against `grapy-surface` when this ADR merged, `arcpy.management` moves from 192 to 216 built (255 to 231 refused;
   equivalents 11 to 16) and `arcpy.da` from 19 to 24 (10 to 5); all modules from 1,116 to 1,145 of 2,174.
 - **Negative.** Every edit through a cursor on a table with rules runs Arcade, row by row; a bulk load into such a
