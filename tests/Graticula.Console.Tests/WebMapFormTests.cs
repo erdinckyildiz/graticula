@@ -36,6 +36,14 @@ public sealed class WebMapFormTests : ConsoleTest
         Assert.True(await Browser.EvaluateAsync<bool>("document.activeElement.classList.contains('wmf-pick')"),
             "After Create the focus is not on the form's first element.");
 
+        // The element list is one Tab stop, and Down moves to the next row (UX re-review, N3).
+        Assert.Equal(1, await Browser.EvaluateAsync<int>("[...document.querySelectorAll('.wmf-pick')].filter(b => b.tabIndex === 0).length"));
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "(() => { const picks = [...document.querySelectorAll('.wmf-pick')]; const at = picks.indexOf(document.activeElement);"
+            + " document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));"
+            + " return document.activeElement === picks[at + 1] && document.activeElement.tabIndex === 0; })()"),
+            "Down did not move the focus and the list's Tab stop to the next row.");
+
         // The label: read-only, and calculated from the reading.
         await Browser.EvaluateAsync<bool>(
             "(() => { const b = [...document.querySelectorAll('.wmf-pick')].find(b => b.textContent.includes('label'));"
@@ -89,6 +97,11 @@ public sealed class WebMapFormTests : ConsoleTest
             + " return label.editableExpression === 'expr/system/false' && info(label.valueExpression).expression.startsWith('IIf(')"
             + " && info(label.visibilityExpression).returnType === 'boolean' && wmState.dirty; })()"),
             "The layer's formInfo is not what the tool was told, or the map is not marked unsaved.");
+        // With nothing left to apply, Apply is no longer the primary action, and it keeps the focus (UX re-review, N12).
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "(() => { const b = document.querySelector('[data-wmf-act=apply]');"
+            + " return b.getAttribute('aria-disabled') === 'true' && !b.classList.contains('primary') && document.activeElement === b; })()"),
+            "After Apply, the button still offers to apply an unchanged form, or lost the focus.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

@@ -50,7 +50,7 @@ function wmfDraft(layer) {
   let draft = wmfDrafts.get(layer.id);
   if (!draft) {
     draft = { form: wmfClone(layer.formInfo) || null, applied: JSON.stringify(layer.formInfo || null), chosen: null,
-      sample: null, editType: "UPDATE", said: "", saidBad: false, tested: null, problems: [], warnings: [], sampleOpen: false };
+      sample: null, editType: "UPDATE", said: "", saidBad: false, tested: null, problems: [], warnings: [], sampleOpen: false, rove: null };
     wmfDrafts.set(layer.id, draft);
   }
   return draft;
@@ -131,6 +131,7 @@ function wmfPanel(layer, run, key) {
   const changed = JSON.stringify(form) !== draft.applied;
   const chosen = wmfChosenElement(draft);
   const formChosen = wide ? !chosen : draft.chosen === WMF_FORM_KEY;
+  const stop = wmfTabStop(form, draft);
 
   const top = `<div class="wmf-top">
     <p class="lsnote">${unapplied ? "A new form, not applied to the map yet." : changed ? "Changed here; not applied to the map yet." : "The form this map holds for the layer."}</p>
@@ -139,7 +140,7 @@ function wmfPanel(layer, run, key) {
     ${draft.warnings.length ? `<div class="wmf-warnings" id="wmf-warnings-${k}"><p class="lsnote">Applied, but check:</p>
       <ul>${draft.warnings.map(p => `<li>${wmEscape(p)}</li>`).join("")}</ul></div>` : ""}
     <div class="row wmf-acts">
-      <button type="button" class="tiny primary" data-wmf-act="apply" data-focus="wmf-apply-${k}">Apply to this map</button>
+      ${wmfApplyButton(k, unapplied || changed)}
       ${unapplied
         ? `<button type="button" class="tiny" data-wmf-act="remove" data-focus="wmf-remove-${k}">Discard the draft</button>`
         : `${changed ? `<button type="button" class="tiny" data-wmf-act="discard" data-focus="wmf-discard-${k}">Discard changes</button>` : ""}
@@ -151,6 +152,7 @@ function wmfPanel(layer, run, key) {
   const formRow = `<li class="wmf-row wmf-formrow${formChosen ? " chosen" : ""}">
       <div class="wmf-rowhead">
         <button type="button" class="wmf-pick" data-wmf-act="choose" data-wmf-key="${WMF_FORM_KEY}" data-focus="wmf-pick-form-${k}"
+          data-wmf-stop="${WMF_FORM_KEY}" tabindex="${stop === WMF_FORM_KEY ? 0 : -1}" aria-describedby="wmf-keys-${k}"
           aria-pressed="${formChosen}"><span class="wmf-name">${wmEscape(form.title || layer.title || "Form")}</span><span class="lkind">Form · title and description</span></button>
       </div>
       ${!wide && formChosen ? wmfFormSettingsMarkup(form, layer, k) : ""}
@@ -158,8 +160,9 @@ function wmfPanel(layer, run, key) {
 
   const list = `<section class="wmf-listcol" aria-labelledby="wmf-elh-${k}">
     <h3 class="wmf-h" id="wmf-elh-${k}">Elements</h3>
+    <p class="hint wmf-keys" id="wmf-keys-${k}">Arrow keys move between rows, Alt with an arrow moves the row, Delete removes it.</p>
     <ol class="wmf-list wmf-settings" aria-label="Form settings">${formRow}</ol>
-    ${wmfListMarkup(form, fields, k, draft, wide)}
+    ${wmfListMarkup(form, fields, k, draft, wide, stop)}
     <div class="wmf-add" role="group" aria-labelledby="wmf-addh-${k}">
       <span class="lkind" id="wmf-addh-${k}">Add</span>
       <div class="row">
@@ -179,8 +182,8 @@ function wmfPanel(layer, run, key) {
 
   const preview = `<section class="wmf-pvcol" aria-labelledby="wmf-pvh-${k}">
     <h3 class="wmf-h" id="wmf-pvh-${k}">Preview <span class="lkind">the editing card, for the sample feature</span></h3>
-    ${wmfSampleMarkup(layer, fields, k, draft)}
     <div class="wmf-preview" id="wmf-pv-${k}">${wmfPreviewInner(layer, draft, k)}</div>
+    ${wmfSampleMarkup(layer, fields, k, draft)}
   </section>`;
 
   if (!wide) {
@@ -191,7 +194,48 @@ function wmfPanel(layer, run, key) {
     <h3 class="wmf-h wmf-proph" id="wmf-proph-${k}">Properties</h3>
     ${chosen ? wmfEditorMarkup(form, chosen, draft.chosen, fields, k, draft) : wmfFormSettingsMarkup(form, layer, k)}
   </section>`;
-  return `<div class="lstyle wmf wmf-wide" id="wmf-${k}" data-wmf-layer="${k}">${top}${list}<div class="wmf-aside">${props}${preview}</div></div>`;
+  return `<div class="lstyle wmf wmf-wide" id="wmf-${k}" data-wmf-layer="${k}">${top}${list}${preview}${props}</div>`;
+}
+
+/**
+ * The list's one Tab stop (UX re-review N3): the row the keyboard was last on, else the chosen element, else the form
+ * row. Arrow keys move between rows (wmfOnListKey); a row's move and remove buttons are in the Tab order only on the
+ * chosen row, so Tab from the list reaches the properties in a handful of presses rather than three per row.
+ */
+function wmfTabStop(form, draft) {
+  const uids = new Set(WMF_F.walk(form).filter(e => e.element).map(e => wmfUid(e.element)));
+  if (draft.rove === WMF_FORM_KEY || uids.has(draft.rove)) return draft.rove;
+  const chosen = wmfChosenElement(draft);
+  return chosen ? wmfUid(chosen) : WMF_FORM_KEY;
+}
+
+/** Apply: primary while there is something to apply; otherwise secondary and aria-disabled, still focusable (N12). */
+function wmfApplyButton(k, pending) {
+  return `<button type="button" class="tiny${pending ? " primary" : ""}" data-wmf-act="apply" data-focus="wmf-apply-${k}"${
+    pending ? "" : ` aria-disabled="true"`}>Apply to this map</button>`;
+}
+
+/** Whether the draft differs from what the map holds, or was never applied. */
+function wmfPending(draft) {
+  return draft.applied === "null" || JSON.stringify(draft.form) !== draft.applied;
+}
+
+/** Typing changes the form without a redraw; Apply and the note follow it in place. */
+function wmfSyncApply(panel, draft) {
+  const button = panel.querySelector("button[data-wmf-act=apply]");
+  if (!button || !draft.form) return;
+  const pending = wmfPending(draft);
+  button.classList.toggle("primary", pending);
+  if (pending) button.removeAttribute("aria-disabled"); else button.setAttribute("aria-disabled", "true");
+  // "Nothing to apply" is no longer true once something changed.
+  if (pending && /^Nothing to apply/.test(draft.said)) {
+    draft.said = "";
+    const said = panel.querySelector(".wmf-said");
+    if (said) said.textContent = "";
+  }
+  const note = panel.querySelector(".wmf-top > .lsnote:first-child");
+  if (note) note.textContent = draft.applied === "null" ? "A new form, not applied to the map yet."
+    : pending ? "Changed here; not applied to the map yet." : "The form this map holds for the layer.";
 }
 
 /** The form's own settings: its title, its description and whether a hidden field keeps its value. */
@@ -206,24 +250,25 @@ function wmfFormSettingsMarkup(form, layer, k) {
   </div>`;
 }
 
-function wmfListMarkup(form, fields, k, draft, wide) {
+function wmfListMarkup(form, fields, k, draft, wide, stop) {
   const row = (element, key, siblings, index, inGroup) => {
     const uid = wmfUid(element);
     const name = wmfElementName(element, fields);
     const chosen = draft.chosen === key;
+    const tab = chosen ? "" : ` tabindex="-1"`;
     const children = element.type === "group" && Array.isArray(element.formElements)
       ? `<ol class="wmf-list wmf-inner" aria-label="${wmEscape(`In ${name}`)}">${element.formElements.map((c, j) => row(c, `${key}.${j}`, element.formElements, j, true)).join("")
         || `<li class="hint">Empty: move fields here from their own settings.</li>`}</ol>` : "";
     return `<li class="wmf-row${chosen ? " chosen" : ""}${inGroup ? " ingroup" : ""}">
       <div class="wmf-rowhead">
         <button type="button" class="wmf-pick" data-wmf-act="choose" data-wmf-key="${key}" data-focus="wmf-pick-${uid}"
-          aria-pressed="${chosen}"><span class="wmf-name">${wmEscape(name)}</span><span class="lkind">${wmEscape(wmfKindName[element.type] || element.type)}${
+          data-wmf-stop="${uid}" tabindex="${stop === uid ? 0 : -1}" aria-describedby="wmf-keys-${k}" aria-pressed="${chosen}"><span class="wmf-name">${wmEscape(name)}</span><span class="lkind">${wmEscape(wmfKindName[element.type] || element.type)}${
           element.type === "field" ? ` · ${wmEscape(element.fieldName || "")}` : ""}${wmfBadges(form, element)}</span></button>
-        <button type="button" class="tiny" data-wmf-act="up" data-wmf-key="${key}" data-focus="wmf-up-${uid}" data-focus-fallback="wmf-down-${uid}"
+        <button type="button" class="tiny" data-wmf-act="up" data-wmf-key="${key}" data-focus="wmf-up-${uid}" data-focus-fallback="wmf-down-${uid}"${tab}
           aria-label="${wmEscape(`Move ${name} up`)}"${index === 0 ? " disabled" : ""}>&uarr;</button>
-        <button type="button" class="tiny" data-wmf-act="down" data-wmf-key="${key}" data-focus="wmf-down-${uid}" data-focus-fallback="wmf-up-${uid}"
+        <button type="button" class="tiny" data-wmf-act="down" data-wmf-key="${key}" data-focus="wmf-down-${uid}" data-focus-fallback="wmf-up-${uid}"${tab}
           aria-label="${wmEscape(`Move ${name} down`)}"${index === siblings.length - 1 ? " disabled" : ""}>&darr;</button>
-        <button type="button" class="tiny" data-wmf-act="delete" data-wmf-key="${key}" data-focus="wmf-del-${uid}"
+        <button type="button" class="tiny" data-wmf-act="delete" data-wmf-key="${key}" data-focus="wmf-del-${uid}"${tab}
           aria-label="${wmEscape(`Remove ${name} from the form`)}">&times;</button>
       </div>
       ${chosen && !wide ? wmfEditorMarkup(form, element, key, fields, k, draft) : ""}
@@ -428,7 +473,7 @@ function wmfPreviewInner(layer, draft, k) {
   if (result.error) return `<p class="lsnote bad">No preview: ${wmEscape(result.error)}</p>`;
   const host = document.createElement("div");
   host.innerHTML = `<div class="editform wmf-form wmf-pvform">
-    ${form.title ? `<h3 class="wmf-title">${wmEscape(form.title)}</h3>` : ""}
+    ${form.title ? `<h4 class="wmf-title">${wmEscape(form.title)}</h4>` : ""}
     ${form.description ? `<p class="hint">${wmEscape(form.description)}</p>` : ""}
     <p class="hint wmf-reqnote" hidden>* required</p>
     ${wmfBodyMarkup(result, result.values)}
@@ -444,6 +489,7 @@ function wmfPreviewInner(layer, draft, k) {
     for (const attr of ["data-field", "data-wmf-proxy"]) {
       if (el.hasAttribute(attr)) { el.setAttribute(`data-pv-${attr.slice(5)}`, el.getAttribute(attr)); el.removeAttribute(attr); }
     }
+    if (el.tagName === "SUMMARY") el.setAttribute("tabindex", "-1");
     if (el.matches("input, select, textarea")) {
       el.setAttribute("disabled", "");
       el.removeAttribute("required");
@@ -530,6 +576,8 @@ function wmfReadPanel(panel, layer, draft) {
 function wmfRedraw(layer, said = null, bad = false, focus = null) {
   const draft = wmfDraft(layer);
   if (said !== null) { draft.said = said; draft.saidBad = bad; }
+  // A row the redraw focuses is the list's Tab stop in the markup drawn, not only once focusin runs.
+  if (focus && focus.startsWith("wmf-pick-")) draft.rove = focus.startsWith("wmf-pick-form-") ? WMF_FORM_KEY : focus.slice("wmf-pick-".length);
   wmDrawSide();
   if (focus) document.querySelector(`#layerTool [data-focus="${CSS.escape(focus)}"]`)?.focus();
   if (said) wmfAnnounce(said);
@@ -553,7 +601,7 @@ function wmfRevealChosen(layer) {
   const panel = document.querySelector(`#layerTool .wmf[data-wmf-layer="${CSS.escape(layer.id)}"]`);
   const node = panel && panel.querySelector(".wmf-preview .wmf-pvchosen");
   if (!node) return;
-  const column = node.closest(".wmf-pvcol, .wmf-aside");
+  const column = node.closest(".wmf-pvcol");
   if (!column || column.scrollHeight <= column.clientHeight) return;
   const top = node.getBoundingClientRect().top - column.getBoundingClientRect().top + column.scrollTop;
   if (top < column.scrollTop || top + node.offsetHeight > column.scrollTop + column.clientHeight) column.scrollTop = Math.max(0, top - 40);
@@ -738,6 +786,10 @@ function wmfOnClick(event) {
       wmfReadSample(layer, draft);
       return;
     case "apply":
+      if (!wmfPending(draft)) {
+        wmfRedraw(layer, "Nothing to apply: the map already holds this form.", false, button.dataset.focus);
+        return;
+      }
       wmfApply(layer, draft);
       return;
     default:
@@ -790,6 +842,56 @@ function wmfOnInput(event) {
   wmfReadPanel(panel, layer, draft);
   wmfForgetTested(panel, draft);
   wmfRefreshPreview(panel, layer, draft);
+  wmfSyncApply(panel, draft);
+}
+
+/**
+ * The element list's keys (UX re-review N3): Up and Down, Home and End move between rows; Alt with Up or Down moves the
+ * row; Delete removes it. Enter and Space choose, as any button does.
+ */
+function wmfOnListKey(event) {
+  const pick = event.target instanceof Element ? event.target.closest("button.wmf-pick") : null;
+  const found = pick && wmfPanelOf(pick);
+  if (!found) return;
+  const picks = [...found.panel.querySelectorAll("button.wmf-pick")];
+  const at = picks.indexOf(pick);
+  const head = pick.closest(".wmf-rowhead");
+  const uid = pick.dataset.wmfStop;
+  if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+    event.preventDefault();
+    const move = head.querySelector(`button[data-wmf-act=${event.key === "ArrowUp" ? "up" : "down"}]`);
+    if (!move || move.disabled) return;
+    move.click();
+    document.querySelector(`#layerTool [data-focus="wmf-pick-${CSS.escape(uid)}"]`)?.focus();
+    return;
+  }
+  if (event.key === "Delete") {
+    const remove = head.querySelector("button[data-wmf-act=delete]");
+    if (!remove) return;
+    event.preventDefault();
+    remove.click();
+    return;
+  }
+  const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: picks.length - 1 }[event.key];
+  if (next === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
+  event.preventDefault();
+  const to = picks[Math.max(0, Math.min(picks.length - 1, next))];
+  // The stop moves with the keys themselves, not only on focusin, which a page without the window's focus does not get.
+  wmfRove(found, to);
+  to.focus();
+}
+
+/** Makes one row the list's Tab stop, and remembers it for the next redraw. */
+function wmfRove(found, pick) {
+  found.draft.rove = pick.dataset.wmfStop;
+  for (const other of found.panel.querySelectorAll("button.wmf-pick")) other.tabIndex = other === pick ? 0 : -1;
+}
+
+/** The roving stop follows the keyboard, so a redraw puts the Tab stop where the author was. */
+function wmfOnListFocus(event) {
+  const pick = event.target instanceof Element ? event.target.closest("button.wmf-pick") : null;
+  const found = pick && wmfPanelOf(pick);
+  if (found) wmfRove(found, pick);
 }
 
 /** The sample's open state, kept so a redraw draws it as the author left it (finding 3). `toggle` does not bubble. */
@@ -873,6 +975,7 @@ function wmfOnChange(event) {
   // Anything else typed or ticked: into the draft, without a redraw, so the caret stays; the preview follows.
   wmfReadPanel(panel, layer, draft);
   wmfRefreshPreview(panel, layer, draft);
+  wmfSyncApply(panel, draft);
 }
 
 wm$("layerTool").addEventListener("click", wmfOnClick);
@@ -880,6 +983,8 @@ wm$("layerTool").addEventListener("click", wmfOnPreviewClick);
 wm$("layerTool").addEventListener("change", wmfOnChange);
 wm$("layerTool").addEventListener("input", wmfOnInput);
 wm$("layerTool").addEventListener("toggle", wmfOnToggle, true);
+wm$("layerTool").addEventListener("keydown", wmfOnListKey);
+wm$("layerTool").addEventListener("focusin", wmfOnListFocus);
 // The designer's shape follows the window: one column on a phone or a narrow window, the wide shape otherwise.
 for (const query of [WMF_WIDE, WM_PHONE]) {
   query.addEventListener("change", () => { if (wmSide.tool === "form") wmDrawSide(); });

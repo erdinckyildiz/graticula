@@ -3585,8 +3585,13 @@ function wmShowTab(name, focus = false) {
 const WM_PHONE = window.matchMedia("(max-width: 760px)");
 let wmLeftOpen = !WM_PHONE.matches;
 
+/** Whether opening Forms closed the Layers panel, so closing Forms opens it again (ADR-313 re-review N8). */
+let wmFormTookLeft = false;
+
 function wmOpenSheet(open) {
   wmLeftOpen = open;
+  // Opened or closed by the reader, the Layers panel is theirs again: Forms does not reopen it later.
+  wmFormTookLeft = false;
   document.body.classList.toggle("sheet", open && WM_PHONE.matches);
   document.body.classList.toggle("lclosed", !open);
   // One sheet at a time on a phone: the left one covers the right one's place.
@@ -3710,7 +3715,14 @@ function wmOpenTool(tool, focus = false) {
   wm$("side").hidden = false;
   // One sheet at a time on a phone; a wide window that cannot hold both panels and a map gives up the left one.
   if (WM_PHONE.matches || window.innerWidth < 1100 || tool === "form") {
-    if (wmLeftOpen) wmOpenSheet(false);
+    if (wmLeftOpen) {
+      wmOpenSheet(false);
+      // Forms gave up the Layers panel only for itself: leaving Forms gives it back (ADR-313 re-review N8).
+      wmFormTookLeft = tool === "form" && !WM_PHONE.matches;
+    }
+  } else if (wmFormTookLeft) {
+    wmFormTookLeft = false;
+    wmOpenSheet(true);
   }
 
   const layerTool = WM_LAYER_TOOLS.includes(tool);
@@ -3729,6 +3741,10 @@ function wmOpenTool(tool, focus = false) {
 
 function wmCloseTool() {
   if (wmSide.tool === "measure") wmStopMeasuring();
+  if (wmFormTookLeft) {
+    wmFormTookLeft = false;
+    if (!WM_PHONE.matches) wmOpenSheet(true);
+  }
   wmSide.tool = null;
   document.body.classList.remove("ropen", "rform");
   wm$("side").hidden = true;

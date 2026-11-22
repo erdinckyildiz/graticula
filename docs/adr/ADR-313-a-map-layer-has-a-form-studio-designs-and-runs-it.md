@@ -158,11 +158,15 @@ fetched; the pages were read through a summarising fetcher, so the examples were
    - **Its shape is Map Viewer's form builder** (amended 2026-11-23 after the design review rejected the first one,
      §11 condition 6): the element list, the form as the editing card draws it — the card's own markup, evaluated by
      the card's own function against the sample feature, read-only, an element the sample hides shown faded and
-     saying so — and the chosen element's properties, side by side, the properties and the preview each staying in
-     view while the list scrolls. Choosing an element in the preview chooses it in the list. Forms widens the right
-     panel to at most 1,000 px and gives up the Layers panel while it is open (INFERRED, §7 n), as Map Viewer's builder
-     takes the page. Below 1,000 px, and on a phone, it is one column with the properties opened under the chosen row,
-     and on a phone the sheet is full height. An expression that reads a field the layer does not have is a warning
+     saying so — and the chosen element's properties, in that order on screen and in the Tab order, each column
+     scrolling on its own under a head that keeps *Apply* and the status in sight. Choosing an element in the preview
+     chooses it in the list. The list is one Tab stop: arrow keys move between rows, Alt with an arrow moves a row,
+     Delete removes it. *Apply* is the primary action only while there is something to apply. Forms widens the right
+     panel to at most 1,000 px and gives up the Layers panel while it is open, and gives it back when it closes
+     (INFERRED, §7 n), as Map Viewer's builder takes the page; the Layers panel opened beside it keeps 288 px of map.
+     The three columns need 752 px of panel, a window of about 1,220 px; narrower, the list stands over the preview
+     with the properties beside them. Below a 1,000 px window, and on a phone, it is one column with the properties
+     opened under the chosen row, and on a phone the sheet is full height. An expression that reads a field the layer does not have is a warning
      shown after *Apply*, not a refusal: the form still works where the field exists.
    - Fixed choices are written as expressions, since the specification has no Boolean for them: always required is
      `requiredExpression` naming `expr/system/true`, read-only is `editableExpression` naming `expr/system/false`, with
@@ -260,4 +264,9 @@ None recorded.
    `#layerToolSays` outside the markup a redraw replaces — Pop-ups and Labels with it — and each finding was driven in
    headless Chrome at 390 and 1440 px against the local fixture, with focus checked after every redraw;
    `WebMapFormTests` checks the preview, the status region and the required error clearing as the field is filled.
-   It stays PARTLY DISCHARGED until the review runs again on the repaired screens.
+   The second review ran on 2026-11-23: **accepted with fixes** — the card ships as it is, and the designer owed
+   twelve items (N1–N12: the page collapsing when the Layers panel opened beside Forms, the preview off screen in the
+   two-column range, 93 Tab presses from the first row to the first property, and nine smaller). All twelve were
+   repaired the same day on `b2-fix-forms` and driven in headless Chrome at 1024, 1280, 1366, 1440 and 390 px, a
+   map of three layers among them; the Tab count is now 7 with 22 elements (3 on a phone). It stays PARTLY
+   DISCHARGED until the designer is reviewed a third time.
