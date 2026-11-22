@@ -256,6 +256,8 @@ public sealed class MapAreaBasemapTests : IDisposable
 
         public Task<int> SetEnabledAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken) => throw new NotSupportedException();
 
+        public Task SetChangeTrackingAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken) => throw new NotSupportedException();
+
         public Task CreateAsync(ReplicaRecord replica, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<ReplicaRecord?> FindAsync(Guid id, CancellationToken cancellationToken) => throw new NotSupportedException();

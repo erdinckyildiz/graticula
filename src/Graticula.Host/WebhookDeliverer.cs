@@ -76,12 +76,27 @@ internal sealed partial class WebhookRaiser(
     /// <summary>Raises the feature-service event an edit is, if it kept something.</summary>
     /// <param name="layer">The layer edited.</param>
     /// <param name="outcome">What the edit did.</param>
+    /// <param name="began">A moment before the edit's transaction began (ADR-311 §5.11).</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>A task.</returns>
-    public Task RaiseAsync(PublishedLayer layer, EditOutcome outcome, CancellationToken cancellation) =>
-        WebhookEvents.FromEdit(layer.ServiceName, layer.Folder, layer.LayerIndex, outcome, clock.GetUtcNow()) is { } raised
+    public Task RaiseAsync(PublishedLayer layer, EditOutcome outcome, DateTimeOffset began, CancellationToken cancellation)
+    {
+        DateTimeOffset now = clock.GetUtcNow();
+        return WebhookEvents.FromEdit(layer.ServiceName, layer.Folder, layer.LayerIndex, outcome, now,
+                TracksChanges(layer) ? WebhookEvents.Window(began, now) : null) is { } raised
             ? QueueAsync(layer.ServiceId, raised, cancellation)
             : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Whether a layer's edits get a <c>changesUrl</c> — ADR-311 §5.11: its service has change tracking on and it is a
+    /// hosted layer of its own, not a view's. Its history is not asked here, on every edit; a <c>changesUrl</c> to a layer
+    /// whose history was dropped is refused by name when it is followed.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <returns>True when it does.</returns>
+    internal static bool TracksChanges(PublishedLayer layer) =>
+        layer.ServiceChangeTracking && layer.Definition.IsHosted && layer.ViewOf is null;
 
     /// <summary>
     /// Raises a feature-service change that is not an edit of rows — an attachment, a layer's schema, the service's
@@ -244,10 +259,20 @@ internal static class WebhookPayload
                 ["deliveryId"] = deliveryId.ToString("N"),
             };
 
+            // ADR-311 §5.11: where the service tracks its changes, ArcGIS's changesUrl for the window the event kept.
+            if (edit[WebhookEvents.ServerGensKey] is JsonArray { Count: 2 } gens
+                && edit["layerId"] is JsonValue layerValue && layerValue.TryGetValue(out int layerIndex)
+                && edit["events"] is JsonArray events
+                && WebhookEvents.ChangesUrl(serviceUrl, layerIndex, (gens[0]!.GetValue<long>(), gens[1]!.GetValue<long>()),
+                    events.Select(e => e?.GetValue<string>() ?? string.Empty)) is { } changesUrl)
+            {
+                one["changesUrl"] = changesUrl;
+            }
+
             // What a change that is not an edit touched (ADR-266 condition 1) — `attachment`, `fields` — as it was raised.
             foreach ((string key, JsonNode? value) in edit)
             {
-                if (!one.ContainsKey(key) && key != "folder")
+                if (!one.ContainsKey(key) && key != "folder" && key != WebhookEvents.ServerGensKey)
                 {
                     one[key] = value?.DeepClone();
                 }

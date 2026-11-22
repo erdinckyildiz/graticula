@@ -1000,14 +1000,20 @@ internal static partial class PortalEndpoints
             asked.UnionWith(["Create", "Update", "Delete"]);
         }
 
-        // Sync, ChangeTracking and the rest are not served (ADR-082); the stock client asks for them by default only on
-        // ArcGIS Online, so they are left out of the offer rather than refused, and the service document says what is.
+        // Sync and the rest this door does not set are left out of the offer rather than refused (the stock client asks for
+        // them by default only on ArcGIS Online), and the service document says what is. ChangeTracking is kept since
+        // ADR-311 §5.2: the switch is set now, and each layer gets its history as addToDefinition adds it. A view asks in vain.
         string[] offered = [.. AdminEndpoints.OwnerOperations.Where(op => asked.Contains(op))];
 
         if (await catalog.CreateEmptyServiceAsync(name, FeatureServerMetadataWriter.HostedFolder, current.Principal.Id, cancellation)
-            .ConfigureAwait(false) is null)
+            .ConfigureAwait(false) is not { } created)
         {
             return PortalError(409, $"A service named '{name}' already exists in hosted.");
+        }
+
+        if (!view && asked.Contains(ChangeTrackingFlags.Capability))
+        {
+            await services.GetRequiredService<IOfflineSyncStore>().SetChangeTrackingAsync(created, true, cancellation).ConfigureAwait(false);
         }
 
         string folder = FeatureServerMetadataWriter.HostedFolder;
@@ -1064,7 +1070,25 @@ internal static partial class PortalEndpoints
             context, name, SridOf(create, "spatialReference"), layers, lone: layers.Count == 1 ? name : string.Empty, cancellation)
             .ConfigureAwait(false);
 
-        return status is >= 200 and < 300 ? Results.Ok(name) : PortalError(status, message!);
+        if (status is < 200 or >= 300)
+        {
+            return PortalError(status, message!);
+        }
+
+        // ADR-311 §5.2: ChangeTracking asked for in createParameters is the switch, and the layers just made get their history.
+        string capabilities = create.TryGetProperty("capabilities", out JsonElement c) && c.ValueKind == JsonValueKind.String
+            ? c.GetString() ?? string.Empty
+            : string.Empty;
+
+        if (capabilities.Split(',', StringSplitOptions.TrimEntries).Contains(ChangeTrackingFlags.Capability, StringComparer.OrdinalIgnoreCase)
+            && await context.RequestServices.GetRequiredService<PostgresLayerCatalog>()
+                .FindServiceAsync(FeatureServerMetadataWriter.HostedFolder, name, cancellation).ConfigureAwait(false) is { } made
+            && await ChangeTrackingFlags.SwitchAsync(context, made, made.Folder, true, cancellation).ConfigureAwait(false) is { } refused)
+        {
+            return PortalError(refused.Status, $"The service was created, and change tracking was not turned on: {refused.Message}");
+        }
+
+        return Results.Ok(name);
     }
 
     /// <summary>

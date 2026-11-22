@@ -72,6 +72,17 @@ public sealed class PostgresOfflineSyncStore : IOfflineSyncStore
     }
 
     /// <inheritdoc/>
+    public async Task SetChangeTrackingAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken)
+    {
+        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand set = new(
+            "update service set change_tracking = @enabled, updated_at = now() where id = @id", connection);
+        set.Parameters.AddWithValue("id", serviceId);
+        set.Parameters.AddWithValue("enabled", enabled);
+        await set.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task CreateAsync(ReplicaRecord replica, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(replica);

@@ -1246,20 +1246,34 @@ internal static class AttachmentEndpoints
     /// Raises the attachment event a write was (ADR-266 condition 1): <c>AttachmentsCreated</c>, <c>AttachmentsUpdated</c>
     /// or <c>AttachmentsDeleted</c>, with the feature and the attachments it touched.
     /// </summary>
-    private static Task RaiseAsync(HttpContext context, string changeType, long objectId, IEnumerable<int> attachmentIds, CancellationToken cancellation) =>
-        context.Items[ResolvedLayer] is PublishedLayer layer && context.RequestServices.GetService<WebhookRaiser>() is { } raiser
-            ? raiser.RaiseChangeAsync(
-                layer.ServiceId, layer.ServiceName, layer.Folder, layer.LayerIndex, changeType,
-                new System.Text.Json.Nodes.JsonObject
-                {
-                    ["attachments"] = new System.Text.Json.Nodes.JsonObject
-                    {
-                        ["parentObjectId"] = objectId,
-                        ["attachmentIds"] = new System.Text.Json.Nodes.JsonArray([.. attachmentIds.Select(id => (System.Text.Json.Nodes.JsonNode?)id)]),
-                    },
-                },
-                cancellation)
-            : Task.CompletedTask;
+    private static Task RaiseAsync(HttpContext context, string changeType, long objectId, IEnumerable<int> attachmentIds, CancellationToken cancellation)
+    {
+        if (context.Items[ResolvedLayer] is not PublishedLayer layer || context.RequestServices.GetService<WebhookRaiser>() is not { } raiser)
+        {
+            return Task.CompletedTask;
+        }
+
+        System.Text.Json.Nodes.JsonObject detail = new()
+        {
+            ["attachments"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["parentObjectId"] = objectId,
+                ["attachmentIds"] = new System.Text.Json.Nodes.JsonArray([.. attachmentIds.Select(id => (System.Text.Json.Nodes.JsonNode?)id)]),
+            },
+        };
+
+        // ADR-311 §5.11: the window for its changesUrl, from when this request found the layer to now. The attachment
+        // record stamps a change at its commit, which is inside it.
+        if (WebhookRaiser.TracksChanges(layer) && context.Items[ResolvedAt] is DateTimeOffset began)
+        {
+            detail[WebhookEvents.ServerGensKey] = WebhookEvents.Gens(WebhookEvents.Window(began, DateTimeOffset.UtcNow));
+        }
+
+        return raiser.RaiseChangeAsync(layer.ServiceId, layer.ServiceName, layer.Folder, layer.LayerIndex, changeType, detail, cancellation);
+    }
+
+    /// <summary>Where <see cref="ResolveAsync"/> leaves the moment it resolved the layer, for <see cref="RaiseAsync"/>.</summary>
+    private static readonly object ResolvedAt = new();
 
     private static async Task<IAttachmentStore?> ResolveAsync(
         HttpContext context,
@@ -1303,6 +1317,7 @@ internal static class AttachmentEndpoints
 
         // Kept for the write's webhook event (ADR-266 condition 1), which needs the layer's service and index.
         context.Items[ResolvedLayer] = layer;
+        context.Items[ResolvedAt] = DateTimeOffset.UtcNow;
 
         (IAttachmentStore? store, int status, string? refusal) = await StoreOfAsync(context, layer, connections, cancellation).ConfigureAwait(false);
 

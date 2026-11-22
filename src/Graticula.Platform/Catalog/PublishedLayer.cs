@@ -406,6 +406,13 @@ public sealed class PublishedLayer
     public bool ServiceSyncEnabled { get; init; }
 
     /// <summary>
+    /// Whether its service's owner turned change tracking on — ADR-311, migration 145. Carried for the same reason as
+    /// <see cref="ServiceSyncEnabled"/>: a layer's document says <c>ChangeTracking</c>, and an edit's webhook event carries a
+    /// <c>changesUrl</c>, when its service does.
+    /// </summary>
+    public bool ServiceChangeTracking { get; init; }
+
+    /// <summary>
     /// When its rows last changed through this server — an edit, an append, an overwrite, a truncate, a restore — or null
     /// where nothing has recorded it (migration 127). Not an edit made in the database directly.
     /// </summary>

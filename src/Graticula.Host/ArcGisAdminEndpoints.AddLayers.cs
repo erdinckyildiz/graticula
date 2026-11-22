@@ -134,6 +134,16 @@ internal static partial class ArcGisAdminEndpoints
             return;
         }
 
+        // ADR-311 §5.1: a layer added to a service that tracks its changes gets its history now, or the service stops
+        // saying ChangeTracking until it has one — said in the answer rather than turned into a failure of the add.
+        string? historyNotStarted = null;
+        if (service.ChangeTracking
+            && await layers.FindServiceAsync(service.Folder, service.Name, cancellation).ConfigureAwait(false) is { } grown)
+        {
+            historyNotStarted = await ChangeTrackingFlags.StartHistoryAsync(context.RequestServices, grown, [], cancellation)
+                .ConfigureAwait(false);
+        }
+
         // ADR-266 condition 1: new layers change the service's definition.
         await context.RequestServices.GetRequiredService<WebhookRaiser>().RaiseChangeAsync(
             service.Id, service.Name, service.Folder ?? folder, null, "FeatureServiceDefinitionChanged",
@@ -144,6 +154,7 @@ internal static partial class ArcGisAdminEndpoints
         {
             success = true,
             layers = added.Select(l => new { id = l.Id, name = l.Name }),
+            changeTrackingWarning = historyNotStarted,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

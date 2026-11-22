@@ -483,6 +483,8 @@ public sealed class JsonReplicaTests
 
         public Task<int> SetEnabledAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken) => Task.FromResult(0);
 
+        public Task SetChangeTrackingAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task CreateAsync(ReplicaRecord replica, CancellationToken cancellationToken)
         {
             Created.Add(replica);

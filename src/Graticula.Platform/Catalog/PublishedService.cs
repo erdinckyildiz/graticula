@@ -252,6 +252,12 @@ public sealed class PublishedService
     /// </summary>
     public bool SyncEnabled { get; init; }
 
+    /// <summary>
+    /// Whether its owner turned change tracking on — ADR-311, migration 145. Only a hosted service's is honoured, and only
+    /// while every layer keeps its history; <c>extractChanges</c> is served while it is.
+    /// </summary>
+    public bool ChangeTracking { get; init; }
+
     /// <summary>Whether an OGC face answers for this service — ADR-166.</summary>
     /// <param name="face">The face.</param>
     /// <returns>True unless its owner turned it off.</returns>

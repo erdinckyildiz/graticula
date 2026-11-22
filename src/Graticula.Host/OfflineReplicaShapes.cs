@@ -69,6 +69,14 @@ internal static class OfflineReplicaShapes
             ["lastUpdatedTime"] = job.Updated.ToUnixTimeMilliseconds(),
         };
 
+        // ADR-311: an extractChanges job is nobody's replica, and its status says only what the reference shows.
+        if (job.ResponseType == ExtractChangesRequest.ResponseType)
+        {
+            document.Remove("targetType");
+            document.Remove("replicaName");
+            document.Remove("replicaID");
+        }
+
         if (job.Generations is { Count: > 0 } generations)
         {
             document["layerServerGens"] = new JsonArray([.. generations.Select(g => (JsonNode)new JsonObject
