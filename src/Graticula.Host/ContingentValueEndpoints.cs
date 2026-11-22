@@ -82,28 +82,57 @@ internal static class ContingentValueEndpoints
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(document);
 
-        if (Served(layer, described) is null)
-        {
-            return document;
-        }
-
-        JsonObject? written = document as JsonObject;
-
-        if (written is null)
-        {
-            JsonSerializerOptions options =
-                context.RequestServices?.GetService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()?.Value.SerializerOptions
-                ?? JsonSerializerOptions.Web;
-            written = JsonSerializer.SerializeToNode(document, document.GetType(), options) as JsonObject;
-        }
-
-        if (written is null)
+        if (Served(layer, described) is null || Node(context, document) is not { } written)
         {
             return document;
         }
 
         written["hasContingentValuesDefinition"] = true;
         return written;
+    }
+
+    /// <summary>
+    /// A FeatureServer document with <c>supportedContingentValuesFormats</c> where one of its layers or tables serves a
+    /// definition, or the document unchanged (ADR-312 §5.4, amended 2026-11-23).
+    /// </summary>
+    /// <param name="context">The request, for the response's serializer options.</param>
+    /// <param name="document">The document.</param>
+    /// <param name="described">The service's layers and tables, each with its columns as a client sees them.</param>
+    /// <returns>The document to write.</returns>
+    /// <remarks>
+    /// The reference's <i>Query Contingent Values</i> page names the property with the example <c>"JSON, PBF"</c>
+    /// (<see href="https://developers.arcgis.com/rest/services-reference/enterprise/query-contingent-values-feature-service/"/>).
+    /// Only JSON is said, because only JSON is answered (D-474): Field Maps asked a layer here for <c>f=pbf</c> when the
+    /// document said nothing, was refused, and offered every value.
+    /// </remarks>
+    public static object ApplyToService(
+        HttpContext context, object document, IReadOnlyList<(PublishedLayer Layer, LayerDescription Described)> described)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(described);
+
+        if (!described.Any(d => Served(d.Layer, d.Described) is not null) || Node(context, document) is not { } written)
+        {
+            return document;
+        }
+
+        written["supportedContingentValuesFormats"] = "JSON";
+        return written;
+    }
+
+    /// <summary>A document as a JSON object the response can be written from, or null when it is not one.</summary>
+    private static JsonObject? Node(HttpContext context, object document)
+    {
+        if (document is JsonObject written)
+        {
+            return written;
+        }
+
+        JsonSerializerOptions options =
+            context.RequestServices?.GetService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()?.Value.SerializerOptions
+            ?? JsonSerializerOptions.Web;
+        return JsonSerializer.SerializeToNode(document, document.GetType(), options) as JsonObject;
     }
 
     private static string? Parameter(IFormCollection form, HttpContext context, string name) =>

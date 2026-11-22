@@ -60,9 +60,7 @@ test("an allowed combination says nothing, and a broken one names its values and
   const broken = cv.cvViolations(d, { make: "AIR", model: 999, size: 2 }, null);
   assert.equal(broken.length, 1);
   assert.equal(broken[0].group, "make_model");
-  assert.match(cv.cvWarning(broken), /make = AIR, model = 999, size = 2 is not a combination the field group “make_model” allows\./);
-  assert.match(cv.cvWarning(broken), /can still be saved/);
-  assert.match(cv.cvWarning(broken, true), /Saved anyway/);
+  assert.equal(broken[0].retired, false);
 });
 
 test("a range is inclusive at both ends, and a value outside it is broken", () => {
@@ -122,4 +120,184 @@ test("the stored shape survives a round trip through Studio's editor", () => {
   const fresh = cv.cvToStored({ groups: [{ name: "g", fields: ["a"] }], values: [{ group: "g", entries: [{ field: "a", kind: "NULL" }] }] });
   assert.equal(fresh.contingentValues[0].id, undefined, "a new value has no id; the server gives it one");
   assert.deepEqual(fresh.contingentValues[0].entries, [["a", "NULL", null]]);
+});
+
+// ---- the copy: aliases and names, what IS allowed, no group name, retired said as retired (review finding 4) ----
+
+const look = {
+  alias: f => ({ make: "Make", model: "Model", size: "Size" })[f] || f,
+  coded: f => f === "make",
+  name: (f, v) => f === "make" ? ({ BOE: "Boeing", AIR: "Airbus" })[v] || String(v) : String(v),
+};
+
+const planes = cv.cvFromStored({
+  fieldGroups: [{ name: "make_model", restrictive: true, fields: ["make", "model"] }],
+  contingentValues: [
+    { id: 1, fieldGroup: "make_model", entries: [["make", "CODED_VALUE", "BOE"], ["model", "CODED_VALUE", 737]] },
+    { id: 2, fieldGroup: "make_model", entries: [["make", "CODED_VALUE", "BOE"], ["model", "CODED_VALUE", 747]] },
+    { id: 3, fieldGroup: "make_model", entries: [["make", "CODED_VALUE", "AIR"], ["model", "CODED_VALUE", 320]] },
+    { id: 4, fieldGroup: "make_model", retired: true, entries: [["make", "CODED_VALUE", "BOE"], ["model", "CODED_VALUE", 707]] },
+  ],
+});
+
+test("a broken combination is said with the names the controls show and what the first value allows", () => {
+  const said = cv.cvSentences(planes, { make: "BOE", model: 999 }, null, null, look);
+  assert.equal(said.lead, "of Make and Model");
+  assert.equal(said.detail, "Boeing allows Model 737 or 747.");
+  assert.doesNotMatch(said.detail + said.lead, /make_model|field group|BOE/);
+  assert.equal(cv.cvWarning(said), "Not a listed combination of Make and Model. Boeing allows Model 737 or 747. You can still save.");
+  assert.match(cv.cvWarning(said, true), /Saved anyway\.$/);
+});
+
+test("the live lead changes only when the set of broken groups does, not with each keystroke", () => {
+  const a = cv.cvSentences(planes, { make: "BOE", model: 9 }, null, null, look);
+  const b = cv.cvSentences(planes, { make: "BOE", model: 99 }, null, null, look);
+  const c = cv.cvSentences(planes, { make: "BOE", model: 999 }, null, null, look);
+  assert.equal(a.key, "make_model");
+  assert.equal(a.key, b.key);
+  assert.equal(b.key, c.key);
+  assert.equal(a.lead, c.lead);
+  assert.equal(cv.cvSentences(planes, { make: "BOE", model: 747 }, null, null, look).key, "");
+});
+
+test("a retired combination gets its own sentence, not 'not allowed'", () => {
+  const said = cv.cvSentences(planes, { make: "BOE", model: 707 }, null, null, look);
+  assert.equal(said.broken[0].retired, true);
+  assert.equal(said.detail, "Boeing with Model 707 is retired: features that have it keep it, and it is not offered for new edits.");
+  assert.equal(cv.cvSentences(planes, { make: "BOE", model: 707 }, null, { make: "BOE", model: 707 }, look).key, "", "kept unchanged");
+});
+
+test("a first value no combination lists is said so", () => {
+  const said = cv.cvSentences(planes, { make: "XXX", model: 1 }, null, null, look);
+  assert.equal(said.detail, "No listed combination has Make XXX.");
+});
+
+test("ranges, Any and Null are said in words", () => {
+  const d = cv.cvFromRest(resource);
+  const said = cv.cvSentences(d, { make: "AIR", model: 1, size: 2 }, null, null, look);
+  assert.equal(said.detail, "Airbus allows Model 320 and Size from 1.5 to 4.");
+  const boe = cv.cvSentences(d, { make: "BOE", model: 1, size: 3 }, null, null, look);
+  assert.equal(boe.detail, "Boeing allows any Model and Size empty.");
+});
+
+// ---- narrowing (owner decision 2026-11-23: "Listeyi daralt, yine uyar") ----
+
+const models = [{ code: 737, name: "737" }, { code: 747, name: "747" }, { code: 320, name: "A320" }, { code: 707, name: "707" }];
+const makes = [{ code: "BOE", name: "Boeing" }, { code: "AIR", name: "Airbus" }, { code: "XXX", name: "Other" }];
+
+test("a list is narrowed to the values the other fields' current values allow", () => {
+  const limits = cv.cvAllowance(planes, "model", { make: "BOE", model: null }, null, null);
+  assert.deepEqual(cv.cvNarrow(models, limits).map(o => o.code), [737, 747]);
+  const air = cv.cvAllowance(planes, "model", { make: "AIR" }, null, null);
+  assert.deepEqual(cv.cvNarrow(models, air).map(o => o.code), [320]);
+});
+
+test("a field the other fields leave empty is narrowed to the values any combination lists", () => {
+  const limits = cv.cvAllowance(planes, "make", { make: null, model: null }, null, null);
+  assert.deepEqual(cv.cvNarrow(makes, limits).map(o => o.code), ["BOE", "AIR"]);
+  const by747 = cv.cvAllowance(planes, "make", { model: 747 }, null, null);
+  assert.deepEqual(cv.cvNarrow(makes, by747).map(o => o.code), ["BOE"]);
+});
+
+test("a value held now that is not allowed stays offered, labelled, so narrowing never changes it unasked", () => {
+  const limits = cv.cvAllowance(planes, "model", { make: "AIR", model: 747 }, null, null);
+  const list = cv.cvNarrow(models, limits, [747]);
+  assert.deepEqual(list.map(o => [o.code, o.state]), [[747, "unlisted"], [320, "ok"]]);
+  assert.equal(cv.cvOptionLabel(list[0]), "747 (not listed)");
+});
+
+test("retired values are not offered for a new edit, and an existing feature's retired value stays, labelled", () => {
+  const fresh = cv.cvAllowance(planes, "model", { make: "BOE" }, null, null);
+  assert.deepEqual(cv.cvNarrow(models, fresh).map(o => o.code), [737, 747]);
+  const existing = cv.cvAllowance(planes, "model", { make: "BOE", model: 707 }, null, { make: "BOE", model: 707 });
+  const list = cv.cvNarrow(models, existing, [707]);
+  assert.deepEqual(list.map(o => [o.code, o.state]), [[737, "ok"], [747, "ok"], [707, "retired"]]);
+  assert.equal(cv.cvOptionLabel(list[2]), "707 (retired)");
+});
+
+test("text from a control and a numeric code are one value when narrowing", () => {
+  const limits = cv.cvAllowance(planes, "make", { model: "747" }, null, null);
+  assert.deepEqual(cv.cvNarrow(makes, limits).map(o => o.code), ["BOE"]);
+  const asText = models.map(m => ({ code: String(m.code), name: m.name }));
+  assert.deepEqual(cv.cvNarrow(asText, cv.cvAllowance(planes, "model", { make: "AIR" }, null, null)).map(o => o.code), ["320"]);
+});
+
+test("nothing narrows a field outside every restrictive group, or one whose other fields are already unlisted", () => {
+  assert.equal(cv.cvAllowance(planes, "rating", { make: "BOE" }, null, null), null);
+  assert.equal(cv.cvAllowance(planes, "model", { make: "XXX" }, null, null), null);
+  const loose = cv.cvFromStored({ fieldGroups: [{ name: "g", restrictive: false, fields: ["a", "b"] }],
+    contingentValues: [{ id: 1, fieldGroup: "g", entries: [["a", "CODED_VALUE", 1], ["b", "CODED_VALUE", 1]] }] });
+  assert.equal(cv.cvAllowance(loose, "a", { b: 1 }, null, null), null);
+});
+
+test("two groups over one field narrow it to what both allow", () => {
+  const d = cv.cvFromStored({
+    fieldGroups: [{ name: "g1", fields: ["a", "b"] }, { name: "g2", fields: ["a", "c"] }],
+    contingentValues: [
+      { id: 1, fieldGroup: "g1", entries: [["a", "CODED_VALUE", 1], ["b", "CODED_VALUE", 1]] },
+      { id: 2, fieldGroup: "g1", entries: [["a", "CODED_VALUE", 2], ["b", "CODED_VALUE", 1]] },
+      { id: 3, fieldGroup: "g2", entries: [["a", "CODED_VALUE", 2], ["c", "ANY", null]] },
+      { id: 4, fieldGroup: "g2", entries: [["a", "CODED_VALUE", 3], ["c", "ANY", null]] },
+    ],
+  });
+  const list = cv.cvNarrow([1, 2, 3].map(n => ({ code: n, name: String(n) })), cv.cvAllowance(d, "a", { b: 1, c: "x" }, null, null));
+  assert.deepEqual(list.map(o => o.code), [2]);
+});
+
+test("a range entry narrows a coded list to the codes inside it", () => {
+  const d = cv.cvFromStored({
+    fieldGroups: [{ name: "g", fields: ["k", "n"] }],
+    contingentValues: [{ id: 1, fieldGroup: "g", entries: [["k", "CODED_VALUE", "x"], ["n", "RANGE", [2, 3]]] }],
+  });
+  const codes = [1, 2, 3, 4].map(n => ({ code: n, name: String(n) }));
+  assert.deepEqual(cv.cvNarrow(codes, cv.cvAllowance(d, "n", { k: "x" }, null, null)).map(o => o.code), [2, 3]);
+});
+
+// ---- Studio's group keys (review finding 1) ----
+
+test("a value names its group by the group's key, so renaming one group never moves another's values", () => {
+  const stored = cv.cvToStored({
+    groups: [{ key: "k1", name: "make_model2", fields: ["a"] }, { key: "k2", name: "make_model", fields: ["a"] }],
+    values: [
+      { id: 1, group: "make_model", gkey: "k1", entries: [{ field: "a", kind: "ANY" }] },
+      { id: 2, group: "make_model", gkey: "k2", entries: [{ field: "a", kind: "ANY" }] },
+    ],
+  });
+  assert.deepEqual(stored.contingentValues.map(v => v.fieldGroup), ["make_model2", "make_model"]);
+  assert.equal(stored.fieldGroups[0].key, undefined, "the key is the editor's, and is not sent");
+});
+
+// ---- Studio's authoring checks (review findings 3 and 8) ----
+
+test("a typed number takes a decimal comma, and text that is not a number is refused rather than stored as NaN", () => {
+  assert.equal(cv.cvParseNumber("10,5"), 10.5);
+  assert.equal(cv.cvParseNumber(" 10.5 "), 10.5);
+  assert.equal(cv.cvParseNumber("-3"), -3);
+  assert.equal(cv.cvParseNumber("1e3"), 1000);
+  assert.equal(cv.cvParseNumber("abc"), null);
+  assert.equal(cv.cvParseNumber(""), null);
+  assert.equal(cv.cvParseNumber("1,500,000"), null, "a thousands separator is ambiguous and refused");
+  assert.equal(cv.cvParseNumber(4), 4);
+});
+
+test("a value that repeats an earlier one of its group is named by the earlier one's place", () => {
+  const v = (code, extra = {}) => ({ subtype: null, entries: [{ field: "make", kind: "CODED_VALUE", code }, { field: "model", kind: "ANY" }], ...extra });
+  const values = [v("BOE"), v("AIR"), v("BOE"), v("BOE", { subtype: 2 }), v("BOE")];
+  const repeats = cv.cvDuplicates(values);
+  assert.equal(repeats.get(values[2]), 1);
+  assert.equal(repeats.get(values[4]), 1);
+  assert.equal(repeats.has(values[1]), false);
+  assert.equal(repeats.has(values[3]), false, "another subtype is another combination");
+  const r1 = { subtype: null, entries: [{ field: "n", kind: "RANGE", min: 1, max: 2 }] };
+  const r2 = { subtype: null, entries: [{ field: "n", kind: "RANGE", min: 1, max: 3 }] };
+  assert.equal(cv.cvDuplicates([r1, r2]).size, 0);
+  assert.equal(cv.cvDuplicates([r1, { ...r1 }]).size, 1);
+});
+
+test("the server's refusal names rows and fields as the screen does", () => {
+  const names = new Map([[6, "Value 3 of make_model"]]);
+  assert.equal(
+    cv.cvRenameRefusal("Contingent value 6, field 'size': 5 is outside the range.", names, f => (f === "size" ? "Size" : f)),
+    "Value 3 of make_model, field Size: 5 is outside the range.");
+  assert.equal(cv.cvRenameRefusal("Contingent value 9 names no subtype.", names), "Contingent value 9 names no subtype.");
 });

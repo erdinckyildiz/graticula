@@ -84,6 +84,7 @@ public sealed class ContingentValuesTests : ArcGisClient
 
             // Before: the document says nothing, as the reference allows for false.
             Assert.False((await GetJsonAsync(feature)).TryGetProperty("hasContingentValuesDefinition", out _));
+            Assert.False((await GetJsonAsync(serviceRoot)).TryGetProperty("supportedContingentValuesFormats", out _));
 
             // ---- Studio's door ----
             const string definition = """
@@ -104,6 +105,9 @@ public sealed class ContingentValuesTests : ArcGisClient
 
             // ---- the layer document's flag ----
             Assert.True((await GetJsonAsync(feature)).GetProperty("hasContingentValuesDefinition").GetBoolean());
+
+            // ---- the service document says the one format contingent values are answered in (ADR-312 §5.4, 2026-11-23) ----
+            Assert.Equal("JSON", (await GetJsonAsync(serviceRoot)).GetProperty("supportedContingentValuesFormats").GetString());
 
             // ---- the resource ----
             JsonElement resource = await GetJsonAsync($"{feature}/contingentValues");
@@ -234,6 +238,7 @@ public sealed class ContingentValuesTests : ArcGisClient
                 HttpMethod.Put, $"{root}/admin/layers/{layer}/contingent-values", token!, "{\"fieldGroups\":[],\"contingentValues\":[]}");
             Assert.True(cleared == HttpStatusCode.OK, clearedSaid);
             Assert.False((await GetJsonAsync(feature)).TryGetProperty("hasContingentValuesDefinition", out _));
+            Assert.False((await GetJsonAsync(serviceRoot)).TryGetProperty("supportedContingentValuesFormats", out _));
             Assert.Equal(0, (await GetJsonAsync($"{feature}/contingentValues")).GetProperty("contingentValuesDefinition").GetProperty("fieldGroups").GetArrayLength());
         }
         finally
