@@ -177,7 +177,10 @@ public sealed class PostgresLayerCatalog
         l.data_changed_at, l.schema_changed_at,
 
         -- ADR-288, migration 138: whether its service is sync-enabled. On the end, read by name.
-        s.sync_enabled as service_sync_enabled
+        s.sync_enabled as service_sync_enabled,
+
+        -- ADR-312, migration 146: its field groups and contingent values, or null. On the end, read by name.
+        l.contingent_values::text as contingent_values
         """;
 
     /// <summary>The joins a layer read needs: a layer, its source, its service.</summary>
@@ -611,6 +614,9 @@ public sealed class PostgresLayerCatalog
 
             // ADR-115.
             EditOwnOnly = reader.GetBoolean(reader.GetOrdinal("edit_own_only")),
+
+            // ADR-312: kept whole; what a client is served is narrowed against the columns where it is served.
+            ContingentValues = ContingentValueJson.Read(Nullable(reader, "contingent_values")),
 
             // ADR-207.
             AttachmentsIn = Nullable(reader, "attachments_in"),
