@@ -868,6 +868,7 @@ function wmfOpenEdit(key) {
       <p class="hint wmf-reqnote" hidden>* required</p>
       ${top.join("")}
       <p class="sr" id="wmfLive" aria-live="polite"></p>
+      <p class="said cvwarn" id="editCv" aria-live="polite" hidden></p>
       <p class="said" id="editSays" role="status" aria-live="polite" tabindex="-1"></p>
       <div class="row editacts">
         <button type="submit" class="primary">${held.isNew ? "Create" : "Save"}</button>
@@ -881,6 +882,8 @@ function wmfOpenEdit(key) {
   const first = [...form.querySelectorAll("input:not([type=hidden]), select, textarea")]
     .find(c => !c.disabled && !c.readOnly && !c.closest("[hidden]") && c.getClientRects().length);
   (first || form.querySelector("button[type=submit]"))?.focus();
+  // ADR-312: the contingent-values warning is said in a form's card as in the plain one (contingent-editor.js).
+  if (typeof cveCheckForm === "function") cveCheckForm(form);
   return true;
 }
 
