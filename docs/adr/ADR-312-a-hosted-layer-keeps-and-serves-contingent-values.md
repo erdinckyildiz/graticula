@@ -300,7 +300,8 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
    Node and the screens reviewed. **PARTLY DISCHARGED 2026-11-22**: `node --test tests/js/contingent.test.js` (8 pass)
    checks the decoding and the check; the attribute form was driven in headless Chrome on the fixture — typing
    `model = 999` said the combination in `#editCv` (`aria-live="polite"`), Save went through, and the status line said
-   *Saved anyway*. Open: the attribute table's path was not driven in a browser, and neither screen has had its design
-   review.
+   *Saved anyway*; in the attribute table, `model = 12345` saved and `#tableStatus` (`aria-live="polite"`) said
+   *1 row saved. Saved anyway — …* naming the row. Open: neither screen, nor Studio's authoring section, has had its
+   design review.
 7. **The offline replica carries the definition** (D-472). Open: the blob's encoding is not public.
 8. **Pro's publish carries the definition** (D-473). Open: the file geodatabase's storage is not public.
