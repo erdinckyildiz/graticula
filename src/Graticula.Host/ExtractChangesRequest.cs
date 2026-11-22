@@ -220,12 +220,10 @@ internal sealed record ExtractChangesRequest(
             return false;
         }
 
-        if (deleted && (idsOnly || !deletes))
-        {
-            error = "returnDeletedFeatures true needs returnDeletes true and returnIdsOnly false: it answers the deleted features "
-                + "whole.";
-            return false;
-        }
+        // The reference says returnDeletedFeatures needs returnDeletes true and returnIdsOnly false. It is ignored where it
+        // cannot apply rather than refused: the ArcGIS API for Python 2.4.3 sends returnDeletedFeatures=true with every
+        // extract_changes, ids only included, and a refusal broke that client's first call (measured 2026-11-22).
+        deleted = deleted && deletes && !idsOnly && !extentOnly;
 
         List<string>? compare = null;
         if (field("fieldsToCompare") is { } fieldsText)

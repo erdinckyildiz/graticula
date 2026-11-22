@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` — the operation's parameters and its answer's keys are ArcGIS's public reference; the difference itself is the one offline sync has computed since ADR-288 and is tested against PostgreSQL. No ArcGIS client has called it against this server yet (condition 2), and eleven points the reference does not settle are `INFERRED` (§5.12) |
+| **Confidence** | `MEDIUM` — the operation's parameters and its answer's keys are ArcGIS's public reference; the difference itself is the one offline sync has computed since ADR-288 and is tested against PostgreSQL. the ArcGIS API for Python has called it against a local fixture (condition 2), and no webhook integration has followed a `changesUrl` yet, and eleven points the reference does not settle are `INFERRED` (§5.12) |
 | **Decided** | 2026-11-22. The owner, on Enterprise 12.2 band 2 group 1 (*field work and editing*), answering *"extractChanges"* in a question dialog: **"Hosted + webhook"** — serve `extractChanges` on hosted layers that keep change history, and make the webhook payload's `changesUrl` a real `extractChanges` address. Everything below that the owner did not say is this session's, and what public documentation does not settle is `INFERRED` (§5.12) |
 | **Supersedes** | — (amends [ADR-266](ADR-266-a-webhook-tells-another-system-what-changed.md) §5.3 and §5.10 Q2; ends the `extractChanges` half of [ADR-082](ADR-082-offline-sync-is-not-in-v1.md)'s exclusion, which [ADR-288](ADR-288-offline-sync-is-in.md) left standing) |
 | **Superseded by** | — |
@@ -152,7 +152,7 @@ filters and history reads as a replica download (`OfflineReplicaEndpoints`, a ne
 | `returnExtentOnly` | The envelope of the changed features — added and updated as they are, deleted as they were — as `extent` (`INFERRED`, §5.12). |
 | `returnHasGeometryUpdates` | `hasGeometryUpdates` per layer; refused with `returnUpdates=false`, as the reference says. |
 | `fieldsToCompare` | `{"fields": [...]}`; `fieldUpdates`, the object ids of updates that changed one of them. Refused with `returnUpdates=false`. |
-| `returnDeletedFeatures` | Deleted features whole, as they were, under `features.deletes`; refused with `returnIdsOnly=true` or `returnDeletes=false`. |
+| `returnDeletedFeatures` | Deleted features whole, as they were, under `features.deletes`; ignored with `returnIdsOnly=true` or `returnDeletes=false` rather than refused, because the ArcGIS API for Python 2.4.3 sends it with every `extract_changes`, ids only included (measured 2026-11-22, condition 2). |
 | `returnAttachments`, `returnAttachmentsDataByUrl` | Default true. Attachment changes from the attachment table's record (ADR-290), `adds`/`updates` with a `url` to the layer's own attachment route or base64 `data`, and `deleteIds` as GlobalIDs. Not in an ids-only or extent-only answer. A window the record cannot vouch for is **refused by name** rather than re-sent whole as sync does (D-423 does not apply: there is no device to move on). |
 | `dataFormat` | `json`. `sqlite` (the reference spells it `sqllite`) is **refused by name** (D-469): the mobile geodatabase writer writes a replica's delta, keyed by a replica, and is not cheap to bend. |
 | `changesExtentGridCell` | `none`. Any other is **refused by name** (D-469). |
@@ -297,8 +297,22 @@ None recorded. The case against §5.10 is in §3 and is the reference's own sent
 
 1. **Conformance tests against a running server** cover insert, update and delete across two generations, ids only,
    `layerQueries` with a `where`, attachments, an expired generation and a refusal; a webhook test follows `changesUrl`
-   and gets the change that fired it; host tests cover the parameter reader and the payload's URL.
+   and gets the change that fired it; host tests cover the parameter reader and the payload's URL. **DISCHARGED
+   2026-11-22** (branch b2-xchanges): `ExtractChangesTests` (six tests — the switch and the documents; inserts, updates and
+   deletes across two generations with the `[min, max]` window, ids only, `fieldsToCompare`, `hasGeometryUpdates` and
+   deleted features; `layerQueries` with a where and an envelope; an attachment by address and inline; an expired
+   generation and seven refusals by name; an asynchronous job), `WebhooksTests.A_tracked_services_webhook_carries_a_changes_url_that_returns_the_change_that_fired_it`
+   and `UpdateDefinitionTests`, 17 of 17 against a local fixture; `ExtractChangesUnitTests` (10) in the host tests. The
+   replica downloads that share `WindowAsync` still pass (`AnUploadOnlySyncIsNotEchoedTests`, `ASyncOfAnAttachmentTests`
+   and three more, 6 of 6). The whole conformance suite: 985 of 1,026, and the same 41 fail on the base commit 0bd8450a
+   against a fixture seeded the same way (corpora outside the tree, Linux-only tool fences, PROJ grids).
 2. **An ArcGIS client calls it.** The ArcGIS API for Python's `extract_changes`, or a Power Automate or Make flow
-   following a webhook's `changesUrl`, is pointed at this server and what it did is recorded here.
+   following a webhook's `changesUrl`, is pointed at this server and what it did is recorded here. **DISCHARGED
+   2026-11-22** with the ArcGIS API for Python 2.4.3 against the local fixture, signed in by name and password:
+   `manager.update_definition` with `ChangeTracking` turned it on and `properties.capabilities` then said it;
+   `extract_changes(layers=[0], servergen=[g], return_ids_only=True)` and the same with features answered the feature
+   added through `edit_features`. Its first call was refused: the client sends `returnDeletedFeatures=true` with every
+   request, ids only included, which this server refused as the reference's rule says; it is now ignored where it
+   cannot apply (§5.4), and the second run answered. No webhook integration (Power Automate, Make) was tried.
 3. **The owner confirms or changes the eleven `INFERRED` points of §5.12.**
 4. **When D-401 closes**, this operation's window is re-read against the fix, and D-468 closes or is restated.

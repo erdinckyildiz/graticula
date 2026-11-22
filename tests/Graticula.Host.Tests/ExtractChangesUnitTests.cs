@@ -106,7 +106,10 @@ public sealed class ExtractChangesUnitTests
         Assert.Contains("returnIdsOnly and returnExtentOnly", Refusal(("serverGens", "1"), ("returnIdsOnly", "true"), ("returnExtentOnly", "true")), StringComparison.Ordinal);
         Assert.Contains("returnHasGeometryUpdates", Refusal(("serverGens", "1"), ("returnHasGeometryUpdates", "true"), ("returnUpdates", "false")), StringComparison.Ordinal);
         Assert.Contains("fieldsToCompare needs returnUpdates", Refusal(("serverGens", "1"), ("fieldsToCompare", """{"fields":["a"]}"""), ("returnUpdates", "false")), StringComparison.Ordinal);
-        Assert.Contains("returnDeletedFeatures", Refusal(("serverGens", "1"), ("returnDeletedFeatures", "true"), ("returnIdsOnly", "true")), StringComparison.Ordinal);
+        // returnDeletedFeatures where it cannot apply is ignored, as the ArcGIS API for Python sends it with ids only.
+        Assert.False(Read(("serverGens", "1"), ("returnDeletedFeatures", "true"), ("returnIdsOnly", "true")).DeletedFeatures);
+        Assert.False(Read(("serverGens", "1"), ("returnDeletedFeatures", "true"), ("returnDeletes", "false")).DeletedFeatures);
+        Assert.True(Read(("serverGens", "1"), ("returnDeletedFeatures", "true")).DeletedFeatures);
 
         // changesExtentGridCell=none and dataFormat=json are what is served.
         Assert.True(Read(("serverGens", "1"), ("changesExtentGridCell", "none"), ("dataFormat", "JSON")).ReturnInserts);
