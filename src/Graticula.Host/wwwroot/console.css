@@ -8114,6 +8114,9 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .cvs [aria-invalid="true"] { border-color: var(--alert); box-shadow: 0 0 0 1px var(--alert); }
 .cvs .cvssave { margin-top: 10px; align-items: center; flex-wrap: wrap; gap: var(--gap-2); }
 .cvs .cvssave .bad-inline:empty { display: none; }
+/* The open group's button looks pressed, as its aria-expanded says (re-review N12). */
+.cvs .cvsopen[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.cvs .cvsid { white-space: nowrap; }
 /* What each word of the model means, beside the model (finding 6). */
 .cvs .cvslegend { display: grid; grid-template-columns: repeat(auto-fit, minmax(16em, 1fr)); gap: 2px var(--gap-4);
   margin: 0 0 var(--gap-3); font-size: var(--t-small); color: var(--muted); }
@@ -8135,4 +8138,10 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
   .cvs .cvsfields { gap: 0 12px; }
   .cvs .cvsfields label, .cvs td input[type="checkbox"] { min-height: 32px; display: inline-flex; align-items: center; gap: 4px; }
   .cvs button.tiny { min-height: 44px; }
+  /* Retired and Remove share the card's last line, and the Value line sits on one baseline (N12). */
+  .cvs tbody tr { display: flex; flex-wrap: wrap; column-gap: var(--gap-3); }
+  .cvs tbody td { flex: 1 1 100%; }
+  .cvs tbody td.cvsret { flex: 1 1 auto; }
+  .cvs tbody td.cvsact { flex: 0 0 auto; }
+  .cvs td.cvsid { align-items: baseline; }
 }
