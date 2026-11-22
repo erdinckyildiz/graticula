@@ -4584,15 +4584,21 @@ public static class Program
 
         // ADR-311: a hosted service that tracks its changes says ChangeTracking, and what extractChanges takes. The
         // shapes were read layers first, then tables, which is the order they are paired in here.
+        IReadOnlyList<(PublishedLayer Layer, LayerDescription Described)> paired =
+            [.. ((IEnumerable<PublishedLayer>)[.. service.Layers, .. service.Tables]).Zip(shapes)];
         document = ChangeTrackingFlags.ApplyToService(
             context, document, service,
-            [.. ((IEnumerable<PublishedLayer>)[.. service.Layers, .. service.Tables]).Zip(shapes)],
+            paired,
             service.ChangeTracking
                 // D-401: the serverGen a client starts extracting from is no later than any transaction still writing.
                 ? await OfflineReplicaEndpoints.ClosedGenerationAsync(
                     context.RequestServices.GetRequiredService<LayerConnections>(), [.. service.Layers, .. service.Tables],
                     context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow(), context.RequestAborted).ConfigureAwait(false)
                 : context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow());
+
+        // ADR-312: a service with a layer that serves contingent values says the one format they are answered in, so
+        // Field Maps does not ask for protobuf (D-474).
+        document = ContingentValueEndpoints.ApplyToService(context, document, paired);
 
         // ADR-310: a service with a hosted layer takes the service-level append, and says so once it does.
         document = AppendFlags.Apply(context, document, service);
