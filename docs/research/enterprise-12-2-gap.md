@@ -106,10 +106,10 @@ Both are band 1.
 | Network analysis service | Missing (algorithms in grapy, ADR-239) | No decision |
 | Stream services | Missing | No decision. GeoEvent is deprecated (last release 12.3) |
 | Knowledge graph, Notebooks, Workflow Manager, Hub | Missing | No decision (`supportsHostedNotebooks = false`) |
-| Offline sync | Partly | ADR-288 `REQUIRES PROTOTYPE`, D-401, D-394 |
+| Offline sync | Built: on-demand and preplanned areas in Field Maps, Download Map and Sync in Pro | ADR-288 ~~`REQUIRES PROTOTYPE`~~ `ACCEPTED` 2026-11-22; D-401 open |
 | Dashboards, Experience Builder, StoryMaps, Instant Apps | Stored, not run | ADR-264 |
 | Survey123 field app | Not measured (own XLSForm client, ADR-287) | ADR-287 |
-| Map Viewer: Arcade, form authoring, charts | Missing | No decision |
+| Map Viewer: Arcade, form authoring, charts | Missing | Forms and Arcade decided 2026-11-22 (ADR-313); charts no decision |
 | HA and multi-machine | Phases 0–1 | ADR-012, D-391 |
 | Backup and DR | Partly, restore is CLI-only | ADR-193 |
 | Monitoring | Logs, usage and health. No metrics endpoint found (not verified) | ADR-045, ADR-061, ADR-135 |
@@ -143,7 +143,9 @@ and after a live 12.2 server has been read (ADR-181 is amended then, not before)
 
 Asked after band 1 started which group comes first, the owner chose **all four** (2026-11-21):
 field work and editing, enterprise operations, apps, and analysis services. They are taken in that order,
-which is the order they were offered in, and **the order itself is `INFERRED`**, for confirmation.
+which is the order they were offered in, and ~~**the order itself is `INFERRED`**, for confirmation~~ **group 1 was started by the owner on 2026-11-22** (*"Başla"*, in answer to a summary that named field work and editing first); the order of groups 2 to 4 is still `INFERRED`.
+
+Group 1's open decisions were answered the same day, each with the recommended option: `extractChanges` on hosted layers that keep history, with the webhook's `changesUrl` made real (ADR-311, amending ADR-266); contingent values and field groups stored, served and authored in Studio, not enforced by `applyEdits`, as in ArcGIS (ADR-312); a form designer in Studio that writes `formInfo`, applied by Studio's own editor through a browser Arcade interpreter (ADR-313); and ADR-288 moved out of prototype, with the emulator used to measure D-401.
 Each item still names the record it is waiting on. Being chosen does not decide an item. Every item that
 reopens an ADR or a scope line gets its own ADR before any code is written.
 
@@ -157,7 +159,7 @@ reopens an ADR or a scope line gets its own ADR before any code is written.
 
 | Item | Size | Waiting on |
 |---|---|---|
-| Offline sync out of prototype (ADR-288, D-401, D-394) | L | ADR-288's own conditions |
+| Offline sync out of prototype (ADR-288, D-401, D-394) | L | ~~ADR-288's own conditions~~ **Done 2026-11-22:** all seven discharged, status `ACCEPTED`; D-401's race is next, measured on the emulator |
 | `extractChanges` on hosted and sync-enabled layers | M | A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it |
 | Contingent values and field groups on the server | M–L | A decision. grapy has them (ADR-235) |
 | Map Viewer form authoring and Arcade | L | A decision. This is the work Field Maps Designer does |
