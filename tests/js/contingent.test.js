@@ -199,11 +199,42 @@ test("a field the other fields leave empty is narrowed to the values any combina
   assert.deepEqual(cv.cvNarrow(makes, by747).map(o => o.code), ["BOE"]);
 });
 
-test("a value held now that is not allowed stays offered, labelled, so narrowing never changes it unasked", () => {
+test("a value held now that is not allowed stays offered; only the feature's own saved value is labelled (N2)", () => {
   const limits = cv.cvAllowance(planes, "model", { make: "AIR", model: 747 }, null, null);
-  const list = cv.cvNarrow(models, limits, [747]);
-  assert.deepEqual(list.map(o => [o.code, o.state]), [[747, "unlisted"], [320, "ok"]]);
-  assert.equal(cv.cvOptionLabel(list[0]), "747 (not listed)");
+  const typed = cv.cvNarrow(models, limits, [747]);
+  assert.deepEqual(typed.map(o => [o.code, o.state]), [[747, "kept"], [320, "ok"]]);
+  assert.equal(cv.cvOptionLabel(typed[0]), "747", "a value chosen in this edit says nothing about itself");
+  const saved = cv.cvNarrow(models, limits, [747], 747);
+  assert.deepEqual(saved.map(o => [o.code, o.state]), [[747, "saved"], [320, "ok"]]);
+  assert.equal(cv.cvOptionLabel(saved[0]), "747 (saved value)");
+});
+
+test("on the REST resource, which cannot say what is retired, an unchanged held combination is a note, not a warning (N1)", () => {
+  const rest = { ...planes, values: planes.values.filter(v => !v.retired), retiredKnown: false };
+  const held = { make: "BOE", model: 707 };
+  const said = cv.cvSentences(rest, held, null, held, look);
+  assert.equal(said.key, "", "no live lead when nothing changed");
+  assert.equal(said.note, "This feature already holds a combination the layer no longer offers for new edits.");
+  assert.equal(cv.cvWarning(said), "");
+  const changed = cv.cvSentences(rest, { make: "BOE", model: 999 }, null, held, look);
+  assert.equal(changed.key, "make_model", "a change is warned about as before");
+  const fresh = cv.cvSentences(rest, held, null, null, look);
+  assert.equal(fresh.key, "make_model", "a new feature is warned about as before");
+});
+
+test("on the stored shape, which knows what is retired, a held retired combination says nothing and is labelled retired (N1)", () => {
+  const held = { make: "BOE", model: 707 };
+  const said = cv.cvSentences(planes, held, null, held, look);
+  assert.equal(said.key, "");
+  assert.equal(said.note, "");
+  assert.equal(cv.cvFromStored({}).retiredKnown, true);
+  assert.equal(cv.cvFromRest({}).retiredKnown, false);
+});
+
+test("a narrowed list says why (N11)", () => {
+  const limits = cv.cvAllowance(planes, "make", { model: 737 }, null, null);
+  assert.equal(cv.cvNarrowedBecause(limits, { model: 737 }, look), "Showing values that go with Model 737. Clear Model to see all.");
+  assert.equal(cv.cvNarrowedBecause(cv.cvAllowance(planes, "make", {}, null, null), {}, look), "");
 });
 
 test("retired values are not offered for a new edit, and an existing feature's retired value stays, labelled", () => {
@@ -277,6 +308,11 @@ test("a typed number takes a decimal comma, and text that is not a number is ref
   assert.equal(cv.cvParseNumber("abc"), null);
   assert.equal(cv.cvParseNumber(""), null);
   assert.equal(cv.cvParseNumber("1,500,000"), null, "a thousands separator is ambiguous and refused");
+  assert.equal(cv.cvParseNumber("1,500"), null, "N3: one comma before three digits is ambiguous and refused");
+  assert.equal(cv.cvAmbiguousNumber("1,500"), true);
+  assert.equal(cv.cvAmbiguousNumber("10,5"), false);
+  assert.equal(cv.cvAmbiguousSaid("1,500"), "1,500 could mean 1500 or 1.5. Type 1500 or 1.5.");
+  assert.equal(cv.cvParseNumber("10,50"), 10.5, "two decimals are not ambiguous");
   assert.equal(cv.cvParseNumber(4), 4);
 });
 

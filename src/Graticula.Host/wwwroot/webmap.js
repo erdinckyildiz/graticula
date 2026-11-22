@@ -2970,6 +2970,28 @@ function wmSystemField(name, info) {
 }
 
 /**
+ * A field's value as a person reads it: a coded value's name from the field's domain — the subtype's own when the
+ * feature's subtype gives the field one — and otherwise the value itself. A feature was named "AIR" in its card, its
+ * pop-up and the table while its list said "Airbus" (ADR-312 design re-review 2026-11-23, N5).
+ */
+function wmCodedName(info, name, value, attributes = null) {
+  if (value === null || value === undefined || !info) return value;
+  const field = (info.fields || []).find(f => f.name && f.name.toLowerCase() === String(name).toLowerCase());
+  if (!field) return value;
+  let domain = field.domain;
+  const typeField = info.subtypeField || info.typeIdField;
+  const typeCode = typeField && attributes ? attributes[typeField] : null;
+  if (typeCode !== null && typeCode !== undefined) {
+    const kind = (info.types || []).find(t => String(t.id) === String(typeCode));
+    const own = kind && kind.domains && kind.domains[field.name];
+    if (own && own.type === "codedValue") domain = own;
+  }
+  if (!domain || domain.type !== "codedValue") return value;
+  const coded = (domain.codedValues || []).find(c => String(c.code) === String(value));
+  return coded ? coded.name : value;
+}
+
+/**
  * One feature's pop-up: the map's own for the layer when it has one — ADR-110, the Web Map's `popupInfo`, a title
  * written with `{field}` and the fields shown, in order, under their labels — otherwise every attribute, as before.
  */
@@ -2986,7 +3008,9 @@ function wmPopupMarkup(layer, attributes, info) {
   const types = new Map(((info && info.fields) || []).map(f => [f.name, f.type]));
   const value = name => {
     const v = (attributes || {})[name];
-    return v === null || v === undefined ? "—" : wmFormatValue(v, formats.get(name), types.get(name));
+    if (v === null || v === undefined) return "—";
+    const named = wmCodedName(info, name, v, attributes);
+    return named !== v ? String(named) : wmFormatValue(v, formats.get(name), types.get(name));
   };
   const title = popup.title ? String(popup.title).replace(/\{([^}]+)\}/g, (_, name) => value(name.trim())) : "";
   const rows = popup.fieldInfos.filter(f => f && f.visible !== false && f.fieldName)
@@ -3010,7 +3034,8 @@ function wmAttributeRows(attributes, info) {
   const aliases = new Map(((info && info.fields) || []).map(f => [f.name, f.alias || f.name]));
   const types = new Map(((info && info.fields) || []).map(f => [f.name, f.type]));
   return Object.keys(attributes || {}).filter(key => !wmSystemField(key, info)).map(key => `<tr><th scope="row">${wmEscape(aliases.get(key) || key)}</th>
-    <td>${wmEscape(attributes[key] === null ? "—" : wmFormatValue(attributes[key], null, types.get(key)))}</td></tr>`).join("");
+    <td>${wmEscape(attributes[key] === null ? "—" : wmCodedName(info, key, attributes[key], attributes) !== attributes[key]
+      ? String(wmCodedName(info, key, attributes[key], attributes)) : wmFormatValue(attributes[key], null, types.get(key)))}</td></tr>`).join("");
 }
 
 let wmIdentifyTurn = 0;
@@ -5201,7 +5226,7 @@ function wmFeatureTitle(held) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const attributes = held.feature.attributes || {};
   const shown = info.displayField && attributes[info.displayField];
-  if (shown !== null && shown !== undefined && shown !== "") return String(shown);
+  if (shown !== null && shown !== undefined && shown !== "") return String(wmCodedName(info, info.displayField, shown, attributes));
   const texts = new Set((info.fields || []).filter(f => f.type === "esriFieldTypeString").map(f => f.name));
   const first = Object.keys(attributes).find(k => texts.has(k) && !wmSystemField(k, info)
     && attributes[k] !== null && String(attributes[k]).trim() !== "");
@@ -5212,7 +5237,8 @@ function wmFeatureTitle(held) {
 function wmFeatureName(held) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const shown = info.displayField && (held.feature.attributes || {})[info.displayField];
-  return shown !== null && shown !== undefined && shown !== "" ? String(shown) : `feature ${held.oid}`;
+  return shown !== null && shown !== undefined && shown !== ""
+    ? String(wmCodedName(info, info.displayField, shown, held.feature.attributes)) : `feature ${held.oid}`;
 }
 
 /**
@@ -5240,6 +5266,22 @@ function wmLocalInput(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/**
+ * A typed number. A decimal comma is read as a point, as somebody who writes "90,5" means ninety and a half: the form's
+ * `<input type="number">` read it as 905, and the contingent-values check then warned about a size ten times too large
+ * (ADR-312 design re-review 2026-11-23, N4). One comma before exactly three digits — "1,500" — could be either, and is
+ * refused with a sentence rather than read one way. `{value}` (NaN when it is not a number) or `{ambiguous}`.
+ */
+function wmParseNumber(raw) {
+  const t = String(raw).trim();
+  if (/^[-+]?\d{1,3},\d{3}$/.test(t)) {
+    const decimal = t.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "");
+    return { ambiguous: `${t} could mean ${t.replace(",", "")} or ${decimal}. Type ${t.replace(",", "")} or ${decimal}.` };
+  }
+  if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(t)) return { value: NaN };
+  return { value: Number(t.replace(",", ".")) };
+}
+
 /** The whole-number limits ArcGIS's integer types hold. */
 const WM_INT_RANGE = { esriFieldTypeSmallInteger: [-32768, 32767], esriFieldTypeInteger: [-2147483648, 2147483647] };
 
@@ -5260,12 +5302,10 @@ function wmFieldControl(field, value, cell = null) {
   if (WM_NUMBER_TYPES.has(field.type)) {
     const whole = /Integer/.test(field.type);
     const range = domain.type === "range" && Array.isArray(domain.range) ? ` min="${domain.range[0]}" max="${domain.range[1]}"` : "";
-    // In a table cell a number is typed, as text: arrows move between rows and the wheel scrolls (design review).
-    return cell
-      ? `<input type="text" inputmode="${whole ? "numeric" : "decimal"}" ${common}${range}
-          value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`
-      : `<input type="number" ${common} step="${whole ? 1 : "any"}"${range}
-          value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
+    // A number is typed as text, in a cell and in the form: arrows move between rows and the wheel scrolls (design
+    // review), and a decimal comma reaches wmParseNumber instead of being dropped by the browser (N4).
+    return `<input type="text" inputmode="${whole ? "numeric" : "decimal"}" ${common}${range}
+        value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
   }
   if (field.type === "esriFieldTypeDate") {
     return `<input type="datetime-local" step="1" ${common} value="${wmEscape(wmLocalInput(value))}">`;
@@ -5331,9 +5371,11 @@ function wmReadControl(control, field, was) {
   }
   if (WM_NUMBER_TYPES.has(field.type) || ((field.domain || {}).type === "codedValue"
     && typeof ((field.domain.codedValues || [])[0] || {}).code === "number")) {
-    const value = Number(raw);
+    const parsed = wmParseNumber(raw);
+    if (parsed.ambiguous) return { problem: `${label}: ${parsed.ambiguous}` };
+    const value = parsed.value;
     const limits = WM_INT_RANGE[field.type];
-    if (!Number.isFinite(value)) return { problem: `${label} takes a number.` };
+    if (!Number.isFinite(value)) return { problem: `${label} takes a number, such as 10 or 10,5.` };
     if (/Integer/.test(field.type) && !Number.isInteger(value)) return { problem: `${label} takes a whole number.` };
     if (limits && (value < limits[0] || value > limits[1])) {
       return { problem: `${label} takes a whole number from ${limits[0].toLocaleString()} to ${limits[1].toLocaleString()}.` };
@@ -5856,7 +5898,8 @@ async function wmLoadTable() {
     const editable = new Set(wmTable.editing ? wmEditFields(info).map(f => f.name) : []);
     const named = feature => {
       const shown = info.displayField && (feature.attributes || {})[info.displayField];
-      return shown !== null && shown !== undefined && shown !== "" ? String(shown) : `feature ${(feature.attributes || {})[oid]}`;
+      return shown !== null && shown !== undefined && shown !== ""
+        ? String(wmCodedName(info, info.displayField, shown, feature.attributes)) : `feature ${(feature.attributes || {})[oid]}`;
     };
     wmTable.keepSaid = false;
     wm$("tableGrid").innerHTML = `<thead><tr>${shownFields.map(f =>
@@ -5869,7 +5912,8 @@ async function wmLoadTable() {
         if (editable.has(f.name)) {
           return `<td class="celledit${number ? " num" : ""}">${wmFieldControl(f, value, { row: i, label: `${f.alias || f.name} of ${named(feature)}` })}</td>`;
         }
-        const text = value === null || value === undefined ? "" : wmFormatValue(value, null, f.type);
+        const coded = wmCodedName(info, f.name, value, feature.attributes);
+        const text = value === null || value === undefined ? "" : coded !== value ? String(coded) : wmFormatValue(value, null, f.type);
         return `<td title="${wmEscape(text)}"${number ? ' class="num"' : ""}>${wmEscape(text)}</td>`;
       }).join("")}</tr>`).join("")}</tbody>`;
     wm$("tableEdit").hidden = !wmEditable(layer);

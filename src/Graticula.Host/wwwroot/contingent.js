@@ -68,7 +68,9 @@ function cvFromRest(resource, dicts) {
       }
     }
   }
-  return { groups, values };
+  // The resource does not serve retired values (ADR-312 §5.4), so a definition read from it cannot tell a retired
+  // combination from one never listed: `retiredKnown` says so to the check (design re-review 2026-11-23, N1).
+  return { groups, values, retiredKnown: false };
 }
 
 /**
@@ -90,7 +92,7 @@ function cvFromStored(stored) {
       ? { field, kind, min: (value || [])[0], max: (value || [])[1] }
       : kind === "CODED_VALUE" ? { field, kind, code: value } : { field, kind }),
   }));
-  return { groups, values };
+  return { groups, values, retiredKnown: true };
 }
 
 /**
@@ -184,8 +186,11 @@ function cvFits(value, group, attributes) {
  * @param {object} attributes the feature's values as they will be saved
  * @param {number|null} subtype the feature's subtype code, or null on a layer without subtypes
  * @param {object|null} [original] what the feature held before, or null for a new one
- * @returns {Array<{group: string, fields: string[], retired: boolean}>} one per broken group, empty when none;
- *   `retired` when the combination is one a retired value lists, so it is broken only because it is new or changed
+ * @returns {Array<{group: string, fields: string[], retired: boolean, held: boolean}>} one per broken group, empty when
+ *   none; `retired` when the combination is one a retired value lists, so it is broken only because it is new or changed;
+ *   `held` when the definition cannot say whether a value is retired (`retiredKnown === false`, the REST resource) and
+ *   the feature still holds what it held — a combination that may be retired, which the owner's decision of 2026-11-23
+ *   keeps without a warning (N1)
  */
 function cvViolations(definition, attributes, subtype, original = null) {
   const broken = [];
@@ -202,6 +207,7 @@ function cvViolations(definition, attributes, subtype, original = null) {
         group: group.name,
         fields: [...group.fields],
         retired: mine.some(v => v.retired && cvFits(v, group, attributes)),
+        held: unchanged && definition.retiredKnown === false,
       });
     }
   }
@@ -237,7 +243,7 @@ function cvAllowance(definition, field, attributes, subtype, original = null) {
     const live = mine.filter(v => !v.retired && fits(v));
     const kept = original ? mine.filter(v => v.retired && fits(v) && cvFits(v, group, original)) : [];
     if (!live.length && !kept.length) continue;
-    limits.push({ group: group.name, live: live.map(v => cvEntry(v, field)), kept: kept.map(v => cvEntry(v, field)) });
+    limits.push({ group: group.name, by: others, live: live.map(v => cvEntry(v, field)), kept: kept.map(v => cvEntry(v, field)) });
   }
   return limits.length ? limits : null;
 }
@@ -263,27 +269,46 @@ function cvAllows(limits, value) {
  *
  * @param {Array<{code, name}>} codedValues the domain's values
  * @param {Array|null} limits what {@link cvAllowance} returned
- * @param {Array} [keep] values that stay offered even when not allowed — the control's current value and the feature's
- *   stored one — so narrowing never changes what is held without the editor choosing it
- * @returns {Array<{code, name, state: "ok"|"retired"|"unlisted"}>}
+ * @param {Array} [keep] values that stay offered even when not allowed — the control's current value — so narrowing
+ *   never changes what is held without the editor choosing it
+ * @param {*} [saved] the value the feature held, which stays offered too and, when not allowed, is the one value
+ *   labelled — about the value, "(saved value)", since why it is not allowed is the warning's to say (re-review N2)
+ * @returns {Array<{code, name, state: "ok"|"retired"|"saved"|"kept"}>}
  */
-function cvNarrow(codedValues, limits, keep = []) {
+function cvNarrow(codedValues, limits, keep = [], saved = null) {
   const out = [];
+  const is = (c, v) => !cvIsNull(v) && cvMatches({ kind: "CODED_VALUE", code: c.code }, v);
   for (const c of codedValues || []) {
     const state = cvAllows(limits, c.code);
     if (state) out.push({ code: c.code, name: c.name, state });
-    else if (keep.some(k => !cvIsNull(k) && cvMatches({ kind: "CODED_VALUE", code: c.code }, k))) {
-      out.push({ code: c.code, name: c.name, state: "unlisted" });
-    }
+    else if (is(c, saved)) out.push({ code: c.code, name: c.name, state: "saved" });
+    else if (keep.some(k => is(c, k))) out.push({ code: c.code, name: c.name, state: "kept" });
   }
   return out;
 }
 
-/** How a narrowed list's entry is shown. */
+/** How a narrowed list's entry is shown: only a retired value and the feature's own saved value say anything. */
 function cvOptionLabel(option) {
   if (option.state === "retired") return `${option.name} (retired)`;
-  if (option.state === "unlisted") return `${option.name} (not listed)`;
+  if (option.state === "saved") return `${option.name} (saved value)`;
   return String(option.name);
+}
+
+/**
+ * Why a list is shorter than its domain, or "": "Showing values that go with Model 737. Clear Model to see all."
+ * (re-review N11).
+ *
+ * @param {Array|null} limits what {@link cvAllowance} returned
+ * @param {object} attributes the values now
+ * @param {object} [look] how the layer names fields and codes
+ */
+function cvNarrowedBecause(limits, attributes, look = CV_PLAIN_LOOK) {
+  if (!limits) return "";
+  const by = [];
+  for (const l of limits) for (const f of l.by || []) if (!by.some(x => cvSame(x, f))) by.push(f);
+  if (!by.length) return "";
+  const said = by.map(f => `${look.alias(f)} ${cvValueSaid(look, f, cvRead(attributes, f), true)}`);
+  return `Showing values that go with ${cvJoin(said)}. Clear ${cvJoin(by.map(f => look.alias(f)), "or")} to see all.`;
 }
 
 /** "A", "A and B", "A, B and C" — or with "or". */
@@ -349,11 +374,16 @@ function cvExplain(definition, broken, attributes, subtype, look) {
  * @param {number|null} subtype
  * @param {object|null} original what the feature held, or null for a new one
  * @param {object} [look] `{alias(field), coded(field), name(field, code)}`: how the layer names fields and codes
- * @returns {{key: string, broken: Array, fields: string[], lead: string, detail: string}} all empty when nothing is broken
+ * @returns {{key: string, broken: Array, fields: string[], lead: string, detail: string, note: string}} all empty when
+ *   nothing is broken; `note` says a combination the feature already held when retirement cannot be known
  */
 function cvSentences(definition, attributes, subtype, original = null, look = CV_PLAIN_LOOK) {
-  const broken = cvViolations(definition, attributes, subtype, original);
-  if (!broken.length) return { key: "", broken, fields: [], lead: "", detail: "" };
+  const all = cvViolations(definition, attributes, subtype, original);
+  const broken = all.filter(b => !b.held);
+  // A combination the feature already held, on a definition that cannot say whether it is retired, is said once in a
+  // line that is not live and is not called "not listed" (N1): it may be a retired value the owner's decision keeps.
+  const note = all.some(b => b.held) ? "This feature already holds a combination the layer no longer offers for new edits." : "";
+  if (!broken.length) return { key: "", broken, fields: [], lead: "", detail: "", note };
   const fields = [];
   for (const b of broken) for (const f of b.fields) if (!fields.some(x => cvSame(x, f))) fields.push(f);
   return {
@@ -362,6 +392,7 @@ function cvSentences(definition, attributes, subtype, original = null, look = CV
     fields,
     lead: `of ${cvJoin(fields.map(f => look.alias(f)))}`,
     detail: broken.map(b => cvExplain(definition, b, attributes, subtype, look)).join(" "),
+    note,
   };
 }
 
@@ -386,9 +417,26 @@ function cvWarning(said, saved = false) {
  */
 function cvParseNumber(text) {
   const t = String(text ?? "").trim();
+  if (cvAmbiguousNumber(t)) return null;
   if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(t)) return null;
   const n = Number(t.replace(",", "."));
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Whether typed text could be a thousands separator as well as a decimal comma — "1,500" — so it is refused with a
+ * sentence rather than read either way (re-review N3).
+ */
+function cvAmbiguousNumber(text) {
+  return /^[-+]?\d{1,3},\d{3}$/.test(String(text ?? "").trim());
+}
+
+/** The sentence an ambiguous number is refused with. */
+function cvAmbiguousSaid(text) {
+  const t = String(text).trim();
+  const thousands = t.replace(",", "");
+  const decimal = t.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "");
+  return `${t} could mean ${thousands} or ${decimal}. Type ${thousands} or ${decimal}.`;
 }
 
 /** Whether two values of one group list the same combination for the same subtype. */
@@ -437,7 +485,7 @@ function cvRenameRefusal(message, names, alias = f => f) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     cvFromRest, cvFromStored, cvToStored, cvMatches, cvViolations, cvAllowance, cvAllows, cvNarrow, cvOptionLabel,
-    cvJoin, cvSentences, cvWarning, cvExplain, cvParseNumber, cvSameCombination, cvDuplicates, cvRenameRefusal,
+    cvJoin, cvSentences, cvWarning, cvExplain, cvParseNumber, cvAmbiguousNumber, cvAmbiguousSaid, cvNarrowedBecause, cvSameCombination, cvDuplicates, cvRenameRefusal,
     CV_KINDS, CV_TYPE_CODES,
   };
 }
