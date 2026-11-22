@@ -165,6 +165,12 @@ rewritten behind the owner's back.
   is not served** — REST has no key for retirement and a retired value is one a client must not offer.
 - `f=pbf`, `compactFormat=false` and `domainDictionaries` other than `none` are **refused by name** with a 400 (D-474),
   rather than answered as JSON that a protobuf or a decoded reader would misread.
+- **The FeatureServer document says `supportedContingentValuesFormats: "JSON"`** when one of its layers or tables serves a
+  definition, and says nothing otherwise (*added 2026-11-23*). The reference's *Query Contingent Values* page names this
+  service-level property with the example `"JSON, PBF"`
+  ([Query Contingent Values](https://developers.arcgis.com/rest/services-reference/enterprise/query-contingent-values-feature-service/)).
+  Without it, ArcGIS Field Maps on a device asked `FeatureServer/0/contingentValues?f=pbf`, was refused (D-474), and offered
+  every value; saying the one format answered is what the property is for. Protobuf is still not answered: no public schema.
 
 ### 5.5 What writes it
 
@@ -195,10 +201,32 @@ the server's refusal is said in a polite live region. A re-render puts focus bac
 The page says, in words: *contingent values guide editors in Field Maps, Pro and Studio; the server does not refuse an
 edit that breaks them.*
 
-**Editing warns.** The Map Viewer's attribute form and its attribute table read the layer's `contingentValues` resource
-when its document says `hasContingentValuesDefinition`, and check every restrictive group of the feature being saved. A
-combination no value allows is **said in an `aria-live` region as it is typed and again when saved, and the save goes
-through**. The check follows grapy's rule (ADR-235 §5.8 h): a restrictive group with no values for the feature's subtype
+**Editing narrows the lists, and warns.** The Map Viewer's attribute form and its attribute table read the layer's
+`contingentValues` resource when its document says `hasContingentValuesDefinition`, and check every restrictive group of
+the feature being saved. A combination no value allows is **said in an `aria-live` region as it is typed and again when
+saved, and the save goes through**.
+
+*Amended 2026-11-23 by owner decision, answered in a question dialog after the design review of 2026-11-22 rejected the
+screens:* ***"Listeyi daralt, yine uyar"*** *— narrow the list, and still warn.* Each coded-value drop-down in the form
+and in the table's cells (which are drop-downs for a coded field) is **narrowed to the values the restrictive field groups
+allow, given the other fields' current values**, the way ArcGIS Pro's Attribute pane narrows it. A field the other fields
+leave empty is not narrowed by them, so an empty form offers the values some combination lists. Then:
+
+- a value **typed or already stored** that is not allowed is **still warned about and still saved** — the drop-down keeps
+  the value the control holds and the value the feature held, labelled *(not listed)*, so narrowing never changes a value
+  the editor did not choose;
+- **the server still does not refuse** (§5.7);
+- **retired values are not offered for a new edit**, and an existing feature's retired value stays selectable, labelled
+  *(retired)* — where the definition says it is retired. The `contingentValues` resource does not carry retirement
+  (§5.4), so in the Map Viewer an existing feature's retired value is kept and labelled *(not listed)* (D-480).
+- **INFERRED:** a group whose other fields already hold a combination no value lists does not narrow the field — the
+  warning says the combination is not listed, and a list narrowed to nothing would leave no way out but the other field.
+
+The warning names fields by alias and codes by their names, says what the first field's value allows (*"Boeing allows
+Model 737 or 747. You can still save."*), never names the field group, and says a retired combination is retired. Its
+live part changes only when the set of broken groups changes; what is allowed is said beside it, not live, and the
+controls of a broken group are described by it. In the table, the cells of such a row are marked and the save's status
+names the rows as the table shows them. The check follows grapy's rule (ADR-235 §5.8 h): a restrictive group with no values for the feature's subtype
 does not restrict, a feature whose group fields are all null is not restricted, and a retired value — which the resource
 does not carry — is therefore warned about. The check is one pure function (`contingent.js`) that the editor and Node's
 test runner both load, and the Map Viewer's glue is its own file (`contingent-editor.js`).
@@ -229,6 +257,9 @@ test runner both load, and the Map Viewer's glue is its own file (`contingent-ed
 10. Example five's group fields are read from the group or from its `contingentValues` (§5.5).
 11. A field need not have a domain, and a group may have one field (§5.3).
 12. Studio's warning follows grapy's unrestricted cases (§5.6).
+13. A group whose other fields hold a combination no value lists does not narrow a field's list (§5.6, 2026-11-23).
+14. A field another field leaves empty is not narrowed by that field (§5.6, 2026-11-23): an empty field has chosen
+    nothing to narrow by. Not read from Esri's documentation; Pro's behaviour was not measured here.
 
 ## 6. Consequences
 
@@ -267,7 +298,8 @@ makes. The Map Viewer keeps a layer's fetched definition for the life of the pag
   not allow, or refuses ones it does: §5.4's encoding is then measured against what the client expects.
 - Esri publishes the encoding of a text code, a range, `NULL`, or the mobile geodatabase's `ContingentValues` blob: §5.9
   and D-472 are revised.
-- A client asks for `f=pbf` (D-474) or sends `deleteFromDefinition` with contingent values (D-475).
+- A client asks for `f=pbf` (D-474) or sends `deleteFromDefinition` with contingent values (D-475). *Field Maps asked
+  for `f=pbf` on 2026-11-23; the service document now says JSON (§5.4), and D-474 records it.*
 - The owner wants the server to refuse an invalid combination: Alternative B is reopened.
 
 ## 10. Dissent
@@ -302,6 +334,8 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
    `model = 999` said the combination in `#editCv` (`aria-live="polite"`), Save went through, and the status line said
    *Saved anyway*; in the attribute table, `model = 12345` saved and `#tableStatus` (`aria-live="polite"`) said
    *1 row saved. Saved anyway — …* naming the row. Open: neither screen, nor Studio's authoring section, has had its
-   design review.
+   design review. *2026-11-23:* the design review of 2026-11-22 **rejected** the three screens (twelve findings); each
+   was repaired on branch `b2-fix-cv` and the lists now narrow (§5.6, owner decision 2026-11-23). Still open until the
+   re-review passes.
 7. **The offline replica carries the definition** (D-472). Open: the blob's encoding is not public.
 8. **Pro's publish carries the definition** (D-473). Open: the file geodatabase's storage is not public.
