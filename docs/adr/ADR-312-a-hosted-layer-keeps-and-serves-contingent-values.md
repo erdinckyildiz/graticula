@@ -213,12 +213,18 @@ allow, given the other fields' current values**, the way ArcGIS Pro's Attribute 
 leave empty is not narrowed by them, so an empty form offers the values some combination lists. Then:
 
 - a value **typed or already stored** that is not allowed is **still warned about and still saved** — the drop-down keeps
-  the value the control holds and the value the feature held, labelled *(not listed)*, so narrowing never changes a value
-  the editor did not choose;
+  the value the control holds and the value the feature held, so narrowing never changes a value the editor did not
+  choose. Only the feature's own value is labelled, and about itself: *(saved value)*; why it is not allowed is the
+  warning's to say. In the table's cells no option carries a label — the cell's mark does (design re-review N2);
 - **the server still does not refuse** (§5.7);
 - **retired values are not offered for a new edit**, and an existing feature's retired value stays selectable, labelled
-  *(retired)* — where the definition says it is retired. The `contingentValues` resource does not carry retirement
-  (§5.4), so in the Map Viewer an existing feature's retired value is kept and labelled *(not listed)* (D-480).
+  *(retired)*, and is **not warned about** while the feature still holds it. The `contingentValues` resource does not
+  carry retirement (§5.4), so the Map Viewer of a signed-in reader who may read the layer's stored definition
+  (`GET /admin/layers/{name}/contingent-values`, publishing privilege and the layer readable) reads that instead, which
+  has `retired`. Any other reader has only the resource, which cannot tell a retired combination from one never
+  listed: there a combination the feature already holds and still holds is said in one line that is not live —
+  *"This feature already holds a combination the layer no longer offers for new edits."* — its value is labelled
+  *(saved value)*, and a change is warned about as before (re-review N1, D-480).
 - **INFERRED:** a group whose other fields already hold a combination no value lists does not narrow the field — the
   warning says the combination is not listed, and a list narrowed to nothing would leave no way out but the other field.
 
@@ -335,7 +341,11 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
    *Saved anyway*; in the attribute table, `model = 12345` saved and `#tableStatus` (`aria-live="polite"`) said
    *1 row saved. Saved anyway — …* naming the row. Open: neither screen, nor Studio's authoring section, has had its
    design review. *2026-11-23:* the design review of 2026-11-22 **rejected** the three screens (twelve findings); each
-   was repaired on branch `b2-fix-cv` and the lists now narrow (§5.6, owner decision 2026-11-23). Still open until the
-   re-review passes.
+   was repaired on branch `b2-fix-cv` and the lists now narrow (§5.6, owner decision 2026-11-23). *2026-11-23, later:*
+   the **second design review ran** on the rebuilt fixture and verdicted **accept with fixes** — eleven of the twelve
+   findings fixed, one partly — and listed twelve more (N1–N12: chiefly a held retired combination warned about as the
+   form opened, kept options all labelled *not listed*, `1,500` read as 1.5, and the Map Viewer's `<input type=number>`
+   reading `90,5` as 905). Each was repaired on `b2-fix-cv` and driven in headless Chrome at 1440, 768 and 390;
+   `node --test tests/js/contingent.test.js` 28 pass. Still open until the lead confirms the N1–N12 repairs.
 7. **The offline replica carries the definition** (D-472). Open: the blob's encoding is not public.
 8. **Pro's publish carries the definition** (D-473). Open: the file geodatabase's storage is not public.
