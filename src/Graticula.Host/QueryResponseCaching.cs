@@ -390,6 +390,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.HasViews)] = "whether others read this layer's rows, which changes none of them",
             [nameof(PublishedLayer.ViewLayers)] = "which tiles an edit empties, not what a query answers",
             [nameof(PublishedLayer.EditOwnOnly)] = "who may change a row, not what a query answers (ADR-115)",
+            [nameof(PublishedLayer.ServiceChangeTracking)] = "the documents' ChangeTracking capability and changeTrackingInfo, never in a query's answer (ADR-311)",
             [nameof(PublishedLayer.ContingentValues)] = "the layer document's flag and its contingentValues resource, never in a query's answer (ADR-312)",
             [nameof(PublishedLayer.AttachmentsIn)] = "where attachments are kept, which no query answer carries (ADR-207)",
             [nameof(PublishedLayer.KeepsAttachments)] = "derived from AttachmentsIn and the definition (ADR-207)",
