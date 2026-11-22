@@ -239,7 +239,7 @@ None recorded.
    expression. **DISCHARGED 2026-11-22**: `tests/studio-js/form-info.test.js` (16 tests) on the specification's
    tree-inspection example.
 5. **ArcGIS Field Maps opens a map whose form Studio wrote**, draws its fields, groups, text and input types, and
-   honours its expressions. Open: it needs the Android emulator, which nobody drives in this session.
+   honours its expressions. ~~Open: it needs the Android emulator, which nobody drives in this session.~~ **DISCHARGED 2026-11-22**, on dev.graticula.com (branch b2-merge) with Field Maps 26.2.2 on the Android emulator: a `formInfo` in the designer's shape (`expr/<n>`, `expr/system/true|false`), saved through Studio's `PUT /content/webmaps/{id}`, was drawn by *Collect* with its title, its markdown text element, its group (marked required because it holds a required field), the field's label, hint and `maxLength` (*Maximum 200 characters*); the field whose `visibilityExpression` was `$feature.note == 'show'` stayed hidden until *show* was typed, then appeared read-only (`editableExpression` false) with its `valueExpression` `Count($feature.note) * 10` evaluated to 40, and the submitted feature arrived on the server with `note = show`, `size = 40`. Not seen on the device: attachment and relationship elements, and input types other than a text box.
 6. **The designer and the editor's form are reviewed at phone width** for focus kept across a redraw and live
    statuses, by the design review every Studio screen passes. **PARTLY DISCHARGED 2026-11-22**: `WebMapFormTests` (Console,
    two tests, against the local fixture) checks that focus stays on the control across a mode change, a redraw of the
