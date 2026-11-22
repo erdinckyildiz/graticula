@@ -115,7 +115,7 @@ Refused by name, not ignored: `classificationBin`, `stackBy`, `splitBy`, `transf
 statistics, and any parameter not listed. One answer holds at most 10,000 bins, empty ones included. The layer document says
 `queryBinsCapabilities` with a flag per thing done and false per thing refused, on PostGIS layers only.
 
-**INFERRED, for confirmation** (the public reference does not settle them):
+**INFERRED, for confirmation** (the public reference does not settle them): **Confirmed by the owner 2026-11-22, all as written** (*"Hepsi yazıldığı gibi"*), together with the release as v1.0.528.
 
 - **I-1.** `gdbVersion`'s default names: `sde.DEFAULT` and `DEFAULT`, case-insensitive. The reference gives `SDE.DEFAULT` as its example.
 - **I-2.** Refusing a non-default `gdbVersion` on a layer whose `isDataVersioned` is false, where ArcGIS ignores it (§3).

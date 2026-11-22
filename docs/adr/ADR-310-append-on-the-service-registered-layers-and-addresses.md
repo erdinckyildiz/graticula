@@ -215,7 +215,7 @@ address does not report the rows it dropped ([D-466](../architecture-debt.md)); 
 
 ## 7. Assumptions this decision rests on
 
-`INFERRED`, listed for the owner to confirm:
+`INFERRED`, listed for the owner to confirm: **Confirmed by the owner 2026-11-22, all as written** (*"Hepsi yazıldığı gibi"*), together with the release as v1.0.528.
 
 1. The service-level answer is the finished job with status `Completed`, not `processing` and a status address (§5.1).
 2. `sourceTableName` is not checked, and several layers need `layerMappings` (§5.4).
