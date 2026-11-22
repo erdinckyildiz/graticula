@@ -201,7 +201,7 @@ combination no value allows is **said in an `aria-live` region as it is typed an
 through**. The check follows grapy's rule (ADR-235 §5.8 h): a restrictive group with no values for the feature's subtype
 does not restrict, a feature whose group fields are all null is not restricted, and a retired value — which the resource
 does not carry — is therefore warned about. The check is one pure function (`contingent.js`) that the editor and Node's
-test runner both load.
+test runner both load, and the Map Viewer's glue is its own file (`contingent-editor.js`).
 
 ### 5.7 `applyEdits`
 
@@ -278,16 +278,29 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
 
 1. **The layer flag and the `contingentValues` resource are served in §5.4's shape**, with `fieldGroupSubset` and
    `idSubset`, and `queryContingentValues` with `layers`, checked by conformance tests against a running server.
+   **DISCHARGED 2026-11-22**: `ContingentValuesTests.A_definition_is_kept_served_filtered_and_never_refuses_an_edit` and
+   `…A_layer_with_subtypes_serves_its_values_under_each_subtype` (tests/Graticula.Conformance.Tests) against the local
+   fixture, and the encoding by `ContingentValuesAreKeptAsGrapyKeepsThemTests` (tests/Graticula.Host.Tests).
 2. **`applyEdits` accepts a combination no contingent value allows**, checked by a conformance test that writes one and
-   reads it back.
+   reads it back. **DISCHARGED 2026-11-22**: the same conformance test adds `model = 999` against a restrictive group
+   through `applyEdits`, is answered `success`, and queries it back.
 3. **Studio's `PUT /admin/layers/{name}/contingent-values` stores what §5.3 allows and refuses the rest by name**, and a
-   registered layer is refused, checked by tests.
+   registered layer is refused, checked by tests. **DISCHARGED 2026-11-22**: the conformance tests store, refuse an
+   unknown field, a code outside the domain, `NULL` on a non-null field, the subtype column and a value with no subtype
+   on a subtyped layer, each by name; `ContingentValuesAreKeptAsGrapyKeepsThemTests` covers the rest of §5.3 and
+   `Only_a_hosted_layer_that_is_not_a_view_is_written` the registered and view refusals.
 4. **`addToDefinition` with a `contingentValuesDefinition` adds groups and values and answers
-   `addedContingentValueIds`**, checked by a test against a running server.
+   `addedContingentValueIds`**, checked by a test against a running server. **DISCHARGED 2026-11-22**: the conformance
+   test adds a group in example five's shape and a value in example six's (a text code through `stringDicts`), reads
+   `addedContingentValueIds` `[5]`, finds both in the resource, and is refused a group that already exists.
 5. **A real ArcGIS client reads a definition from this server and offers only the allowed combinations** — Field Maps on a
    device, or the Maps SDK for JavaScript's Editor. Open: needs a device or a browser session with the SDK, which this
    work did not drive.
 6. **Studio's attribute form and table warn in an `aria-live` region and still save**, with the check tested headless in
-   Node and the screens reviewed.
+   Node and the screens reviewed. **PARTLY DISCHARGED 2026-11-22**: `node --test tests/js/contingent.test.js` (8 pass)
+   checks the decoding and the check; the attribute form was driven in headless Chrome on the fixture — typing
+   `model = 999` said the combination in `#editCv` (`aria-live="polite"`), Save went through, and the status line said
+   *Saved anyway*. Open: the attribute table's path was not driven in a browser, and neither screen has had its design
+   review.
 7. **The offline replica carries the definition** (D-472). Open: the blob's encoding is not public.
 8. **Pro's publish carries the definition** (D-473). Open: the file geodatabase's storage is not public.
