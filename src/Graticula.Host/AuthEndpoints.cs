@@ -156,6 +156,42 @@ internal static partial class AuthEndpoints
             password = context.Request.Query["password"].ToString();
         }
 
+        (bool bindable, string? bound, string? unbindable) = (true, null, null);
+
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrEmpty(password)
+            && await Graticula.Host.Pki.PkiEndpoints.TokenPrincipalAsync(context, cancellation).ConfigureAwait(false)
+                is { } byCertificate
+            && (byCertificate.Principal is not null || byCertificate.Refusal is not null))
+        {
+            // <b>ADR-315 §5.7: no name and no password, and a certificate the organisation's PKI provider maps.</b>
+            if (byCertificate.Principal is not { } holder)
+            {
+                await EsriTokenError(context, byCertificate.Status, byCertificate.Refusal!).ConfigureAwait(false);
+                return;
+            }
+
+            (bindable, bound, unbindable) = await RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
+
+            if (!bindable)
+            {
+                await EsriTokenError(context, StatusCodes.Status400BadRequest, unbindable!).ConfigureAwait(false);
+                return;
+            }
+
+            (string issued, AuthenticatedSession held) = await login.IssueAsync(
+                holder, RemoteAddress(context), cancellation,
+                await RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
+                bound, SessionScopes.ArcGis).ConfigureAwait(false);
+
+            await Results.Json(new
+            {
+                token = issued,
+                expires = held.ExpiresAt.ToUnixTimeMilliseconds(),
+                ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password))
         {
             await EsriTokenError(
@@ -167,7 +203,7 @@ internal static partial class AuthEndpoints
             return;
         }
 
-        (bool bindable, string? bound, string? unbindable) =
+        (bindable, bound, unbindable) =
             await RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
 
         if (!bindable)

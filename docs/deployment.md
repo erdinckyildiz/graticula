@@ -776,3 +776,67 @@ answer 503 with the reason and the service document keeps answering; in a batch,
 address's unmatched row, and only a Photon that answers none of the first ones fails the batch. The service names its data's source
 in `copyrightText` — *© OpenStreetMap contributors*, which OpenStreetMap's licence asks for wherever its data is shown.
 House numbers are only as complete as OpenStreetMap's; places, streets and districts are good.
+
+## 6. Signing in with a certificate (PKI)
+
+**Optional, and off unless you turn it on** ([ADR-315](adr/ADR-315-a-member-signs-in-with-a-client-certificate.md)).
+With it, people sign in with a smart card or a certificate installed in their browser, as ArcGIS Enterprise's PKI
+does. Two things are set: **the transport**, here, which says how a certificate reaches the server and which
+certificate authorities it believes; and **a sign-in provider**, in **Server › Sign-in**, which says which field of the
+certificate names the account and what a first sign-in gets.
+
+| Setting | Default | |
+|---|---|---|
+| `Graticula__ClientCertificates__Mode` | `Off` | `Allow`: the server asks every connection for a certificate, and one without still connects. `Require`: a connection without a certificate the authorities vouch for is refused at the handshake. Needs the server to end TLS itself (`RequireHttps` true) |
+| `Graticula__ClientCertificates__Authorities` | unset | A PEM file of the certificate authorities — roots and intermediates — a client certificate must chain to. The machine's own trust store is **not** used. Read at start: adding a CA is a restart (D-486) |
+| `Graticula__ClientCertificates__Header` | unset | Behind a proxy that ends TLS: the header the proxy forwards the certificate in. Read **only** from an address in `Graticula__TrustedProxies` |
+| `Graticula__ClientCertificates__Revocation` | `SoftFail` | `SoftFail`: a revoked certificate is refused, one whose CRL or OCSP cannot be reached is accepted and logged — the default because an air-gapped site cannot reach either (ADR-014 §7). `HardFail` refuses that one too. `Off` checks nothing |
+
+A setting that cannot work stops the server at start with the key named: a mode or a header without readable
+authorities; a header with `TrustedProxies` empty; a mode with `RequireHttps=false`.
+
+Then, in **Server › Sign-in**, *Add a provider*, *Their certificate*. Choose what names the account: the common name
+(CN, the default, as ArcGIS's *Subject*), the e-mail address in the certificate, or the user principal name a CAC or PIV
+card carries. An account made at a first sign-in is named by its part before an `@`, with spaces as dots. The provider
+appears on every sign-in page — the console's and Studio's, `/rest/login`, and the OAuth page ArcGIS Pro and the API for
+Python open — only while the server is set up to receive certificates. A script asks `/rest/generateToken` with its
+certificate and no name or password, and gets a token.
+
+**Through the server's own TLS.** `Mode=Allow` and `Authorities`. Browsers that hold a certificate show their picker on
+the first page they open; that is what asking at the handshake costs, and it keeps TLS 1.3 and HTTP/2.
+
+**Behind Caddy.** Caddy checks the certificate and forwards it; the server checks it again against the same
+authorities. Caddy's `header_up` **replaces** a header the client sent, which is what makes this safe: a certificate is
+public, and a proxy that passed a client's own `X-Client-Cert` through would let anybody holding a copy of a member's
+certificate sign in as them.
+
+```caddyfile
+gis.example.com {
+	tls {
+		client_auth {
+			mode verify_if_given          # or require_and_verify, to admit nobody without a card
+			trust_pool file /etc/caddy/client-authorities.pem
+		}
+	}
+	reverse_proxy graticula:8080 {
+		header_up X-Client-Cert {http.request.tls.client.certificate_der_base64}
+	}
+}
+```
+
+```sh
+Graticula__RequireHttps=false                               # Caddy ends TLS
+Graticula__TrustedProxies=172.18.0.0/16                     # where Caddy connects from
+Graticula__ClientCertificates__Header=X-Client-Cert
+Graticula__ClientCertificates__Authorities=/etc/graticula/client-authorities.pem
+```
+
+The header may hold the certificate as base64 DER (Caddy, IIS ARR), PEM, or URL-encoded PEM (nginx's
+`$ssl_client_escaped_cert`). A header from any address not in `TrustedProxies` is ignored, and the log says so.
+
+**What was measured.** Both ways in, against real server processes with certificates made in the test
+(`ACertificateSignsAMemberInTests`): a member signed in and made through the server's TLS and through a trusted proxy's
+header; the same header from an untrusted address refused; another authority's, an expired and a server-only
+certificate refused; each of the three fields; a revoked certificate refused, an unreachable CRL accepted under
+`SoftFail` and refused under `HardFail`; `Require` refusing a handshake without a vouched certificate; and
+`generateToken` with a certificate, and with a password on a server that asks for certificates.

@@ -121,10 +121,12 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
     /// <returns>The node.</returns>
     /// <param name="build">The folder of the build to run, when it is not the site's (phase 4).</param>
     /// <param name="port">The port, when it must be one a node had before — a node restarted behind a proxy.</param>
+    /// <param name="clientCertificate">A certificate the node's client presents, for a node that requires one (ADR-315).</param>
     public async Task<Node> StartAsync(
-        string name, IReadOnlyDictionary<string, string>? extra = null, string? build = null, int? port = null)
+        string name, IReadOnlyDictionary<string, string>? extra = null, string? build = null, int? port = null,
+        System.Security.Cryptography.X509Certificates.X509Certificate2? clientCertificate = null)
     {
-        Node node = Launch(name, extra, build, port);
+        Node node = Launch(name, extra, build, port, clientCertificate);
         _nodes.Add(node);
 
         await node.WaitLiveAsync(TimeSpan.FromSeconds(90));
@@ -153,7 +155,9 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
         return (exited ? node.ExitCode : null, node.Log);
     }
 
-    private Node Launch(string name, IReadOnlyDictionary<string, string>? extra, string? build = null, int? fixedPort = null)
+    private Node Launch(
+        string name, IReadOnlyDictionary<string, string>? extra, string? build = null, int? fixedPort = null,
+        System.Security.Cryptography.X509Certificates.X509Certificate2? clientCertificate = null)
     {
         int port = fixedPort ?? FreePort();
         string state = Path.Combine(Path.GetTempPath(), Schema, name);
@@ -178,7 +182,7 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
             settings[key] = value;
         }
 
-        return new Node(name, port, Start([], settings, build ?? _build));
+        return new Node(name, port, Start([], settings, build ?? _build), clientCertificate);
     }
 
     private static Process Start(IReadOnlyList<string> arguments, IReadOnlyDictionary<string, string> settings, string? build = null)
@@ -264,7 +268,9 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
         private readonly Process _process;
         private readonly StringBuilder _log = new();
 
-        internal Node(string name, int port, Process process)
+        internal Node(
+            string name, int port, Process process,
+            System.Security.Cryptography.X509Certificates.X509Certificate2? clientCertificate = null)
         {
             Name = name;
             Port = port;
@@ -280,6 +286,13 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
                 ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
             };
 #pragma warning restore CA5400, CA2000
+
+            if (clientCertificate is not null)
+            {
+                handler.ClientCertificateOptions = ClientCertificateOption.Manual;
+                handler.ClientCertificates.Add(clientCertificate);
+            }
+
             Http = new HttpClient(handler) { BaseAddress = new Uri($"https://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(30) };
         }
 

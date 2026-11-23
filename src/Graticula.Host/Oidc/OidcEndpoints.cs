@@ -53,7 +53,35 @@ internal static class OidcEndpoints
 
     /// <summary>Where a sign-in through a provider with a button starts — ADR-088, ADR-090.</summary>
     internal static string StartPath(IdentityProvider provider) =>
-        provider.Settings.Kind == "saml" ? $"/rest/auth/saml/{provider.Id}/start" : $"/rest/auth/oidc/{provider.Id}/start";
+        provider.Settings.Kind switch
+        {
+            "saml" => $"/rest/auth/saml/{provider.Id}/start",
+            "pki" => $"/rest/auth/pki/{provider.Id}/start",
+            "iwa" => $"/rest/auth/iwa/{provider.Id}/start",
+            _ => $"/rest/auth/oidc/{provider.Id}/start",
+        };
+
+    /// <summary>
+    /// Whether a provider is a button on a sign-in page — ADR-088, ADR-090, and ADR-315's certificate only when this
+    /// server is configured to receive one, so no button is drawn that cannot work.
+    /// </summary>
+    /// <param name="context">The request, for what this server is configured with.</param>
+    /// <param name="provider">The provider.</param>
+    internal static bool IsButton(HttpContext context, IdentityProvider provider)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(provider);
+
+        return provider.Settings switch
+        {
+            { Enabled: false } => false,
+            { Kind: "oidc" or "saml" } => true,
+            { Kind: "pki" } => context.RequestServices.GetService(typeof(Graticula.Host.Pki.ClientCertificates))
+                is Graticula.Host.Pki.ClientCertificates { Settings.Enabled: true },
+
+            _ => false,
+        };
+    }
 
     /// <summary>Where a provider sends a person back to, for the operator to register with it.</summary>
     /// <param name="context">A request to this server.</param>
@@ -70,7 +98,8 @@ internal static class OidcEndpoints
         {
             // ADR-089: a directory is signed in to with the password form, not a button.
             // ADR-090: a SAML provider is a button as an OpenID Connect one is, and starts at its own route.
-            providers = all.Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })
+            // ADR-315, ADR-316: a certificate and Windows are buttons too, when this server can receive them.
+            providers = all.Where(p => IsButton(context, p))
                 .Select(p => new { id = p.Id, name = p.Settings.Name, start = StartPath(p) })
                 .ToArray(),
 
@@ -250,6 +279,8 @@ internal static class OidcEndpoints
     /// <param name="cancellation">Cancellation.</param>
     /// <param name="oauth">An app's sealed request, when the sign-in was started from the OAuth sign-in page: then
     /// the app gets a code instead of the browser getting a session — ADR-088 condition 2.</param>
+    /// <param name="accountName">The name a new account is made with, when it is not the username's part before an @
+    /// — ADR-315 §5.4.</param>
     internal static async Task FinishAsync(
         HttpContext context,
         IIdentityProviderStore store,
@@ -262,7 +293,8 @@ internal static class OidcEndpoints
         IReadOnlyCollection<string> groups,
         string returnTo,
         CancellationToken cancellation,
-        string? oauth = null)
+        string? oauth = null,
+        string? accountName = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(store);
@@ -270,20 +302,8 @@ internal static class OidcEndpoints
         ArgumentNullException.ThrowIfNull(provider);
 
         string name = provider.Settings.Name;
-        Principal? principal = await store.FindPrincipalAsync(provider.Id, subject, username, cancellation).ConfigureAwait(false);
-
-        if (principal is null && provider.Settings.AutoCreate)
-        {
-            principal = await store.CreateMemberAsync(
-                provider.Id, subject, username, AccountName(username), displayName,
-                provider.Settings.DefaultRole, provider.Settings.DefaultUserType, cancellation).ConfigureAwait(false)
-                ?? await store.FindPrincipalAsync(provider.Id, subject, username, cancellation).ConfigureAwait(false);
-
-            if (principal is not null)
-            {
-                Log.OidcAccountMade(log, principal.Name, username, name);
-            }
-        }
+        Principal? principal = await FindOrMakeAsync(store, log, provider, subject, username, displayName, cancellation, accountName)
+            .ConfigureAwait(false);
 
         if (principal is null)
         {
@@ -323,6 +343,50 @@ internal static class OidcEndpoints
 
         AuthEndpoints.SetSessionCookie(context, token, session.ExpiresAt);
         context.Response.Redirect(returnTo);
+    }
+
+    /// <summary>
+    /// The account a provider's subject signs in to, made now when the provider allows it — the account rules every
+    /// provider shares (ADR-088), and ADR-315's certificate and ADR-316's Windows token door through them too.
+    /// </summary>
+    /// <param name="store">The providers.</param>
+    /// <param name="log">Where an account made is said.</param>
+    /// <param name="provider">The provider that vouched.</param>
+    /// <param name="subject">What it never reuses for another person.</param>
+    /// <param name="username">The name it gives them.</param>
+    /// <param name="displayName">A name to show, or null.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <param name="accountName">The name a new account is made with; the username's part before an @ when null.</param>
+    /// <returns>The account, or null when there is none and none may be made.</returns>
+    internal static async Task<Principal?> FindOrMakeAsync(
+        IIdentityProviderStore store,
+        ILogger log,
+        IdentityProvider provider,
+        string subject,
+        string username,
+        string? displayName,
+        CancellationToken cancellation,
+        string? accountName = null)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(provider);
+
+        Principal? principal = await store.FindPrincipalAsync(provider.Id, subject, username, cancellation).ConfigureAwait(false);
+
+        if (principal is null && provider.Settings.AutoCreate)
+        {
+            principal = await store.CreateMemberAsync(
+                provider.Id, subject, username, accountName ?? AccountName(username), displayName,
+                provider.Settings.DefaultRole, provider.Settings.DefaultUserType, cancellation).ConfigureAwait(false)
+                ?? await store.FindPrincipalAsync(provider.Id, subject, username, cancellation).ConfigureAwait(false);
+
+            if (principal is not null)
+            {
+                Log.OidcAccountMade(log, principal.Name, username, provider.Settings.Name);
+            }
+        }
+
+        return principal;
     }
 
     /// <summary>What a sign-in carries from its start to its callback, sealed in <see cref="StateCookie"/>.</summary>

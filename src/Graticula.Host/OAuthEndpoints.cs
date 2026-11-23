@@ -921,7 +921,7 @@ internal static class OAuthEndpoints
             ? "the app on this device"
             : request.RedirectUri;
 
-        List<IdentityProvider> buttons = [.. offered.Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })];
+        List<IdentityProvider> buttons = [.. offered.Where(p => Graticula.Host.Oidc.OidcEndpoints.IsButton(context, p))];
         List<string> directories = [.. offered.Where(p => p.Settings is { Enabled: true, Kind: "ldap" }).Select(p => p.Settings.Name)];
         bool providers = buttons.Count > 0;
         string server = context.Request.Host.Value ?? "this server";
@@ -1063,7 +1063,8 @@ internal static class OAuthEndpoints
         }
 
         if (!Guid.TryParse(context.Request.Query["provider"].FirstOrDefault(), out Guid id)
-            || await providers.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings: { Enabled: true, Kind: "oidc" or "saml" } } provider)
+            || await providers.FindAsync(id, cancellation).ConfigureAwait(false) is not { } provider
+            || !Graticula.Host.Oidc.OidcEndpoints.IsButton(context, provider))
         {
             await ErrorPageAsync(context, 404, "This server offers no sign-in by that name.").ConfigureAwait(false);
             return;

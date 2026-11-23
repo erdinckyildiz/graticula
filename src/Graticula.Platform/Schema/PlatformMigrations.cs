@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(146);
+    public static SchemaVersion ComponentSchemaVersion => new(147);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -174,6 +174,7 @@ public static class PlatformMigrations
         AFeatureExportKeepsItsFiltersV144,
         AServiceMayTrackItsChangesV145,
         AHostedLayerKeepsItsContingentValuesV146,
+        AMemberSignsInWithACertificateOrWindowsV147,
     ]);
 
     /// <summary>
@@ -536,6 +537,21 @@ public static class PlatformMigrations
         "A hosted layer keeps its field groups and contingent values (ADR-312).",
 
         "alter table layer add column if not exists contingent_values jsonb");
+
+    /// <summary>
+    /// A member signs in with a client certificate (ADR-315) or with Windows (ADR-316): two more kinds of sign-in provider.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the kind check widens</b>: a PKI provider names the certificate field in <c>username_claim</c> and a Windows
+    /// one needs nothing a row does not already hold. <b>Expand</b>: a node older than this lists such a provider and offers
+    /// it nowhere, because every place that offers a provider asks for the kinds it knows.
+    /// </remarks>
+    private static Migration AMemberSignsInWithACertificateOrWindowsV147 => Migration.Expand(
+        new SchemaVersion(147),
+        "A member signs in with a client certificate or with Windows (ADR-315, ADR-316).",
+
+        "alter table identity_provider drop constraint if exists identity_provider_kind_known",
+        "alter table identity_provider add constraint identity_provider_kind_known check (kind in ('oidc', 'ldap', 'saml', 'pki', 'iwa'))");
 
     private static Migration AMobileWorkerIsAUserTypeV135 => Migration.Expand(
         new SchemaVersion(135),

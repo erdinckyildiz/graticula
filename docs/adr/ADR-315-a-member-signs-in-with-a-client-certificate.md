@@ -213,6 +213,10 @@ None recorded.
    `email` and `upn` each name the account; a revoked certificate is refused while `SoftFail` accepts one whose CRL
    cannot be reached and `HardFail` does not; `generateToken` with a certificate gives a token and with a password still
    does.
+   **DISCHARGED 2026-11-23** — `ACertificateSignsAMemberInTests` (tests/Graticula.Host.Tests, 10 pass against four
+   single-node sites of real server processes over the local PostGIS, a CA and its CRL made in the test), and
+   `ACertificateIsReadByItsFieldTests` (7 pass: the three fields, the account name, the header's three shapes, the
+   settings that refuse to start).
 2. **A real Caddy with `client_auth` forwards the certificate** and a member signs in through it, with the
    `docs/deployment.md` example as written.
 3. **ArcGIS Pro signs in to a PKI portal here** through the OAuth page with a certificate from the Windows store. Needs
