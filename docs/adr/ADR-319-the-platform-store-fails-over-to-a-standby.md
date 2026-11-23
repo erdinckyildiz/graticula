@@ -182,8 +182,12 @@ the primary's replication lag.
    read from `pg_stat_wal_receiver`. A standby still streaming from the primary proves the primary is alive.
 3. **Every other node of the site** that was up at the last heartbeat this node read answers, within two seconds,
    that **it** cannot reach the primary either. The question is `GET /healthz/store`, authenticated by a keyed hash of
-   the site's `Graticula:SecretKey` (every node has the same key, ADR-012 item 6). **A node that does not answer holds
-   the failover** — it might be partitioned from us and still writing to the primary. *(D-497.)*
+   the site's `Graticula:SecretKey` (every node has the same key, ADR-012 item 6), and the answer is signed the same
+   way. **It names the primary by its system identifier and timeline, never by an address**: two nodes may reach one
+   host by two names, and the first build asked by address — the node asked did not know the name, answered *no*, and
+   the other promoted beside a primary it could still reach (found by condition 3's two-node test, fixed the same
+   day). **A node that does not answer holds the failover** — it might be partitioned from us and still writing to
+   the primary. *(D-497.)*
 
 Then the node calls `pg_promote(true, 60)` on the standby, clears any fence the standby inherited (§5.6), writes a
 row to `store_failover` (migration 149) on the new primary — when, from where to where, the timeline, which node

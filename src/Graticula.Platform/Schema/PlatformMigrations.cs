@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(146);
+    public static SchemaVersion ComponentSchemaVersion => new(149);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -174,6 +174,7 @@ public static class PlatformMigrations
         AFeatureExportKeepsItsFiltersV144,
         AServiceMayTrackItsChangesV145,
         AHostedLayerKeepsItsContingentValuesV146,
+        TheStoreRemembersItsFailoversV149,
     ]);
 
     /// <summary>
@@ -536,6 +537,31 @@ public static class PlatformMigrations
         "A hosted layer keeps its field groups and contingent values (ADR-312).",
 
         "alter table layer add column if not exists contingent_values jsonb");
+
+    /// <summary>
+    /// The platform store remembers each time a standby was promoted in place of its primary — ADR-319 §5.4.
+    /// </summary>
+    /// <remarks>
+    /// <b>149, the number this work was given</b> beside two others taken the same day (147, 148); it depends on neither,
+    /// so the order they are merged in does not matter. <b>Expand</b>: a new table no older node reads. Written by the
+    /// node that promoted, on the new primary, so the row replicates to the standby the old primary becomes.
+    /// </remarks>
+    private static Migration TheStoreRemembersItsFailoversV149 => Migration.Expand(
+        new SchemaVersion(149),
+        "The platform store remembers its failovers (ADR-319).",
+
+        """
+        create table if not exists store_failover (
+            id bigserial primary key,
+            at timestamptz not null default now(),
+            from_host text not null,
+            to_host text not null,
+            timeline integer not null,
+            decided_by text not null,
+            how text not null check (how in ('automatic', 'manual')),
+            unreachable_ms integer
+        )
+        """);
 
     private static Migration AMobileWorkerIsAUserTypeV135 => Migration.Expand(
         new SchemaVersion(135),

@@ -9649,7 +9649,7 @@ internal static partial class AdminEndpoints
         // PostgreSQL: the columns, and the registry a geodatabase keeps as sde.sde_table_registry.
         try
         {
-            await using NpgsqlConnection open = new(connection);
+            await using NpgsqlConnection open = new(StoreHosts.ForConnection(connection));
             await open.OpenAsync(cancellation).ConfigureAwait(false);
 
             List<string> columns = [];
@@ -9751,7 +9751,7 @@ internal static partial class AdminEndpoints
 
         try
         {
-            await using NpgsqlConnection open = new(connection);
+            await using NpgsqlConnection open = new(StoreHosts.ForConnection(connection));
             await open.OpenAsync(cancellation).ConfigureAwait(false);
             await using NpgsqlCommand command = new(
                 "select exists (select 1 from pg_extension where extname = 'postgis')", open);
@@ -9892,7 +9892,7 @@ internal static partial class AdminEndpoints
             // answers or reports itself as unmeasured, which is a real answer.
             builder.ConnectionStringBuilder.CommandTimeout = 30;
 
-            await using NpgsqlDataSource source = builder.Build();
+            await using NpgsqlDataSource source = StoreHosts.Build(builder);
 
             return await GeometryValidity.MeasureAsync(
                 source,
@@ -9961,7 +9961,7 @@ internal static partial class AdminEndpoints
             // a reference check is waiting on one number.
             builder.ConnectionStringBuilder.CommandTimeout = 10;
 
-            await using NpgsqlDataSource source = builder.Build();
+            await using NpgsqlDataSource source = StoreHosts.Build(builder);
 
             return await DeclaredReference.MeasureAsync(
                 source,

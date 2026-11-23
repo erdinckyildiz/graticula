@@ -210,6 +210,13 @@ public static class Program
         {
             settings = HostSettings.Read(builder.Configuration);
 
+            // ADR-319 §5.3: the newest timeline this node has seen of a primary-and-standby store, remembered across a
+            // restart, before any pool opens a connection.
+            if (StoreHosts.IsMultiHost(settings.PlatformStore))
+            {
+                StoreEpoch.Load(Path.Combine(settings.StatePath, "store-epoch.json"));
+            }
+
             // ADR-258: a GeocodeServer over a Photon the operator runs, only when one is configured.
             geocoding = Graticula.Host.Geocoding.GeocoderSettings.Read(builder.Configuration);
         }
@@ -272,7 +279,8 @@ public static class Program
         // split out; the pool every request uses was not, so *is a Graticula server holding
         // this database* was a question nobody could answer from the database.
         builder.Services.AddSingleton(_ =>
-            new NpgsqlDataSourceBuilder(
+            // ADR-319 §5.2: a store that names a primary and a standby is reached through StoreHosts, here and at every pool below.
+            StoreHosts.Build(new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     ApplicationName = PoolNames.Of(PoolNames.Request),
@@ -306,8 +314,7 @@ public static class Program
                       rather than left to find out under load.
                     */
                     MaxPoolSize = PlatformStorePool,
-                }.ConnectionString)
-                .Build()
+                }.ConnectionString))
                 .RoutedByTenant());
 
         builder.Services.AddSingleton(services => new PostgresLayerCatalog(
@@ -717,12 +724,12 @@ public static class Program
         */
         builder.Services.AddKeyedSingleton(
             JobPool,
-            (_, _) => new NpgsqlDataSourceBuilder(
+            (_, _) => StoreHosts.Build(new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     MaxPoolSize = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length,
                     ApplicationName = PoolNames.Of(PoolNames.Jobs),
-                }.ConnectionString).Build());
+                }.ConnectionString)));
 
         builder.Services.AddKeyedSingleton<Graticula.Platform.Jobs.IJobStore>(
             JobPool,
@@ -748,7 +755,7 @@ public static class Program
         // is one place that knows how to reach PostGIS and both callers use it.
         builder.Services.AddKeyedSingleton(
             DatastorePool,
-            (_, _) => new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore)).Build());
+            (_, _) => StoreHosts.Build(new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore))));
 
         // <b>The datastore's own pool is gated too, and it was not until 2026-09-09.</b> The
         // quiesce gate went into `LayerConnections.PoolFor`, which every *registered* source is
@@ -889,12 +896,12 @@ public static class Program
         // connections: the claim, and the record of what a send did.
         builder.Services.AddKeyedSingleton(
             WebhookPool,
-            (_, _) => new NpgsqlDataSourceBuilder(
+            (_, _) => StoreHosts.Build(new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     MaxPoolSize = 2,
                     ApplicationName = PoolNames.Of(PoolNames.Webhooks),
-                }.ConnectionString).Build());
+                }.ConnectionString)));
         builder.Services.AddHostedService(services => new WebhookDeliverer(
             new PostgresWebhookStore(services.GetRequiredKeyedService<NpgsqlDataSource>(WebhookPool)),
             services.GetRequiredService<WebhookSignal>(),
@@ -1006,12 +1013,21 @@ public static class Program
             services.GetRequiredService<ServerLogBuffer>()));
         builder.Services.AddHostedService(services => services.GetRequiredService<SiteNode>());
 
+        // ADR-319: the platform store's primary and standby, watched; inactive where the store names one host.
+        builder.Services.AddSingleton(services => new StoreFailover(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<SiteNode>(),
+            settings,
+            builder.Configuration,
+            services.GetRequiredService<ILogger<StoreFailover>>()));
+        builder.Services.AddHostedService(services => services.GetRequiredService<StoreFailover>());
+
         builder.Services.AddHostedService(services => new GrantsListening(
             new PostgresGrantsListener(
-                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                StoreHosts.ForConnection(new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     ApplicationName = PoolNames.Of(PoolNames.Grants),
-                }.ConnectionString,
+                }.ConnectionString),
                 services.GetRequiredService<AnonymousGrants>(),
                 services.GetRequiredService<ILoggerFactory>()
                     .CreateLogger<PostgresGrantsListener>())));
@@ -1897,7 +1913,9 @@ public static class Program
             // The principal set here is the one an unreachable store produces anyway, so
             // the liveness path answers identically in both directions — it just does not
             // wait to find out.
-            if (context.Request.Path == LivenessPath)
+            // ADR-319 §5.4: so is the question the nodes ask each other while the store's primary is gone -- proved by the
+            // site's key in the route itself, and answered in milliseconds rather than after the store times out.
+            if (context.Request.Path == LivenessPath || context.Request.Path == StoreFailover.ViewPath)
             {
                 context.Features.Set(
                     new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing));
@@ -2636,6 +2654,10 @@ public static class Program
 
     private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)
     {
+        // ADR-319 §5.6: one round of the store's watch before anything is read, so an old primary that has come back
+        // beside a newer one is fenced before this node could be sent to it.
+        await services.GetRequiredService<StoreFailover>().ObserveAsync(CancellationToken.None).ConfigureAwait(false);
+
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
         PostgresPlatformSchemaStore store = new(dataSource);
 
@@ -2733,8 +2755,15 @@ public static class Program
     /// that would pay its warm-up while another node could take it.
     /// </remarks>
     private static async Task<string?> NotReadyAsync(
-        IAdminCatalog catalog, NpgsqlDataSource datastore, SiteNode node, CancellationToken cancellation)
+        IAdminCatalog catalog, NpgsqlDataSource datastore, SiteNode node, CancellationToken cancellation,
+        StoreFailover? failover = null)
     {
+        // ADR-319 §5.5: its own named state, before the store is asked — while the primary is gone, asking only waits.
+        if (failover?.NotReadyReason is { } failingOver)
+        {
+            return failingOver;
+        }
+
         if (node.Draining)
         {
             return $"This node is {node.ConfiguredState}: an administrator took it out of the site's rotation (ADR-012).";
@@ -2867,9 +2896,10 @@ public static class Program
             IAdminCatalog catalog,
             [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
             SiteNode node,
+            StoreFailover failover,
             CancellationToken cancellation) =>
         {
-            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation).ConfigureAwait(false);
+            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation, failover).ConfigureAwait(false);
 
             return reason is null
                 ? Results.Ok(new { success = true })
@@ -2882,9 +2912,19 @@ public static class Program
             IAdminCatalog catalog,
             [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
             SiteNode node,
+            StoreFailover failover,
             CancellationToken cancellation) =>
         {
-            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation).ConfigureAwait(false);
+            // ADR-319 §5.5: a named state of its own, so a balancer or a script tells *the store is failing over* from
+            // every other reason without parsing a sentence.
+            if (failover.NotReadyReason is { } failingOver)
+            {
+                return Results.Json(
+                    new { status = "not-ready", state = StoreFailover.ReadinessState, reason = failingOver },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation, failover).ConfigureAwait(false);
 
             return reason is null
                 ? Results.Ok(new { status = "ready" })
@@ -3297,6 +3337,7 @@ public static class Program
 
         // ADR-012 phase 0 item 6: the site's machines.
         SiteEndpoints.Map(app);
+        StoreEndpoints.Map(app);
         ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
         KmlEndpoints.Map(app);

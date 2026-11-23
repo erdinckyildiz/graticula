@@ -337,7 +337,7 @@ internal sealed class Backups
         NpgsqlConnectionStringBuilder maintenance =
             _maintenance ?? new(_store.ConnectionString) { Database = "postgres", SearchPath = null };
 
-        await using (NpgsqlConnection admin = new(maintenance.ConnectionString))
+        await using (NpgsqlConnection admin = new(StoreHosts.ForConnection(maintenance.ConnectionString)))
         {
             await admin.OpenAsync(cancellation).ConfigureAwait(false);
             await using NpgsqlCommand others = new(
@@ -488,7 +488,7 @@ internal sealed class Backups
     /// <summary>The restored database's own account of itself, checked against the manifest; null when it agrees.</summary>
     private static async Task<string?> CheckAsync(string connection, int schema, CancellationToken cancellation)
     {
-        await using NpgsqlDataSource source = NpgsqlDataSource.Create(connection);
+        await using NpgsqlDataSource source = StoreHosts.Build(new NpgsqlDataSourceBuilder(connection));
         SchemaStamp? stamp = await new PostgresPlatformSchemaStore(source).ReadStampAsync(cancellation).ConfigureAwait(false);
         if (stamp?.Applied.Value != schema)
         {
@@ -529,7 +529,7 @@ internal sealed class Backups
             }
         }
 
-        await using NpgsqlDataSource source = NpgsqlDataSource.Create(connection);
+        await using NpgsqlDataSource source = StoreHosts.Build(new NpgsqlDataSourceBuilder(connection));
         await using NpgsqlCommand count = source.CreateCommand(
             """
             select (select count(*) from pg_constraint c where c.contype = 'f'
@@ -563,7 +563,7 @@ internal sealed class Backups
 
     private static async Task<(int Schema, string? PostgreSql, string? PostGis)> DescribeAsync(string connection, CancellationToken cancellation)
     {
-        await using NpgsqlDataSource source = NpgsqlDataSource.Create(connection);
+        await using NpgsqlDataSource source = StoreHosts.Build(new NpgsqlDataSourceBuilder(connection));
         SchemaStamp? stamp = await new PostgresPlatformSchemaStore(source).ReadStampAsync(cancellation).ConfigureAwait(false);
 
         await using NpgsqlCommand versions = source.CreateCommand(
@@ -576,7 +576,7 @@ internal sealed class Backups
 
     private static async Task ExecuteAsync(string connection, string sql, CancellationToken cancellation)
     {
-        await using NpgsqlConnection open = new(connection);
+        await using NpgsqlConnection open = new(StoreHosts.ForConnection(connection));
         await open.OpenAsync(cancellation).ConfigureAwait(false);
         await using NpgsqlCommand command = new(sql, open);
         await command.ExecuteNonQueryAsync(cancellation).ConfigureAwait(false);
@@ -602,8 +602,15 @@ internal sealed class Backups
             start.ArgumentList.Add(argument);
         }
 
-        start.Environment["PGHOST"] = login.Host ?? "localhost";
-        start.Environment["PGPORT"] = login.Port.ToString(CultureInfo.InvariantCulture);
+        // ADR-319 §5.2: a primary-and-standby store is dumped from, and restored into, its primary — libpq's lists.
+        (string hosts, string ports, string? target) = StoreHosts.ForLibpq(login);
+        start.Environment["PGHOST"] = hosts;
+        start.Environment["PGPORT"] = ports;
+        if (target is not null)
+        {
+            start.Environment["PGTARGETSESSIONATTRS"] = target;
+        }
+
         start.Environment["PGUSER"] = login.Username ?? string.Empty;
         start.Environment["PGPASSWORD"] = login.Password ?? string.Empty;
         start.Environment["PGDATABASE"] = database ?? "postgres";

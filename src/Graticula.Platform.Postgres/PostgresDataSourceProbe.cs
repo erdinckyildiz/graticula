@@ -68,7 +68,7 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                 $"The connection string could not be parsed: {e.Message}");
         }
 
-        await using NpgsqlDataSource source = new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+        await using NpgsqlDataSource source = StoreHosts.Build(new NpgsqlDataSourceBuilder(builder.ConnectionString));
 
         NpgsqlConnection connection;
 
@@ -541,7 +541,7 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
         builder.Database = entered;
 
         await using NpgsqlDataSource source =
-            new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+            StoreHosts.Build(new NpgsqlDataSourceBuilder(builder.ConnectionString));
 
         List<string> databases = [];
 

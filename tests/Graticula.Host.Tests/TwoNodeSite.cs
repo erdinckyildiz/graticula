@@ -58,10 +58,15 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
     /// null for this suite's own.
     /// </param>
     /// <param name="migrate">False to leave the schema empty, for a test that migrates it itself.</param>
-    public TwoNodeSite(string? build, bool migrate = true)
+    /// <param name="database">
+    /// The store's connection string, when it is not <c>GRATICULA_TEST_PG</c> — ADR-319's site over a primary and its
+    /// standby, named as two hosts.
+    /// </param>
+    public TwoNodeSite(string? build, bool migrate = true, string? database = null)
     {
         _build = build;
         _migrate = migrate;
+        Database = database ?? TestDatabase();
     }
 
     /// <summary>This suite's own build: the one a test is checking.</summary>
@@ -74,7 +79,9 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
     public string Key { get; } = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
 
     /// <summary>The raw connection string the tests read the store with.</summary>
-    public string Database { get; } = Environment.GetEnvironmentVariable("GRATICULA_TEST_PG") is { Length: > 0 } pg
+    public string Database { get; }
+
+    private static string TestDatabase() => Environment.GetEnvironmentVariable("GRATICULA_TEST_PG") is { Length: > 0 } pg
         ? pg
         : throw new InvalidOperationException(
             "GRATICULA_TEST_PG is not set, so these tests FAIL rather than skip. They start two servers over a schema of it.");
