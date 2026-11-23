@@ -19,6 +19,11 @@
 > runs as the serving role; the roles file is read through it too, which the serving role may not. Unset, nothing
 > changes. Measured in [benchmarks/tenant-floor/ROLES.md](../../benchmarks/tenant-floor/ROLES.md).
 
+> **§5.5 reopened 2026-11-23 — [ADR-317](ADR-317-validate-and-restore-through-the-admin-api.md), by owner decision.**
+> Restore is also an admin API operation, with every node of the site in maintenance, into a new database swapped in by
+> name; and a backup can be validated — restored into a scratch database and checked — without touching the live one.
+> The command line keeps working.
+
 ## 1. Context
 
 [ADR-016](ADR-016-packaging-deployment-upgrade.md) §4b promised that `migrate` *"takes a backup first"* and §6 that
