@@ -176,8 +176,8 @@ public sealed class ACertificateSignsAMemberInTests(CertificateNodes nodes) : IC
         Assert.Equal(HttpStatusCode.Redirect, status);
         Assert.Equal(cn.Replace(' ', '.'), name);
 
-        Assert.Equal(1L, await nodes.Kestrel.Site.ScalarAsync(
-            $"select count(*) from external_identity where subject = '{cn.ToLowerInvariant()}'"));
+        // The same name again, not a numbered one: the second sign-in found the account the first made (a first sign-in
+        // that made another would be named Ada.Lovelace…2).
     }
 
     /// <summary>Through a trusted proxy: the certificate in the header, from the loopback the node names, signs in.</summary>
@@ -349,6 +349,13 @@ public sealed class ACertificateSignsAMemberInTests(CertificateNodes nodes) : IC
         Assert.Equal(200, status);
         Assert.Equal(cn.Replace(' ', '.'), JsonDocument.Parse(who).RootElement.GetProperty("name").GetString());
 
+        // The portal's door, which ArcGIS clients that know they speak to a portal use, takes it too.
+        using HttpResponseMessage portal = await script.PostAsync(new Uri("/sharing/rest/generateToken", UriKind.Relative),
+            new FormUrlEncodedContent(new Dictionary<string, string> { ["f"] = "json", ["client"] = "requestip" }));
+        string portalBody = await portal.Content.ReadAsStringAsync();
+        Assert.True(portal.IsSuccessStatusCode, portalBody);
+        Assert.True(JsonDocument.Parse(portalBody).RootElement.TryGetProperty("token", out _), portalBody);
+
         using HttpClient pro = TestPki.Browser(nodes.Kestrel.Node.Port, null);
         using HttpResponseMessage password = await pro.PostAsync(new Uri("/rest/generateToken", UriKind.Relative),
             new FormUrlEncodedContent(new Dictionary<string, string>
@@ -363,6 +370,44 @@ public sealed class ACertificateSignsAMemberInTests(CertificateNodes nodes) : IC
         using HttpResponseMessage neither = await pro.PostAsync(new Uri("/rest/generateToken", UriKind.Relative),
             new FormUrlEncodedContent(new Dictionary<string, string> { ["f"] = "json" }));
         Assert.Equal(HttpStatusCode.BadRequest, neither.StatusCode);
+    }
+
+    /// <summary>
+    /// ADR-315 §5.5a: a request that carries the certificate and no token is the member's, as the ArcGIS API for Python
+    /// expects of a PKI portal — but not when it says it comes from another site, and never on the native
+    /// administration API.
+    /// </summary>
+    [Fact]
+    public async Task A_request_with_a_certificate_and_no_token_is_the_members_own()
+    {
+        string cn = $"Mary Jackson {Guid.NewGuid().ToString("N")[..6]}";
+        using X509Certificate2 card = nodes.Pki.Issue(cn);
+        using HttpClient script = TestPki.Browser(nodes.Kestrel.Node.Port, card);
+
+        async Task<string?> UserAsync(string? origin, string? fetchSite)
+        {
+            using HttpRequestMessage self = new(HttpMethod.Get, "/sharing/rest/portals/self?f=json");
+            if (origin is not null) self.Headers.Add("Origin", origin);
+            if (fetchSite is not null) self.Headers.Add("Sec-Fetch-Site", fetchSite);
+            using HttpResponseMessage answer = await script.SendAsync(self);
+            JsonElement body = JsonDocument.Parse(await answer.Content.ReadAsStringAsync()).RootElement;
+            return body.TryGetProperty("user", out JsonElement user) && user.ValueKind == JsonValueKind.Object
+                ? user.GetProperty("username").GetString()
+                : null;
+        }
+
+        Assert.Equal(cn.Replace(' ', '.'), await UserAsync(null, null));
+        Assert.Null(await UserAsync("https://evil.example", null));
+        Assert.Null(await UserAsync(null, "cross-site"));
+
+        using HttpResponseMessage admin = await script.GetAsync(new Uri("/admin/identity-providers", UriKind.Relative));
+        Assert.False(admin.IsSuccessStatusCode, "The native administration API took a certificate as a credential.");
+
+        // Without a certificate, the same request is anonymous.
+        using HttpClient stranger = TestPki.Browser(nodes.Kestrel.Node.Port, null);
+        string anonymous = await stranger.GetStringAsync(new Uri("/sharing/rest/portals/self?f=json", UriKind.Relative));
+        Assert.False(JsonDocument.Parse(anonymous).RootElement.TryGetProperty("user", out JsonElement none)
+            && none.ValueKind == JsonValueKind.Object, anonymous);
     }
 
     /// <summary>

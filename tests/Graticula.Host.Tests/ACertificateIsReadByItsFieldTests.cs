@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading.Tasks;
 using Graticula.Host.Pki;
 using Microsoft.Extensions.Configuration;
 using Xunit;
@@ -57,6 +58,41 @@ public sealed class ACertificateIsReadByItsFieldTests
 
         Assert.Null(ClientCertificates.FromHeader("not a certificate"));
         Assert.Null(ClientCertificates.FromHeader(""));
+    }
+
+    /// <summary>
+    /// The header is read from a trusted proxy and nobody else; and Caddy's placeholder, left as written when the client
+    /// presented no certificate (Caddy 2.10.2, measured 2026-11-23), is no certificate rather than a broken one.
+    /// </summary>
+    [Fact]
+    public async Task The_header_is_a_trusted_proxys_and_an_unreplaced_placeholder_is_none()
+    {
+        using TestPki pki = new("Presented CA");
+        using X509Certificate2 card = pki.Issue("Grace Hopper");
+        ClientCertificates reader = new(
+            new ClientCertificateSettings(ClientCertificateMode.Off, [pki.Authority], "X-Client-Cert", RevocationPolicy.Off, null),
+            CallerAddress.Trusted("127.0.0.1"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<ClientCertificates>.Instance);
+
+        async Task<(X509Certificate2? Certificate, string? Ignored)> FromAsync(string peer, string value)
+        {
+            Microsoft.AspNetCore.Http.DefaultHttpContext context = new();
+            context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(peer);
+            context.Request.Headers["X-Client-Cert"] = value;
+            return await reader.PresentedAsync(context);
+        }
+
+        (X509Certificate2? trusted, _) = await FromAsync("127.0.0.1", Convert.ToBase64String(card.RawData));
+        Assert.Equal(card.Thumbprint, trusted?.Thumbprint);
+        Assert.Null(reader.Refusal(trusted!));
+
+        (X509Certificate2? stranger, string? ignored) = await FromAsync("10.1.2.3", Convert.ToBase64String(card.RawData));
+        Assert.Null(stranger);
+        Assert.Contains("not a trusted proxy", ignored, StringComparison.Ordinal);
+
+        (X509Certificate2? placeholder, string? said) = await FromAsync("127.0.0.1", "{http.request.tls.client.certificate_der_base64}");
+        Assert.Null(placeholder);
+        Assert.Null(said);
     }
 
     [Fact]

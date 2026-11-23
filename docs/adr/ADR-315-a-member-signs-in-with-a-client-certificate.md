@@ -73,6 +73,11 @@ wrong trade.
 that asks *who is this*. ADR-015 §3 made the session the one thing a request is authenticated by, and revocation of that
 session the reason. A certificate here is a way to *get* a session, as a password is.
 
+**Taken in part, after measuring (§5.5a).** The ArcGIS API for Python, given `cert_file` and `key_file`, sends the
+certificate with every request and never asks for a token: against a build without per-request certificates it asked
+`/sharing/rest/info` and `portals/self` and gave up as anonymous (arcgis 2.4.3, 2026-11-23). So a request that carries
+no token is the certificate's member — on the ArcGIS faces only, and not for a request from another site.
+
 ### Alternative D — mTLS identifies a service principal only, as ADR-015 §2 said
 
 **Argument for.** It is what ADR-015 wrote down.
@@ -100,6 +105,8 @@ smart card. Service accounts have API keys and `client_credentials` (ADR-200). T
 | The username is a field of the certificate, the Subject by default, changeable to e-mail | Esri's portal PKI page | §1 |
 | Both arrival ways sign a member in; a header from an untrusted peer is refused; another CA's certificate is refused; each mapping field names the account; a revoked certificate is refused | `ACertificateSignsAMemberInTests` (tests/Graticula.Host.Tests), against real server processes | §5, condition 1 |
 | ArcGIS clients' password `generateToken` keeps working with certificates requested | the same tests | condition 1 |
+| A real Caddy with `client_auth` forwards a certificate the server believes, and replaces a client's own header | Caddy 2.10.2 against the fixture | condition 2 |
+| The ArcGIS API for Python sends the certificate on every request and never asks for a token | arcgis 2.4.3 against the fixture | condition 4, §5.5a |
 
 ## 5. Decision
 
@@ -129,7 +136,9 @@ setting); a `Mode` with `RequireHttps=false` (there is no handshake to ask in).
 `Header` is set and the **socket's** address is in `Graticula:TrustedProxies`, the header's — base64 DER (Caddy's
 `{http.request.tls.client.certificate_der_base64}`, IIS ARR's), PEM, or URL-encoded PEM (nginx's
 `$ssl_client_escaped_cert`). **From any other peer the header is ignored and the log says so**; the sign-in then finds
-no certificate and says that. The connection's certificate wins over a header when both are present.
+no certificate and says that. A value that is a placeholder left as written (`{…}`) is no certificate: Caddy 2.10.2's
+`header_up` sends `{http.request.tls.client.certificate_der_base64}` literally when the client presented none (measured
+2026-11-23 under `verify_if_given`). The connection's certificate wins over a header when both are present.
 
 5.4 **The check**: the chain is built to `Authorities` alone (`CustomRootTrust`; the machine's store is not consulted),
 the certificate is within its dates, and if it lists extended key usages one of them is client authentication. Then the
@@ -144,6 +153,13 @@ sign-in panel of Studio and the console (`/rest/auth/providers`), the portal's `
 Pro and the API for Python open — no new markup, because those pages draw the providers they are given. A refusal is a
 page that says why: no certificate, an authority not trusted, revoked, expired, or no `cn`/`email`/`upn` in it.
 
+5.5a **A request that carries a certificate and no token is the certificate's member** — measured to be what the ArcGIS
+API for Python needs (§2, Alternative C). Its rules are the session cookie's, because a certificate is just as ambient —
+a browser presents it on a connection another site's page opens: not for a request whose `Origin` is another origin or
+whose `Sec-Fetch-Site` is `cross-site`, not for JSONP; and, as a `generateToken` token, never for the native
+administration API (ADR-015 §4). A token sent wins over the certificate. The answer is held for a minute per host and
+certificate, so a disabled member or a provider turned off reaches a certificate holder within that minute — `INFERRED`.
+
 5.6 **Revocation soft-fails by default**, as ADR-014 §7 item 2 requires for air-gapped sites: the chain is built with
 online revocation checking (the CRL distribution points and OCSP the certificate names), a certificate the CA says is
 revoked is refused, and one whose status cannot be learned is accepted and logged. `HardFail` refuses it too; `Off`
@@ -153,27 +169,31 @@ certificate names — `INFERRED`; an air-gapped site that publishes its CRL inte
 5.7 **`generateToken` takes a certificate**: a request with no `username` and no `password` whose certificate the
 organisation's PKI provider maps to a member gets an ArcGIS token, as a password would — so a script with `requests` and
 a certificate, and an ArcGIS client that asks for a token on a PKI connection, are served. With a name and password
-nothing changes. `INFERRED`: Esri does not document what a PKI portal's `generateToken` takes.
+nothing changes. `INFERRED`: Esri does not document what a PKI portal's `generateToken` takes. Both doors take it: `/rest/generateToken` and the portal's
+`/sharing/rest/generateToken`.
 
 5.8 **`Require` checks the chain at the handshake too**, with the same authorities and revocation policy, so a
 connection from a certificate nobody vouches for never reaches a route — `RequireCertificate` with the platform's own
 validation would consult the machine's store, which is not this deployment's list.
 
-5.9 **Not done here.** Per-request certificate authentication (Alternative C). A service principal by certificate
+5.9 **Not done here.** A service principal by certificate
 (ADR-015 §2's row; API keys serve that). The authorities from the admin API (ADR-014 §7 item 3): they are a file, as the
 serving certificate is, read at start — D-486. Groups: a certificate carries none, so ADR-089's mappings do not apply;
 the provider's default role does.
 
 5.10 **`INFERRED`, for confirmation:** at most one PKI provider per organisation (§5.1); the account name's spaces as
 dots (§5.4); revocation soft-fail by default with no configured CRL file (§5.6); `generateToken` by certificate (§5.7);
-`cn` as the default field (§5.1, from Esri's *Subject*).
+`cn` as the default field (§5.1, from Esri's *Subject*); the per-request certificate's cookie rules and its minute
+(§5.5a); a proxy placeholder left unreplaced (`{…}`) read as no certificate (§5.3, measured on Caddy 2.10.2).
 
 ## 6. Consequences
 
 **Positive.** A smart-card site signs its people in without a password, through Kestrel or its own proxy, and they land
 in the same session, role and audit trail as everybody else.
 
-**Negative.** `Allow` shows a certificate picker on every browser that holds a certificate. The authorities are read at
+**Negative.** `Allow` shows a certificate picker on every browser that holds a certificate — and a headless Chrome
+stalls at it: the console suite timed out on every page against a fixture in `Allow` on a machine whose user holds
+certificates, and passed with `Mode=Off` (measured 2026-11-23; the guide says to keep such jobs off an `Allow` address). The authorities are read at
 start, so adding a CA is a restart (D-486). A proxy misconfigured to pass the client's header through is a way in for
 anybody holding a copy of a member's certificate, which the documentation can warn about and the server cannot detect.
 
@@ -213,13 +233,26 @@ None recorded.
    `email` and `upn` each name the account; a revoked certificate is refused while `SoftFail` accepts one whose CRL
    cannot be reached and `HardFail` does not; `generateToken` with a certificate gives a token and with a password still
    does.
-   **DISCHARGED 2026-11-23** — `ACertificateSignsAMemberInTests` (tests/Graticula.Host.Tests, 10 pass against four
-   single-node sites of real server processes over the local PostGIS, a CA and its CRL made in the test), and
-   `ACertificateIsReadByItsFieldTests` (7 pass: the three fields, the account name, the header's three shapes, the
-   settings that refuse to start).
+   **DISCHARGED 2026-11-23** — `ACertificateSignsAMemberInTests` (tests/Graticula.Host.Tests, 11 pass against four
+   single-node sites of real server processes over the local PostGIS, a CA and its CRL made in the test, including
+   §5.5a's per-request certificate and both `generateToken` doors), and `ACertificateIsReadByItsFieldTests` (8 pass: the
+   three fields, the account name, the header's three shapes, a trusted proxy's header against a stranger's and an
+   unreplaced placeholder, the settings that refuse to start).
 2. **A real Caddy with `client_auth` forwards the certificate** and a member signs in through it, with the
-   `docs/deployment.md` example as written.
+   `docs/deployment.md` example as written. **DISCHARGED 2026-11-23** — Caddy 2.10.2 (the release binary for Windows,
+   run on this machine against the local fixture on 18631, `mode verify_if_given`, `trust_pool file` the fixture's CA,
+   `header_up X-Client-Cert {http.request.tls.client.certificate_der_base64}`): through Caddy a client with the
+   certificate signed in at `/rest/auth/pki/{id}/start` (302, `/rest/whoami` named `Ada.Lovelace`) and got a token from
+   both `generateToken` doors; a client without one was told it *sent no certificate*; and a client with no certificate
+   that sent its own `X-Client-Cert` holding a real member's certificate got no token — Caddy replaced the header. Two
+   things were learned and are in the guide: Caddy sends the placeholder literally when no certificate was presented
+   (§5.3), and with `client_auth` on it answers `421` to a request whose `Host` is not the TLS server name, so the site
+   is named by its DNS name, not an address.
 3. **ArcGIS Pro signs in to a PKI portal here** through the OAuth page with a certificate from the Windows store. Needs
    the owner's machine and a certificate there; not driven by this work.
 4. **The ArcGIS API for Python signs in with `cert_file` and `key_file`**, or what it sends is recorded and answered.
+   **DISCHARGED 2026-11-23** — arcgis 2.4.3, in a local virtual environment, against the local fixture, at the root and at
+   `/studio`: `GIS(url, cert_file=…, key_file=…)` sent `/sharing/rest/info`, `portals/self`, `community/users/{name}` and
+   `search` with the certificate and no token, and `users.me` was `Ada.Lovelace` (made at that first request, role
+   `org_user`). Before §5.5a the same call asked `info` and `portals/self` only and was anonymous.
 5. **The design review of Server › Sign-in's PKI form**, with its findings repaired.

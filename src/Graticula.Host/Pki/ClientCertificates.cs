@@ -195,8 +195,12 @@ internal sealed partial class ClientCertificates
         }
 
         if (_settings.Header is not { } header
-            || context.Request.Headers[header].ToString() is not { Length: > 0 } value)
+            || context.Request.Headers[header].ToString().Trim() is not { Length: > 0 } value
+            || (value.StartsWith('{') && value.EndsWith('}')))
         {
+            // <b>A placeholder left as written is no certificate</b>: Caddy 2.10.2's `header_up` sends
+            // `{http.request.tls.client.certificate_der_base64}` literally when the client presented none (measured
+            // 2026-11-23 under `verify_if_given`), and that is a person without a card, not a proxy fault.
             return (null, null);
         }
 

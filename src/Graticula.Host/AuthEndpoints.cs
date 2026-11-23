@@ -156,37 +156,21 @@ internal static partial class AuthEndpoints
             password = context.Request.Query["password"].ToString();
         }
 
-        (bool bindable, string? bound, string? unbindable) = (true, null, null);
-
+        // <b>ADR-315 §5.7: no name and no password, and a certificate the organisation's PKI provider maps.</b>
         if (string.IsNullOrWhiteSpace(name) && string.IsNullOrEmpty(password)
-            && await Graticula.Host.Pki.PkiEndpoints.TokenPrincipalAsync(context, cancellation).ConfigureAwait(false)
-                is { } byCertificate
-            && (byCertificate.Principal is not null || byCertificate.Refusal is not null))
+            && await Graticula.Host.Pki.PkiEndpoints.TokenAsync(context, login, cancellation).ConfigureAwait(false)
+                is { Asked: true } byCertificate)
         {
-            // <b>ADR-315 §5.7: no name and no password, and a certificate the organisation's PKI provider maps.</b>
-            if (byCertificate.Principal is not { } holder)
+            if (byCertificate.Token is null)
             {
                 await EsriTokenError(context, byCertificate.Status, byCertificate.Refusal!).ConfigureAwait(false);
                 return;
             }
 
-            (bindable, bound, unbindable) = await RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
-
-            if (!bindable)
-            {
-                await EsriTokenError(context, StatusCodes.Status400BadRequest, unbindable!).ConfigureAwait(false);
-                return;
-            }
-
-            (string issued, AuthenticatedSession held) = await login.IssueAsync(
-                holder, RemoteAddress(context), cancellation,
-                await RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
-                bound, SessionScopes.ArcGis).ConfigureAwait(false);
-
             await Results.Json(new
             {
-                token = issued,
-                expires = held.ExpiresAt.ToUnixTimeMilliseconds(),
+                token = byCertificate.Token,
+                expires = byCertificate.Expires.ToUnixTimeMilliseconds(),
                 ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
@@ -203,7 +187,7 @@ internal static partial class AuthEndpoints
             return;
         }
 
-        (bindable, bound, unbindable) =
+        (bool bindable, string? bound, string? unbindable) =
             await RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
 
         if (!bindable)

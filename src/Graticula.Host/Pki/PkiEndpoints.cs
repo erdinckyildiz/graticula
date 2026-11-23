@@ -168,6 +168,46 @@ internal static class PkiEndpoints
         };
     }
 
+    /// <summary>
+    /// An ArcGIS token for the certificate a <c>generateToken</c> request carries with no name and no password — ADR-315
+    /// §5.7, for both doors that issue one (<c>/rest/generateToken</c> and the portal's <c>/sharing/rest/generateToken</c>).
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="login">What issues a session.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>
+    /// Not <c>Asked</c> when a certificate has nothing to say here, so the door answers as it did; else the token and its
+    /// end, or the status and the refusal.
+    /// </returns>
+    internal static async Task<(bool Asked, string? Token, DateTimeOffset Expires, int Status, string? Refusal)> TokenAsync(
+        HttpContext context, LoginService login, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(login);
+
+        (Principal? holder, int status, string? refusal) = await TokenPrincipalAsync(context, cancellation).ConfigureAwait(false);
+
+        if (holder is null)
+        {
+            return refusal is null ? (false, null, default, 0, null) : (true, null, default, status, refusal);
+        }
+
+        (bool bindable, string? bound, string? unbindable) =
+            await AuthEndpoints.RequestedBindingAsync(context, cancellation).ConfigureAwait(false);
+
+        if (!bindable)
+        {
+            return (true, null, default, StatusCodes.Status400BadRequest, unbindable);
+        }
+
+        (string token, AuthenticatedSession session) = await login.IssueAsync(
+            holder, CallerAddress.Of(context), cancellation,
+            await AuthEndpoints.RequestedLifetimeAsync(context, cancellation).ConfigureAwait(false),
+            bound, SessionScopes.ArcGis).ConfigureAwait(false);
+
+        return (true, token, session.ExpiresAt, 200, null);
+    }
+
     /// <summary>What the console says about this server's certificate transport — ADR-315 §5.2.</summary>
     /// <param name="settings">The settings.</param>
     internal static object Describe(ClientCertificateSettings settings)
