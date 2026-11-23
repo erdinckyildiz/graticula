@@ -56,8 +56,13 @@ public sealed class AnAttachmentIsNamedTheSameByRestAndByAReplicaTests(OneStarte
             OfflineLayer shape = await client.ShapeAsync(layer);
             string file1 = await client.FetchAsync(await client.DownloadSyncAsync(layer, replicaId, generation), directory, "delta.geodatabase");
             OfflineLayerChanges changes = Assert.Single((await new SqliteOfflineDeltaReader().ReadDeltaAsync(file1, [shape], CancellationToken.None)).Layers);
-            OfflineAttachment inserted = Assert.Single(changes.AttachmentInserts);
-            OfflineAttachment updated = Assert.Single(changes.AttachmentUpdates);
+            // A generation closes at the oldest transaction still writing in the database (ADR-288, D-401), so on a busy
+            // database — CI's, where every test shares one — the window can reach back before the replica was made and
+            // carry the replaced attachment as a repeated insert rather than an update. Field Maps applies that as an
+            // update (measured, D-401); what this test holds is that each is named by the same GlobalID either way.
+            OfflineAttachment inserted = Assert.Single(changes.AttachmentInserts, a => a.Name == "two.png");
+            OfflineAttachment updated = Assert.Single(
+                changes.AttachmentUpdates.Concat(changes.AttachmentInserts), a => a.Name == "one-again.png");
 
             // What REST says, by the list …
             JsonElement listed = await client.SendAsync(HttpMethod.Get, $"{layer.Feature}/{first}/attachments?f=json");

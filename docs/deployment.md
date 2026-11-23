@@ -871,6 +871,9 @@ does. Two things are set: **the transport**, here, which says how a certificate 
 certificate authorities it believes; and **a sign-in provider**, in **Studio › Organization › Settings › Security › Sign-in**, which says which field of the
 certificate names the account and what a first sign-in gets.
 
+The settings are named here as a container's environment writes them, `Graticula__ClientCertificates__Mode`; the
+server's own messages name the same setting `Graticula:ClientCertificates:Mode`, as appsettings.json nests it.
+
 | Setting | Default | |
 |---|---|---|
 | `Graticula__ClientCertificates__Mode` | `Off` | `Allow`: the server asks every connection for a certificate, and one without still connects. `Require`: a connection without a certificate the authorities vouch for is refused at the handshake. Needs the server to end TLS itself (`RequireHttps` true) |
@@ -947,6 +950,9 @@ Caddy 2.10.2 in front of a server, and the ArcGIS API for Python 2.4.3 with `cer
 people on computers signed in to an Active Directory domain open Studio, press *Sign in with Windows*, and are signed in
 with no password, as with ArcGIS Enterprise's Integrated Windows Authentication. It is Kerberos: the browser sends a
 ticket for this server's name.
+
+The settings are named here as a container's environment writes them, `Graticula__Iwa__Enabled`; the server's own
+messages name the same setting `Graticula:Iwa:Enabled`.
 
 | Setting | Default | |
 |---|---|---|

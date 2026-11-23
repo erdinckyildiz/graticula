@@ -76,6 +76,11 @@ public static class Program
                                           replaces is kept. Refuses another key's
                                           backup and a newer schema.
 
+          graticula store promote         Promote the platform store's standby when the
+                                          primary is gone for good (ADR-319, ArcGIS's
+                                          makePrimary). Refuses while a primary is
+                                          reachable.
+
           graticula tools symbology-migrate [--apply]
                                          Rewrite every stored MapLibre symbology
                                          document as CIM (ADR-052 §3.9). Reports
