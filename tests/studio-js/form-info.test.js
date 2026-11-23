@@ -315,3 +315,66 @@ test("an element of a kind Studio does not edit is kept and evaluated for visibi
   assert.deepEqual(result.elements.map(e => [e.type, e.visible]), [["attachment", true], ["relationship", true], ["utilityNetworkAssociations", true]]);
   assert.deepEqual(F.problems(form, fields), []);
 });
+
+// The UX review of ADR-313's designer (2026-11-22): logic that moved out of webmap-form.js to be tested here.
+
+test("an expression reading a field the layer lacks is a warning, not a problem (finding 15)", () => {
+  const form = treeForm({
+    formElements: [
+      { type: "field", fieldName: "height", label: "Height", visibilityExpression: "v" },
+      { type: "text", text: "Tree {tree_type}: {nosuch} and {e}" },
+    ],
+    expressionInfos: [
+      { name: "v", expression: "$feature.nosuch > 1 && $feature[\"Height\"] > 2 && $feature['also_missing'] == 1", returnType: "boolean" },
+      { name: "e", expression: "1", returnType: "number" },
+    ],
+  });
+  assert.deepEqual(F.problems(form, fields), [], "a missing field read by an expression does not stop the form being applied");
+  const said = F.warnings(form, fields);
+  assert.equal(said.length, 3, JSON.stringify(said, null, 1));
+  assert.ok(said.some(w => /reads \$feature\.nosuch, which the layer does not have/.test(w)));
+  assert.ok(said.some(w => /\$feature\.also_missing/.test(w)));
+  assert.ok(said.some(w => /\{nosuch\}, which is neither a field/.test(w)));
+  assert.ok(!said.some(w => /\$feature\.Height|\$feature\.tree_type|shows \{e\}|shows \{tree_type\}/.test(w)), "field names are matched without regard to case, and an expression name is not a field");
+  assert.deepEqual(F.warnings(treeForm(), fields), []);
+  assert.deepEqual(F.featureNames("$feature.a + $feature [ 'b' ] + $feature[\"c d\"]"), ["a", "b", "c d"]);
+});
+
+test("a text element is listed by its first line without markdown's marks (finding 14)", () => {
+  assert.equal(F.textTitle("## Check"), "Check");
+  assert.equal(F.textTitle("\n\n**Bold** and _italic_\nsecond"), "Bold and italic");
+  assert.equal(F.textTitle("- a bullet"), "a bullet");
+  assert.equal(F.textTitle("Tree {tree_type} is _old_"), "Tree {tree_type} is old", "an underscore inside a field name is kept");
+  assert.equal(F.textTitle(""), "");
+  assert.equal(F.textTitle("x".repeat(80)).length, 60);
+});
+
+test("a text field of 2^30 - 2 characters, what an unbounded column reports, has no limit worth naming (finding 10)", () => {
+  assert.equal(F.lengthLimit({ length: 2 ** 30 - 3 }), 2 ** 30 - 3);
+  assert.equal(F.lengthLimit({ length: 1073741822 }), null);
+  assert.equal(F.lengthLimit({ length: 2 ** 30 }), null);
+  assert.equal(F.lengthLimit({ length: 255 }), 255);
+  assert.equal(F.lengthLimit({}), null);
+  assert.equal(F.lengthLimit(null), null);
+});
+
+test("removing an element hands focus to the next, else the previous, else its group (finding 4)", () => {
+  const a = { type: "field", fieldName: "height" };
+  const b = { type: "field", fieldName: "label" };
+  const inner = { type: "field", fieldName: "inspector" };
+  const group = { type: "group", label: "G", formElements: [inner] };
+  const form = { formElements: [a, b, group] };
+  assert.equal(F.neighbourOf(form, "0"), b);
+  assert.equal(F.neighbourOf(form, "2"), b);
+  assert.equal(F.neighbourOf(form, "2.0"), group, "the only element of a group hands focus to the group");
+  assert.equal(F.neighbourOf({ formElements: [a] }, "0"), null);
+});
+
+test("a typed number is read with a decimal comma, and text that is not a number is refused (third review)", () => {
+  for (const [typed, read] of [["90,5", "90.5"], ["90.5", "90.5"], [" 1 234,5 ", "1234.5"], ["1.234,5", "1234.5"], ["1,234.5", "1234.5"],
+    ["1.234.567", "1234567"], ["-3", "-3"], ["", ""], [",5", "0.5"], ["2e3", "2000"]]) {
+    assert.equal(F.decimalText(typed), read, typed);
+  }
+  for (const typed of ["abc", "9,0,5x", "1-2", "--1"]) assert.equal(F.decimalText(typed), null, typed);
+  assert.equal(F.decimalText(null), "");
+});

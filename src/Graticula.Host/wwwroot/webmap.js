@@ -152,6 +152,13 @@ function wmSayIn(id, text, bad = false) {
   if (!line) return;
   line.textContent = text;
   line.classList.toggle("bad", bad);
+  // A layer tool's sentence is written to the Layers panel's status; while that panel is not shown — closed, or given
+  // up for the right panel — a live region there is not read, so the right panel's own region says it (UX review of
+  // ADR-313, 2026-11-22, finding 7: what else carries this). That region is beside #layerTool, never redrawn.
+  if (id === "layersStatus" && !line.getClientRects().length) {
+    const side = wm$("layerToolSays");
+    if (side && !side.closest("[hidden]")) side.textContent = text;
+  }
 }
 
 function wmMarkDirty() {
@@ -3603,12 +3610,20 @@ function wmShowTab(name, focus = false) {
 const WM_PHONE = window.matchMedia("(max-width: 760px)");
 let wmLeftOpen = !WM_PHONE.matches;
 
+/** Whether opening Forms closed the Layers panel, so closing Forms opens it again (ADR-313 re-review N8). */
+let wmFormTookLeft = false;
+
 function wmOpenSheet(open) {
   wmLeftOpen = open;
+  // Opened or closed by the reader, the Layers panel is theirs again: Forms does not reopen it later.
+  wmFormTookLeft = false;
   document.body.classList.toggle("sheet", open && WM_PHONE.matches);
   document.body.classList.toggle("lclosed", !open);
-  // One sheet at a time on a phone: the left one covers the right one's place.
-  if (open && WM_PHONE.matches && wmSide.tool) wmCloseTool();
+  // One sheet at a time on a phone: the left one covers the right one's place. Below 1,000 px a window cannot hold both
+  // panels, their rails and any map either — Layers opened beside a tool left the map 0 px wide and the page scrolling
+  // sideways, whatever the tool (ADR-313 third review, 2026-11-23) — so the tool gives way, as Layers does when a tool
+  // opens below 1,100 px.
+  if (open && (WM_PHONE.matches || window.innerWidth < 1000) && wmSide.tool) wmCloseTool();
   // <b>No tool is selected while its panel is closed</b> (UX sweep round 2, N6): a selected tab whose panel is not
   // there is what a screen reader announced. The roving tabindex stays on the last one, so Tab still lands on it.
   for (const tab of WM_TABS) {
@@ -3723,10 +3738,19 @@ function wmOpenTool(tool, focus = false) {
   }
   wmSide.tool = tool;
   document.body.classList.add("ropen");
+  // ADR-313: Forms is drawn wide, and full height on a phone (webmap-form.css), as Map Viewer's form builder takes the page.
+  document.body.classList.toggle("rform", tool === "form");
   wm$("side").hidden = false;
   // One sheet at a time on a phone; a wide window that cannot hold both panels and a map gives up the left one.
-  if (WM_PHONE.matches || window.innerWidth < 1100) {
-    if (wmLeftOpen) wmOpenSheet(false);
+  if (WM_PHONE.matches || window.innerWidth < 1100 || tool === "form") {
+    if (wmLeftOpen) {
+      wmOpenSheet(false);
+      // Forms gave up the Layers panel only for itself: leaving Forms gives it back (ADR-313 re-review N8).
+      wmFormTookLeft = tool === "form" && !WM_PHONE.matches;
+    }
+  } else if (wmFormTookLeft) {
+    wmFormTookLeft = false;
+    wmOpenSheet(true);
   }
 
   const layerTool = WM_LAYER_TOOLS.includes(tool);
@@ -3745,8 +3769,12 @@ function wmOpenTool(tool, focus = false) {
 
 function wmCloseTool() {
   if (wmSide.tool === "measure") wmStopMeasuring();
+  if (wmFormTookLeft) {
+    wmFormTookLeft = false;
+    if (!WM_PHONE.matches) wmOpenSheet(true);
+  }
   wmSide.tool = null;
-  document.body.classList.remove("ropen");
+  document.body.classList.remove("ropen", "rform");
   wm$("side").hidden = true;
   wmDrawSide();
   wmResized();
@@ -4923,7 +4951,7 @@ function wmLabelPanel(layer, run, key) {
     </fieldset>
     ${raw ? `<div class="row"><button class="tiny" data-act="labelsReset" data-layer="${k}" data-focus="labelsReset:${k}"
       data-focus-fallback="labOn:${k}">Remove labels</button></div>` : ""}
-    <p class="lsnote" id="labSays-${k}" role="status" aria-live="polite">${wmEscape(run.labelSaid
+    <p class="lsnote" id="labSays-${k}">${wmEscape(run.labelSaid
       || (label ? `Labels: ${label.field}, ${label.size} pt.` : unread
         ? "This map labels the layer with an expression this viewer does not draw; a change here replaces it."
         : "Choose a field to label with."))} Labels that would overlap are hidden.</p>
@@ -5002,6 +5030,7 @@ function wmApplyLabels(layer, reset = false) {
   wmMarkDirty();
   wmRestyle(layer);
   wmDrawLayerList();
+  wmSayIn("layersStatus", said);
 }
 
 

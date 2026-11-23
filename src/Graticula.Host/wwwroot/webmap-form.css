@@ -3,12 +3,16 @@
 .wmf .wmf-h { font-size: 13px; margin: 14px 0 6px; }
 .wmf textarea { width: 100%; box-sizing: border-box; font: inherit; }
 .wmf .wmf-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
-.wmf input[type=number], .wmf input[type=date] { max-width: 10rem; }
+.wmf-editor input[type=number], .wmf-editor input[type=date] { max-width: 10rem; }
 
 .wmf-list { list-style: none; margin: 0; padding: 0; }
 .wmf-list.wmf-inner { margin: 4px 0 2px 18px; padding-left: 8px; border-left: 2px solid var(--rule); }
 .wmf-row { border: 1px solid var(--rule); border-radius: 4px; padding: 4px 6px; margin-bottom: 5px; background: var(--surface); }
-.wmf-row.chosen { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+/* Chosen: the whole border and a tint, not a bar on one side (house rule; ADR-313 review, finding 12). */
+.wmf-row.chosen { border-color: var(--accent); background: var(--accent-soft); }
+.wmf-row.chosen > .wmf-editor { background: var(--surface); }
+/* Move and remove are at least 24 px at every width (WCAG 2.5.8; finding 13); 44 px on a phone, below. */
+.wmf-rowhead .tiny { min-width: 24px; min-height: 24px; }
 .wmf-rowhead { display: flex; align-items: center; gap: 4px; }
 .wmf-pick { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 2px 4px;
   border: 0; background: none; text-align: left; color: var(--ink); font: inherit; overflow-wrap: anywhere; }
@@ -25,7 +29,72 @@
 .wmf-sample summary { cursor: pointer; font-size: 13px; }
 .wmf-tested { margin: 4px 0; padding-left: 18px; font-size: 12.5px; }
 .wmf-problems ul { margin: 2px 0 6px; padding-left: 18px; color: var(--alert); font-size: 12.5px; }
-.wmf-acts { margin-top: 10px; }
+.wmf-acts { margin-top: 6px; }
+.wmf-warnings ul { margin: 2px 0 6px; padding-left: 18px; font-size: 12.5px; }
+.wmf-top { margin-bottom: 4px; }
+.wmf-top .wmf-said:empty { display: none; }
+.wmf-settings { margin-bottom: 8px; }
+.wmf-formrow .wmf-name { font-style: normal; }
+/* A label with its input, kept together when the line is too short for two pairs (finding 11). */
+.wmf-pairs { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 6px; }
+.wmf-pair { display: flex; align-items: center; gap: 6px; }
+.wmf-pair .lkind { margin: 0; }
+
+/* The preview: the editing card's own markup, read-only. A click on an element chooses it, so its controls take no
+   pointer, and an element the sample hides is faded and says so. */
+.wmf-preview { border: 1px solid var(--rule-strong); border-radius: 6px; padding: 10px; background: var(--surface); }
+.wmf-preview .wmf-pvform { pointer-events: auto; }
+.wmf-preview input, .wmf-preview select, .wmf-preview textarea { pointer-events: none; }
+.wmf-preview [data-wmf-uid] { cursor: pointer; border-radius: 4px; }
+.wmf-preview .editfield { margin: 0 0 10px; }
+.wmf-preview .editfield label.field, .wmf-preview .editfield span.field { display: block; font-size: 12.5px; margin-bottom: 3px; }
+.wmf-preview input:not([type=radio]):not([type=checkbox]), .wmf-preview select, .wmf-preview textarea { width: 100%; box-sizing: border-box; }
+.wmf-preview .wmf-pvchosen { background: var(--accent-soft); outline: 1px dashed var(--accent); outline-offset: 2px; }
+.wmf-preview .wmf-pvhidden { opacity: .55; }
+.wmf-preview .wmf-pvtag { display: inline-block; margin: 0 0 2px; }
+.wmf-preview .wmf-title { font-size: 14px; margin: 0 0 4px; }
+.wmf-preview .wmf-group { margin: 0 0 10px; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 8px; }
+.wmf-preview .wmf-group > summary { font-weight: 600; padding: 4px 0; cursor: pointer; }
+.wmf-preview .wmf-text { margin: 0 0 10px; line-height: 1.45; }
+.wmf-preview .wmf-text h3, .wmf-preview .wmf-text h4 { font-size: 13px; margin: 6px 0 4px; }
+.wmf-preview label.check { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.wmf-preview .wmf-radios { display: flex; flex-direction: column; }
+.wmf-preview .wmf-exprsays { color: var(--alert); }
+.wmf-preview .wmf-exprsays:empty, .wmf-preview .fieldsays:empty { display: none; }
+
+/* ADR-313 review, findings 1, 2 and 8, and the re-review's N1, N2 and N4: Forms takes the room Map Viewer's form builder
+   takes. On a desktop the panel is widened and the Layers panel given up (webmap.js, wmOpenTool); opened again beside
+   Forms, the Layers panel keeps 288 px of map between them (two 76 px rails, its own 320 px). The designer is the
+   element list, the form as it reads and the chosen element's properties, in that order on screen and in the Tab
+   order, each column scrolling on its own under a head that stays: Apply and what was said never scroll away. */
+@media (min-width: 1000px) {
+  body.ropen.rform #body { --rw: clamp(340px, calc(100vw - 440px), 1000px); }
+  body.ropen.rform:not(.lclosed) #body { --rw: clamp(340px, calc(100vw - 760px), 1000px); }
+}
+#pane-layer:has(> #layerTool > .wmf-wide) { container-type: size; overflow: hidden; }
+.wmf-wide { height: 100cqh; display: grid; gap: 0 16px; grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.25fr);
+  grid-template-rows: auto fit-content(60%) minmax(0, 1fr); grid-template-areas: "top top" "list props" "pv props"; }
+.wmf-wide > .wmf-top { grid-area: top; padding-bottom: 8px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
+.wmf-wide > .wmf-listcol { grid-area: list; }
+.wmf-wide > .wmf-pvcol { grid-area: pv; }
+.wmf-wide > .wmf-propcol { grid-area: props; }
+/* Two columns: the list over the preview at the left, the properties the whole right column. Each column scrolls; a
+   little padding keeps focus rings inside the scroll box. */
+.wmf-wide > .wmf-listcol, .wmf-wide > .wmf-pvcol, .wmf-wide > .wmf-propcol { min-width: 0; min-height: 0; overflow: auto;
+  overscroll-behavior: contain; padding: 3px; }
+.wmf-wide .wmf-propcol .wmf-editor, .wmf-wide .wmf-propcol .wmf-formsettings { margin-top: 0; }
+.wmf-wide > .wmf-listcol > .wmf-h:first-child, .wmf-wide > .wmf-propcol > .wmf-h:first-child { margin-top: 0; }
+.wmf-wide > .wmf-pvcol > .wmf-h:first-child { margin-top: 10px; }
+/* Three columns from 752 px of panel (a window of about 1,220 px with the Layers panel closed). */
+@container (min-width: 752px) {
+  .wmf-wide { grid-template-columns: minmax(200px, .8fr) minmax(260px, 1.1fr) minmax(260px, 1fr);
+    grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "top top top" "list pv props"; }
+  .wmf-wide > .wmf-pvcol > .wmf-h:first-child { margin-top: 0; }
+}
+.wmf button[aria-disabled="true"] { opacity: .6; }
+/* A property's label stands apart from its box, so a focus ring does not cover it (third review, item 6). */
+.wmf-editor label.lkind { display: block; margin: 8px 0 4px; }
+.wmf-editor .wmf-pair label.lkind { margin: 0; }
 
 #identify .wmf-form .wmf-title { font-size: 14px; margin: 0 0 4px; color: var(--ink); }
 #identify .wmf-form .wmf-group { margin: 0 0 10px; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 8px; }
@@ -41,9 +110,16 @@
 #identify .wmf-form input[readonly], #identify .wmf-form textarea[readonly] { background: var(--surface-2); color: var(--muted); }
 #identify .wmf-form .wmf-exprsays { color: var(--alert); }
 
+/* On a phone Forms is a full-height sheet: at 55 % the designer was a keyhole of 235 px (finding 8). */
+@media (max-width: 760px) {
+  body.rform #side { top: 0; max-height: none; border-radius: 0; }
+  body.rform #side #pane-layer { flex: 1 1 auto; }
+}
+
 @media (max-width: 600px) {
   .wmf-rowhead .tiny { min-width: 44px; min-height: 44px; }
   .wmf-pick { min-height: 44px; }
+  .wmf-sample summary { display: list-item; min-height: 44px; padding: 12px 0; box-sizing: border-box; }
   .wmf textarea { min-height: 44px; }
   #identify .wmf-form label.check { min-height: 44px; }
 }
