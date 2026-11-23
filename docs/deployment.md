@@ -868,7 +868,7 @@ House numbers are only as complete as OpenStreetMap's; places, streets and distr
 **Optional, and off unless you turn it on** ([ADR-315](adr/ADR-315-a-member-signs-in-with-a-client-certificate.md)).
 With it, people sign in with a smart card or a certificate installed in their browser, as ArcGIS Enterprise's PKI
 does. Two things are set: **the transport**, here, which says how a certificate reaches the server and which
-certificate authorities it believes; and **a sign-in provider**, in **Server › Sign-in**, which says which field of the
+certificate authorities it believes; and **a sign-in provider**, in **Studio › Organization › Settings › Security › Sign-in**, which says which field of the
 certificate names the account and what a first sign-in gets.
 
 | Setting | Default | |
@@ -881,7 +881,7 @@ certificate names the account and what a first sign-in gets.
 A setting that cannot work keeps the server from serving, with the key named in every 503 it answers ([ADR-318](adr/ADR-318-a-refusing-server-stays-up-and-says-why.md)): a mode or a header without readable
 authorities; a header with `TrustedProxies` empty; a mode with `RequireHttps=false`.
 
-Then, in **Server › Sign-in**, *Add a provider*, *Their certificate*. Choose what names the account: the common name
+Then, in **Studio › Organization › Settings › Security › Sign-in**, *Add a provider*, *Their certificate*. Choose what names the account: the common name
 (CN, the default, as ArcGIS's *Subject*), the e-mail address in the certificate, or the user principal name a CAC or PIV
 card carries. An account made at a first sign-in is named by its part before an `@`, with spaces as dots. The provider
 appears on every sign-in page — the console's and Studio's, `/rest/login`, and the OAuth page ArcGIS Pro and the API for
@@ -976,7 +976,7 @@ cannot get a Kerberos ticket — a computer outside the domain, or a name with n
 **On Windows**, the server uses the machine's own Windows sign-in and needs no keytab; register the service principal on
 the account the server runs as.
 
-Then, in **Server › Sign-in**, *Add a provider*, *Their Windows sign-in*, named *Windows* so the button reads *Sign in
+Then, in **Studio › Organization › Settings › Security › Sign-in**, *Add a provider*, *Their Windows sign-in*, named *Windows* so the button reads *Sign in
 with Windows*. An account made at a first sign-in is named by the Windows account alone: `CONTOSO\jane` and
 `jane@CONTOSO.COM` both become `jane`. The button appears on the sign-in pages only while `Graticula__Iwa__Enabled` is
 true.

@@ -194,4 +194,4 @@ None recorded.
    to those packages cannot take it away silently.
 4. **A browser on a domain machine signs in with no prompt**, and ArcGIS Pro through the OAuth page. Needs a Windows
    domain machine; not driven by this work.
-5. **The design review of Server › Sign-in's Windows form and Studio's button**, with its findings repaired.
+5. **The design review of Studio › Organization › Settings › Security › Sign-in's Windows form and Studio's button**, with its findings repaired.
