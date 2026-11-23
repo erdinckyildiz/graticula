@@ -255,4 +255,4 @@ None recorded.
    `/studio`: `GIS(url, cert_file=…, key_file=…)` sent `/sharing/rest/info`, `portals/self`, `community/users/{name}` and
    `search` with the certificate and no token, and `users.me` was `Ada.Lovelace` (made at that first request, role
    `org_user`). Before §5.5a the same call asked `info` and `portals/self` only and was anonymous.
-5. **The design review of Server › Sign-in's PKI form**, with its findings repaired.
+5. **The design review of Studio › Organization › Settings › Security › Sign-in's PKI form**, with its findings repaired.

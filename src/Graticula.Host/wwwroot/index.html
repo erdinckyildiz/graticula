@@ -2595,8 +2595,9 @@
       <div>
         <h3 id="idpTitle" tabindex="-1">Sign-in</h3>
         <p>Where people can sign in besides a password on this server: an OpenID Connect or SAML 2.0 provider such
-          as Microsoft Entra ID, AD FS, Keycloak, Okta or Google, or an LDAP directory such as Active Directory. Their
-          groups there can decide their role and groups here.</p>
+          as Microsoft Entra ID, AD FS, Keycloak, Okta or Google, an LDAP directory such as Active Directory, a
+          certificate or smart card (PKI), or Windows sign-in (IWA). OpenID Connect, SAML and directory groups can
+          decide their role and groups here.</p>
       </div>
       <div class="right">
         <span class="val" id="idpCount"></span>
@@ -2616,7 +2617,7 @@
     <div class="panel"><div class="tablewrap">
       <table class="rowblocks">
         <thead><tr>
-          <th>Provider</th><th>Address</th><th>First sign-in</th><th class="num">Accounts</th>
+          <th>Provider</th><th>Signs in through</th><th>First sign-in</th><th class="num">Accounts</th>
           <th><span class="sr-only">Actions</span></th>
         </tr></thead>
         <tbody id="idpRows"></tbody>

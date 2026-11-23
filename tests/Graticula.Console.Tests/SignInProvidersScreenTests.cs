@@ -516,9 +516,27 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
 
             id = await Browser.EvaluateAsync<string>($"(idpList.find(p => p.name === {JsonSerializer.Serialize(name)}) || {{}}).id || ''");
 
+            // Design review 2026-11-23 (4 and 11): whether this server is set up for certificates is the fixture's, so
+            // the test reads it and holds the screen to each answer — the row says it when it is not, and Check says it
+            // as a warning with the guide's section rather than as a refusal.
+            bool setUp = await Browser.EvaluateAsync<bool>("!!(idpMeta.clientCertificates || {}).enabled");
+            string named = await Browser.EvaluateAsync<string>($"({row}).querySelector('td.name').textContent") ?? string.Empty;
+            Assert.True(named.Contains("not set up for certificates", StringComparison.Ordinal) != setUp,
+                $"The row does not say whether this server is set up for certificates (set up: {setUp}): {named}");
+
             await Browser.EvaluateAsync<bool>(InRow(name, "[data-idp-check]"));
-            await WaitForAsync("(document.getElementById('idpSays')?.textContent || '').includes('receives certificates')",
-                "Check did not say what this server receives.");
+            if (setUp)
+            {
+                await WaitForAsync("(document.getElementById('idpSays')?.textContent || '').includes('receives certificates')",
+                    "Check did not say what this server receives.");
+            }
+            else
+            {
+                await WaitForAsync("(document.getElementById('idpSays')?.textContent || '').includes('Deployment guide §6')",
+                    "Check on a server not set up for certificates did not point at the deployment guide's section.");
+                Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('idpSays').classList.contains('warn-inline')"),
+                    "A server not set up for certificates is said as a refusal, not a warning.");
+            }
 
             NothingWentWrong(await PageErrorsAsync());
         }
@@ -563,6 +581,9 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
             Assert.True(await Browser.EvaluateAsync<bool>(
                 "!document.getElementById('idpIssuer') && !document.getElementById('idpSecret') && !document.getElementById('idpClaim')"),
                 "A Windows sign-in is asked for an issuer, a secret or a field.");
+            // Design review 2026-11-23 (5): the template literal ate the backslash, and the example read CONTOSOjane.
+            string form = await Browser.EvaluateAsync<string>("document.getElementById('idpForm').textContent") ?? string.Empty;
+            Assert.Contains("CONTOSO\\jane", form, StringComparison.Ordinal);
 
             await Browser.EvaluateAsync<bool>($"(() => {{ document.getElementById('idpName').value = {JsonSerializer.Serialize(name)}; return true; }})()");
             await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpEnabled').checked = false; return true; })()");
@@ -576,6 +597,10 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
             string cell = await Browser.EvaluateAsync<string>($"({row}).querySelector('.idpissuer').textContent") ?? string.Empty;
             Assert.Contains("Windows", cell, StringComparison.Ordinal);
             Assert.True(await Browser.EvaluateAsync<bool>($"!({row}).querySelector('[data-idp-groups]')"), "A Windows sign-in offers Groups.");
+            bool setUp = await Browser.EvaluateAsync<bool>("!!(idpMeta.windows || {}).enabled");
+            string named = await Browser.EvaluateAsync<string>($"({row}).querySelector('td.name').textContent") ?? string.Empty;
+            Assert.True(named.Contains("not set up for Windows sign-in", StringComparison.Ordinal) != setUp,
+                $"The row does not say whether this server is set up for Windows sign-in (set up: {setUp}): {named}");
 
             NothingWentWrong(await PageErrorsAsync());
         }
@@ -590,6 +615,58 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Design review 2026-11-23 (1, 2 and 12): a refused Add is said inside the dialog, where it can be read, with the
+    /// focus kept on Add; Escape and ✕ give the focus back to Add a provider rather than to the page's body; and
+    /// <c>?tab=idp</c> opens Security at Sign-in, which Members' <i>change on Sign-in</i> links to. Nothing reaches the
+    /// server: the refusal is the page's own fetch answered here.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_is_said_in_the_dialog_and_closing_it_gives_the_focus_back()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/studio/#/signin?tab=idp", token);
+        await WaitForAsync("document.getElementById('view-signin')?.dataset.secpage === 'idp'",
+            "?tab=idp did not open Security at Sign-in.");
+        await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
+
+        const string Focused = "document.activeElement && document.activeElement.id";
+
+        await ClickAsync("#idpNew");
+        await WaitForAsync("document.getElementById('idpDialog').open", "Add a provider opened no dialog.");
+        await Browser.CallAsync("Input.dispatchKeyEvent", new { type = "keyDown", key = "Escape", code = "Escape", windowsVirtualKeyCode = 27 });
+        await Browser.CallAsync("Input.dispatchKeyEvent", new { type = "keyUp", key = "Escape", code = "Escape", windowsVirtualKeyCode = 27 });
+        await WaitForAsync("!document.getElementById('idpDialog').open", "Escape did not close the dialog.");
+        await WaitForAsync($"{Focused} === 'idpNew'", "Escape left the focus on the page's body, not on Add a provider.");
+
+        await ClickAsync("#idpNew");
+        await WaitForAsync("document.getElementById('idpDialog').open", "Add a provider opened no dialog the second time.");
+        await ClickAsync("#idpDialogClose");
+        await WaitForAsync($"{Focused} === 'idpNew'", "✕ left the focus on the page's body, not on Add a provider.");
+
+        await ClickAsync("#idpNew");
+        await WaitForAsync(Shown("[name=idpKind][value=pki]"), "Add a provider offers no certificate sign-in.");
+        await Browser.EvaluateAsync<bool>(Change("[name=idpKind][value=pki]", "pki"));
+        await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpName').value = 'zz refused'; return true; })()");
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const f = window.fetch; window.fetch = (i, init) => {"
+            + " const url = typeof i === 'string' ? i : i.url;"
+            + " if (init && init.method === 'POST' && /\\/admin\\/identity-providers$/.test(url))"
+            + "   return Promise.resolve(new Response(JSON.stringify({ error: { message: 'Refused here.' } }),"
+            + "     { status: 409, headers: { 'Content-Type': 'application/json' } }));"
+            + " return f(i, init); }; return true; })()");
+        await ClickAsync("#idpSave");
+
+        await WaitForAsync("(document.getElementById('idpFormSays')?.textContent || '').includes('Refused here.')",
+            "A refused Add was not said inside the dialog.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('idpDialog').open"), "A refused Add closed the dialog.");
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('idpSays').textContent"));
+        Assert.Equal("idpSave", await Browser.EvaluateAsync<string>(Focused));
+
+        NothingWentWrong(await PageErrorsAsync());
     }
 
     [Fact]

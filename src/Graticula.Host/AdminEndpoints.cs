@@ -10958,7 +10958,8 @@ internal static partial class AdminEndpoints
         {
             await Refuse(context, 409,
                 $"'{name}' gets their role from {external.Provider}'s groups, at each sign-in. Change it there — the "
-                + "group they are in, or the mapping on Server > Sign-in — or it would be put back the next time they sign in.")
+                + "group they are in, or the mapping on Organization > Settings > Security > Sign-in — or it would be put "
+                + "back the next time they sign in.")
                 .ConfigureAwait(false);
             return;
         }
