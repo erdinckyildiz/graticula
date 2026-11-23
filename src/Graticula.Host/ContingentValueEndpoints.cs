@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Api.ArcGis;
+using Graticula.Api.ArcGis.Pbf;
 using Graticula.Catalog;
 using Graticula.Features;
 using Graticula.Platform.Admin;
@@ -22,7 +23,7 @@ namespace Graticula.Host;
 /// <summary>
 /// A hosted layer's contingent values — ADR-312: the layer document's flag, ArcGIS's <c>contingentValues</c> resource and
 /// <c>queryContingentValues</c> operation, Studio's admin route, and <c>addToDefinition</c>'s
-/// <c>contingentValuesDefinition</c>.
+/// <c>contingentValuesDefinition</c>; and since ADR-314, the protobuf answer and the layer's <c>fieldGroups</c> resource.
 /// </summary>
 /// <remarks>
 /// <b>Nothing here is on the edit path.</b> <c>applyEdits</c> does not read a definition and does not refuse a
@@ -40,6 +41,10 @@ internal static class ContingentValueEndpoints
         app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/contingentValues", LayerAsync)
             .Governed(SharingGovernedExtensions.ByService);
         app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/queryContingentValues", ["GET", "POST"], QueryAsync)
+            .Governed(SharingGovernedExtensions.ByService);
+
+        // ADR-314 §5.4: the groups' fields, which the protobuf answer leaves out.
+        app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/fieldGroups", FieldGroupsAsync)
             .Governed(SharingGovernedExtensions.ByService);
     }
 
@@ -88,6 +93,10 @@ internal static class ContingentValueEndpoints
         }
 
         written["hasContingentValuesDefinition"] = true;
+
+        // ADR-314 §5.4: as every observed ArcGIS layer with a definition says; the `fieldGroups` resource is behind it.
+        written["hasFieldGroups"] = true;
+        written["supportedContingentValuesFormats"] = Formats;
         return written;
     }
 
@@ -102,8 +111,8 @@ internal static class ContingentValueEndpoints
     /// <remarks>
     /// The reference's <i>Query Contingent Values</i> page names the property with the example <c>"JSON, PBF"</c>
     /// (<see href="https://developers.arcgis.com/rest/services-reference/enterprise/query-contingent-values-feature-service/"/>).
-    /// Only JSON is said, because only JSON is answered (D-474): Field Maps asked a layer here for <c>f=pbf</c> when the
-    /// document said nothing, was refused, and offered every value.
+    /// Both are said since ADR-314 answers protobuf: Field Maps asks only for <c>f=pbf</c>, whatever this property says
+    /// (measured 2026-11-23, when it said <c>"JSON"</c>).
     /// </remarks>
     public static object ApplyToService(
         HttpContext context, object document, IReadOnlyList<(PublishedLayer Layer, LayerDescription Described)> described)
@@ -117,9 +126,12 @@ internal static class ContingentValueEndpoints
             return document;
         }
 
-        written["supportedContingentValuesFormats"] = "JSON";
+        written["supportedContingentValuesFormats"] = Formats;
         return written;
     }
+
+    /// <summary>The formats the resource and the operation answer (ADR-314 §5.2), as ArcGIS's documents say them.</summary>
+    public const string Formats = "JSON, PBF";
 
     /// <summary>A document as a JSON object the response can be written from, or null when it is not one.</summary>
     private static JsonObject? Node(HttpContext context, object document)
@@ -142,26 +154,30 @@ internal static class ContingentValueEndpoints
                 ? value.ToString()
                 : null;
 
-    /// <summary>The refusal for a format or option this face does not answer (D-474), or null.</summary>
-    private static string? Unanswered(IFormCollection form, HttpContext context)
+    /// <summary>
+    /// The answer's format: <c>f</c>, <c>compactFormat</c> and <c>domainDictionaries</c> (ADR-314 §5.5; D-474 repaid), or
+    /// the refusal of a value none of them takes.
+    /// </summary>
+    private static (bool Pbf, ContingentValuesDocument.JsonOptions Options, string? Refusal) Format(IFormCollection form, HttpContext context)
     {
-        if (string.Equals(Parameter(form, context, "f"), "pbf", StringComparison.OrdinalIgnoreCase))
+        bool pbf = string.Equals(Parameter(form, context, "f"), "pbf", StringComparison.OrdinalIgnoreCase);
+        string? compact = Parameter(form, context, "compactFormat");
+
+        if (compact is not null && !bool.TryParse(compact, out _))
         {
-            return "f=pbf is not answered here: contingent values are served as JSON (f=json or pjson). See D-474.";
+            return (pbf, ContingentValuesDocument.JsonOptions.Default, $"compactFormat is true or false, not '{compact}'.");
         }
 
-        if (string.Equals(Parameter(form, context, "compactFormat"), "false", StringComparison.OrdinalIgnoreCase))
+        string dictionaries = (Parameter(form, context, "domainDictionaries") ?? "none").ToLowerInvariant();
+
+        if (dictionaries is not ("none" or "complete" or "trimmed"))
         {
-            return "compactFormat=false is not answered here: codes are served as they are stored. See D-474.";
+            return (pbf, ContingentValuesDocument.JsonOptions.Default,
+                $"domainDictionaries is none, complete or trimmed, not '{dictionaries}'.");
         }
 
-        if (Parameter(form, context, "domainDictionaries") is { } dictionaries
-            && !string.Equals(dictionaries, "none", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"domainDictionaries={dictionaries} is not answered here; only none is. See D-474.";
-        }
-
-        return null;
+        return (pbf, new ContingentValuesDocument.JsonOptions(
+            !string.Equals(compact, "false", StringComparison.OrdinalIgnoreCase), dictionaries), null);
     }
 
     private static Task Refuse(HttpContext context, int code, string message) =>
@@ -175,6 +191,17 @@ internal static class ContingentValueEndpoints
     private static string? GeometryTypeOf(PublishedLayer layer) =>
         layer.GeometryType is { } kind ? ArcGisGeometryWriter.TypeName(kind) : null;
 
+    /// <summary>The definitions as the protobuf answer or the JSON one.</summary>
+    private static Task AnswerAsync(
+        HttpContext context,
+        bool pbf,
+        ContingentValuesDocument.JsonOptions options,
+        IReadOnlyList<ContingentValuesDocument.ServedDefinition> served,
+        bool oneLayer) =>
+        pbf
+            ? Results.Bytes(ContingentValuesPbf.Write(served), ContingentValuesPbf.ContentType).ExecuteAsync(context)
+            : Results.Json(ContingentValuesDocument.Answer(served, options, oneLayer)).ExecuteAsync(context);
+
     /// <summary><c>…/FeatureServer/{id}/contingentValues</c>.</summary>
     private static async Task LayerAsync(
         HttpContext context,
@@ -185,10 +212,11 @@ internal static class ContingentValueEndpoints
         CancellationToken cancellation)
     {
         IFormCollection form = await FormAsync(context, cancellation).ConfigureAwait(false);
+        (bool pbf, ContingentValuesDocument.JsonOptions options, string? refusal) = Format(form, context);
 
-        if (Unanswered(form, context) is { } unanswered)
+        if (refusal is not null)
         {
-            await Refuse(context, 400, unanswered).ConfigureAwait(false);
+            await Refuse(context, 400, refusal).ConfigureAwait(false);
             return;
         }
 
@@ -212,17 +240,37 @@ internal static class ContingentValueEndpoints
         }
 
         (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
-        ContingentValuesDocument.Dictionaries dictionaries = new();
-        Dictionary<string, object?> definition = ContingentValuesDocument.Definition(
+        ContingentValuesDocument.ServedDefinition served = ContingentValuesDocument.Serve(
             layer.Definition, layer.LayerIndex, layer.DisplayName, GeometryTypeOf(layer), described,
-            Served(layer, described) ?? ContingentValues.Empty, dictionaries, groups, ids);
+            Served(layer, described) ?? ContingentValues.Empty, groups, ids);
 
-        await Results.Json(new
+        await AnswerAsync(context, pbf, options, [served], oneLayer: true).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>…/FeatureServer/{id}/fieldGroups</c> — each served group's name, restrictive and field names, which a client
+    /// reads beside the protobuf answer because that answer carries none of them (ADR-314 §5.4).
+    /// </summary>
+    private static async Task FieldGroupsAsync(
+        HttpContext context,
+        string serviceName,
+        int layerId,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        if (await ServiceLookup.LayerAsync(context, catalog, serviceName, layerId, cancellation).ConfigureAwait(false)
+            is not { } layer)
         {
-            typeCodes = ContingentValuesDocument.TypeCodes,
-            stringDicts = dictionaries.Written,
-            contingentValuesDefinition = definition,
-        }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+        ContingentValuesDocument.ServedDefinition served = ContingentValuesDocument.Serve(
+            layer.Definition, layer.LayerIndex, layer.DisplayName, GeometryTypeOf(layer), described,
+            Served(layer, described) ?? ContingentValues.Empty);
+
+        await Results.Json(ContingentValuesDocument.FieldGroups(served)).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary><c>…/FeatureServer/queryContingentValues</c>.</summary>
@@ -234,10 +282,11 @@ internal static class ContingentValueEndpoints
         CancellationToken cancellation)
     {
         IFormCollection form = await FormAsync(context, cancellation).ConfigureAwait(false);
+        (bool pbf, ContingentValuesDocument.JsonOptions options, string? refusal) = Format(form, context);
 
-        if (Unanswered(form, context) is { } unanswered)
+        if (refusal is not null)
         {
-            await Refuse(context, 400, unanswered).ConfigureAwait(false);
+            await Refuse(context, 400, refusal).ConfigureAwait(false);
             return;
         }
 
@@ -253,8 +302,7 @@ internal static class ContingentValueEndpoints
             return;
         }
 
-        ContingentValuesDocument.Dictionaries dictionaries = new();
-        List<object> definitions = [];
+        List<ContingentValuesDocument.ServedDefinition> definitions = [];
 
         foreach (PublishedLayer each in service.LayersAndTables.OrderBy(l => l.LayerIndex))
         {
@@ -278,17 +326,12 @@ internal static class ContingentValueEndpoints
 
             if (Served(layer, described) is { } served)
             {
-                definitions.Add(ContingentValuesDocument.Definition(
-                    layer.Definition, layer.LayerIndex, layer.DisplayName, GeometryTypeOf(layer), described, served, dictionaries));
+                definitions.Add(ContingentValuesDocument.Serve(
+                    layer.Definition, layer.LayerIndex, layer.DisplayName, GeometryTypeOf(layer), described, served));
             }
         }
 
-        await Results.Json(new
-        {
-            typeCodes = ContingentValuesDocument.TypeCodes,
-            stringDicts = dictionaries.Written,
-            contingentValuesDefinitions = definitions.ToArray(),
-        }).ExecuteAsync(context).ConfigureAwait(false);
+        await AnswerAsync(context, pbf, options, definitions, oneLayer: false).ConfigureAwait(false);
     }
 
     /// <summary>Why a layer's definition may not be written, or null: hosted layers only (ADR-312 §5.5, INFERRED).</summary>

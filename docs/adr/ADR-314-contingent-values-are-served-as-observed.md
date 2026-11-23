@@ -75,7 +75,7 @@ The observation, its sources, dates and the field-by-field mapping are in the re
 | Every value of every observed definition decodes to its JSON twin under the map of §5.2 | A script compared 14 layers in the first pass and some 60 in the second, about 20,000 values; the only differences were date codes, which §5.2 explains | the research note §3 |
 | A layer has a **`fieldGroups`** resource listing each group's `name`, `restrictive` and field names, and the layer document says `hasFieldGroups`, `supportsFieldGroups`, `supportsContingentValues` and `supportedContingentValuesFormats: "JSON, PBF"` | Read on every observed layer | the research note §4 |
 | The JSON puts a range in one slot as `{"range":[min,max]}`, a layer without subtypes puts `domains` and `contingentValues` on the group, a retired value is served with `"retired":1`, and a field's `id` is its position in the group | Every observed answer | the research note §5 |
-| `compactFormat=false` and `domainDictionaries=complete|trimmed` have the shapes of §5.5 | Fetched for three layers | the research note §5 |
+| `compactFormat=false` and `domainDictionaries` `complete` and `trimmed` have the shapes of §5.5 | Fetched for three layers | the research note §5 |
 | The protobuf answer does not change with `compactFormat` or `domainDictionaries` | Byte-identical answers | the research note §2 |
 | The QA portal's hosting server could not be used for a controlled layer | `createService` answered 500; the server's `rest/info` and `admin/logs/query` answered 500 (2026-11-23) | the research note §0 |
 
@@ -233,6 +233,15 @@ None recorded.
    emulator against a build with this ADR. Open: needs the device, which this work does not drive.
 2. **The protobuf answer decodes to the JSON answer's definition** for this project's own definitions — integer, text,
    date and range values, `Any`, `Null`, subtypes, a retired value and the unobserved types' degradation — checked by unit
-   tests with a reader written in the test, and `f=pbf` checked by a conformance test against a running server.
+   tests with a reader written in the test, and `f=pbf` checked by a conformance test against a running server. **DISCHARGED
+   2026-11-23**: `ContingentValuesAnswerTests` (tests/Graticula.Api.ArcGis.Tests, 13 pass) encode this project's own
+   definitions — every observed kind, a subtype, a retired value, a layer id, the string table shared by two domains, the
+   date codes, the exact bytes of a one-value answer, and §5.3's degradation — and read them back with
+   `tests/shared/ContingentValuesPbfReader.cs`; `ContingentValuesTests` (tests/Graticula.Conformance.Tests, 2 pass) fetch
+   `contingentValues?f=pbf` and `queryContingentValues?f=pbf` from the local fixture and find the JSON answer's values in
+   them, including a subtype.
 3. **The JSON answer and `fieldGroups` have §5.4–5.5's shape**, with `compactFormat=false` and both `domainDictionaries`,
-   checked by conformance tests against a running server.
+   checked by conformance tests against a running server. **DISCHARGED 2026-11-23**: `ContingentValuesTests` (the local fixture) read the
+   layer and service flags, `fieldGroups`, the one-slot range, the group-level values, `retired: 1`, first-use
+   dictionaries, `compactFormat=false&domainDictionaries=trimmed` and a refused `domainDictionaries=all`;
+   `ContingentValuesAnswerTests` cover `complete` and `trimmed` with both formats.

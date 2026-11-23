@@ -69,7 +69,7 @@ Both are band 1.
 | `queryBins` and `lodBin` | Missing | No match in `src` |
 | Layer query `outDistance` | **Refused (400)** | Refused as an unknown parameter, so a 12.2 client that sends it gets an error |
 | Extract on joined hosted views | Missing | Graticula has no join view (ADR-113 views are single-table) |
-| Contingent values and field groups | Have, since 2026-11-22 ([ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md)) | Stored on a hosted layer, served by `contingentValues` and `queryContingentValues`, written from Studio and `addToDefinition`; not enforced by `applyEdits`, as in ArcGIS. Not yet in an offline replica (D-472) or a Pro publish (D-473). grapy has them too (ADR-235) |
+| Contingent values and field groups | Have, since 2026-11-22 ([ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md)) | Stored on a hosted layer, served by `contingentValues` and `queryContingentValues`, written from Studio and `addToDefinition`; not enforced by `applyEdits`, as in ArcGIS. Not yet in an offline replica (D-472) or a Pro publish (D-473). grapy has them too (ADR-235). Since 2026-11-23 also `f=pbf`, the format Field Maps asks for, in an encoding observed on ArcGIS Online ([ADR-314](../adr/ADR-314-contingent-values-are-served-as-observed.md)) |
 | OGC API Features from a hosted layer | Have | ADR-042, ADR-162 |
 | Shared templates kept on publish | Partly (not verified) | `templates` in the layer document (ADR-065). Not tried from Pro |
 | `GetServiceDatastoreInfo` | Missing | No match in `src` |

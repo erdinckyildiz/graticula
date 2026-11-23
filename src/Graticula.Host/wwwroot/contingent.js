@@ -22,8 +22,11 @@ const CV_KINDS = ["ANY", "NULL", "CODED_VALUE", "RANGE"];
 /**
  * A definition read from the ArcGIS resource, in the stored shape's words.
  *
- * INFERRED (ADR-312 §5.9): a text code is an index into its dictionary's `entries`, named by the subtype's `domains`
- * entry for the field or by the field itself; a range takes two slots; Any and Null take none.
+ * The shape is the one an ArcGIS server was observed to serve (ADR-314 §5.5): a text code is an index into its
+ * dictionary's `entries`, named by the `domains` entry for the field or by the field itself; a range is one slot,
+ * `{range: [min, max]}`; Any and Null take none; a layer without subtypes puts `domains` and `contingentValues` on the
+ * group; a retired value says `retired: 1`. Two slots for a range, and values under `subTypes` on a layer without
+ * subtypes, are still read (ADR-312's first reading).
  *
  * @param {object} resource the `contingentValues` answer, or one entry of `queryContingentValues` with the answer's
  *   `stringDicts` passed as `dicts`
@@ -40,16 +43,24 @@ function cvFromRest(resource, dicts) {
     const fields = (group.fields || []).map(f => f.name);
     const texts = new Set((group.fields || []).filter(f => f.fieldType === "esriFieldTypeString").map(f => f.name));
     groups.push({ name: group.name, restrictive: group.restrictive !== false, fields });
-    for (const kind of group.subTypes || []) {
+    const kinds = group.subTypes
+      || (group.contingentValues ? [{ code: 0, domains: group.domains, contingentValues: group.contingentValues }] : []);
+    for (const kind of kinds) {
       const subtype = definition.hasSubType ? kind.code : null;
       for (const value of kind.contingentValues || []) {
         const slots = value.values || [];
         let at = 0;
         const entries = fields.map((field, i) => {
-          const type = CV_TYPE_CODES[(value.types || [])[i]] || "Unknown";
+          const raw = (value.types || [])[i];
+          const type = typeof raw === "string" ? raw : CV_TYPE_CODES[raw] || "Unknown";
           if (type === "Any") return { field, kind: "ANY" };
           if (type === "Null") return { field, kind: "NULL" };
           if (type === "Range") {
+            const slot = slots[at];
+            if (slot && typeof slot === "object" && Array.isArray(slot.range)) {
+              at += 1;
+              return { field, kind: "RANGE", min: slot.range[0], max: slot.range[1] };
+            }
             const entry = { field, kind: "RANGE", min: slots[at], max: slots[at + 1] };
             at += 2;
             return entry;
@@ -64,7 +75,7 @@ function cvFromRest(resource, dicts) {
           }
           return { field, kind: "ANY" };
         });
-        values.push({ id: value.id, group: group.name, subtype, retired: false, entries });
+        values.push({ id: value.id, group: group.name, subtype, retired: value.retired === 1 || value.retired === true, entries });
       }
     }
   }
