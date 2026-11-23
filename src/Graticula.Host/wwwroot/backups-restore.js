@@ -119,6 +119,9 @@ function bkrWhen(op, now = Date.now()) {
   return `${verb} ${bkrAgo(op.finished, now)}${Number.isNaN(started) ? "" : `, after ${bkrSeconds(finished - started)}`}.`;
 }
 
+/** The state the panel was last drawn in, so the steps fold once when an operation ends and not on every read. */
+let bkrDrawnState = null;
+
 /** Draws the operation's panel and says its sentence when it changed. */
 function bkrDraw(op) {
   const panel = $("bkrOp");
@@ -135,9 +138,17 @@ function bkrDraw(op) {
     .map(step => {
       const at = new Date(step.at).getTime();
       const after = Number.isNaN(started) || Number.isNaN(at) ? backupWhen(step.at) : `+${bkrSeconds(at - started)}`;
-      return `<li><b>${h(bkrStepNames[step.name] || step.name)}</b>
-        <span class="rowmeta">${h(after)}</span></li>`;
+      return `<li>${h(bkrStepNames[step.name] || step.name)} <span class="rowmeta">${h(after)}</span></li>`;
     }).join("");
+
+  // While it runs the steps are open; once it has ended they fold under the outcome, so an old result does not push the
+  // backups below the fold on every visit. A reader who opens them keeps them open (second render, BK-N1).
+  const box = $("bkrStepsBox");
+  if (box && op.state !== bkrDrawnState) box.open = op.state === "running";
+  bkrDrawnState = op.state;
+  const n = (op.steps || []).length;
+  const label = $("bkrStepsLabel");
+  if (label) label.textContent = `${op.state === "running" ? "Steps so far" : "Show the steps"} (${num(n)})`;
 
   bkrSay(bkrSentence(op), op.state === "failed");
 }
@@ -427,7 +438,11 @@ function bkrAsk(backup) {
     dialog.addEventListener("close", onClose);
 
     dialog.showModal();
-    typed.focus();
+    // Focus without scrolling, and the body at its top, so a short screen opens on what is lost rather than on the
+    // name box below it (second render, BK-N2).
+    typed.focus({ preventScroll: true });
+    const body = dialog.querySelector(".dialogbody");
+    if (body) body.scrollTop = 0;
   });
 }
 

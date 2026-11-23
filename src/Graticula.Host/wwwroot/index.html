@@ -1143,9 +1143,12 @@
     <!-- ADR-317: a validation's or a restore's progress, said as each step begins and once when it ends. -->
     <div class="panel pad settingcard" id="bkrOp" hidden>
       <h4 id="bkrOpHead" tabindex="-1">Validation</h4>
+      <p class="bkroutcome" id="bkrProgress" role="status" aria-live="polite"></p>
       <p class="rowmeta" id="bkrOpWhen"></p>
-      <p class="hint" id="bkrProgress" role="status" aria-live="polite"></p>
-      <ol class="bkrsteps" id="bkrSteps"></ol>
+      <details class="bkrstepsbox" id="bkrStepsBox">
+        <summary id="bkrStepsLabel">Show the steps</summary>
+        <ol class="bkrsteps" id="bkrSteps"></ol>
+      </details>
     </div>
 
     <div class="panel widetable">

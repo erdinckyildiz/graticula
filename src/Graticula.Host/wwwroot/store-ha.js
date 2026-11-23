@@ -8,7 +8,7 @@
  * review of 2026-11-23, findings 1 and 2).
  *
  * A classic script: it shares console.js's global namespace, so every name here starts with `sh` (store HA), and it
- * uses console.js's `$`, `h`, `num`, `api` and `servicePinAgo`, which exist by the time a screen is shown.
+ * uses console.js's `$`, `h`, `num` and `api`, which exist by the time a screen is shown.
  */
 
 /** The timer that reads the page again while it is open. */
@@ -25,6 +25,9 @@ let shReadAt = null;
 
 /** Whether the line under the heading is saying a failed read, so the next reading that works clears it. */
 let shFailing = false;
+
+/** The callout's source as last written. The browser's serialised innerHTML never equals it, so it is compared here. */
+let shHeldSaid = null;
 
 /** Beyond either of these the standby is called lagging. INFERRED (ADR-319 §5.12): no source names a threshold. */
 const SH_LAG_SECONDS = 60;
@@ -78,12 +81,26 @@ function shDuration(s) {
   return `${num(Math.floor(hrs / 24))} days${hrs % 24 ? ` ${num(hrs % 24)} h` : ""}`;
 }
 
+/** A moment as a date: "20 Nov 2026, 10:14". Plain text, and steady, so a live region holding it is not rewritten. */
+function shStamp(at) {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return String(at);
+  return d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+/** How long ago, in plain text, in days beyond 48 hours: "50 seconds ago", "3 hours ago", "3 days ago". */
+function shAgo(at) {
+  const s = (Date.now() - new Date(at).getTime()) / 1000;
+  if (!(s >= 0)) return "";
+  if (s < 90) return `${num(Math.round(s))} seconds ago`;
+  if (s < 90 * 60) return `${num(Math.round(s / 60))} minutes ago`;
+  if (s < 48 * 3600) return `${num(Math.round(s / 3600))} hours ago`;
+  return `${num(Math.round(s / 86400))} days ago`;
+}
+
 /** A moment as an ago and a date: "3 days ago (20 Nov 2026, 10:14)" (finding 11). */
 function shWhen(at) {
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return h(String(at));
-  const stamp = d.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  return `${h(servicePinAgo(at))} (${h(stamp)})`;
+  return h(`${shAgo(at)} (${shStamp(at)})`);
 }
 
 /** A clock time for the status line. */
@@ -118,9 +135,11 @@ function shReplication(host, primary) {
     const behind = shBehind(primary);
     if (!behind) return h(receiving);
     const pill = behind.lagging ? ` <span class="pill p-stopped">Lagging</span>` : "";
+    // One element in the cell: a phone's `td[data-l]` is a flex row, and loose children would each become a column
+    // (second render, DB-N3).
     const risk = behind.lagging && behind.secs != null
       ? `<div class="rowmeta">If the primary is lost now, about ${h(shDuration(behind.secs))} of changes are lost.</div>` : "";
-    return `${h(receiving)}<span class="sep" aria-hidden="true"> · </span><span data-sh-lag>${h(behind.text)}</span>${pill}${risk}`;
+    return `<div class="shrep">${h(receiving)}<span class="sep" aria-hidden="true"> · </span><span data-sh-lag>${h(behind.text)}</span>${pill}${risk}</div>`;
   }
   if (host.role === "fenced") return "Read-only until it is rewound";
   return "";
@@ -172,14 +191,16 @@ function shCallout(report, hosts, primary) {
       machine of the site:</p>${cmd}`;
   } else if (hosts.length > 1 && !primary.standbys) {
     const fenced = hosts.find(x => x.role === "fenced");
-    const since = report.lastFailover ? ` since the failover ${h(servicePinAgo(report.lastFailover.at))}` : "";
+    // The date, not an age: an age would change the alert's text every minute and have it read out again (DB-N1).
+    const since = report.lastFailover ? ` since the failover of ${h(shStamp(report.lastFailover.at))}` : "";
     html = `<p><b>The site has no standby${since}.</b> ${fenced
       ? `${h(fenced.address)} is fenced; rewind it with <code>pg_rewind</code> and start it as the standby.`
       : "Start the standby again so the database has a copy to take over."}
       <a href="${SH_GUIDE}" target="_blank" rel="noopener">How (deployment guide, 1.6)</a></p>`;
   }
-  // An alert is read out when its content changes, so it is written only when it does.
-  if (held.innerHTML !== html) held.innerHTML = html;
+  // An alert is read out when its content changes, so it is written only when its source does (DB-N1): rewriting it
+  // each poll had it read out every five seconds and took the focus off the link inside it.
+  if (shHeldSaid !== html) { held.innerHTML = html; shHeldSaid = html; }
   held.hidden = !html;
 }
 
@@ -196,6 +217,9 @@ function shAnnounce(hosts) {
 /** Reads the hosts and draws them. Throws on a failed read; `shPoll` keeps the page reading either way. */
 async function shRead() {
   const report = await api("/admin/site/store") || {};
+  // The failure said before goes as soon as a read works, before anything new is said, so that a new primary said below
+  // is not wiped with it (DB-N4) — on a failover the read before the new primary is exactly the one that failed.
+  if (shFailing) { shFailing = false; shSay(""); }
   const none = $("shNone");
   const body = $("shBody");
   if (!report.configured) {
@@ -246,8 +270,6 @@ async function shPoll() {
   try {
     await shRead();
     shReadAt = new Date();
-    // A failure said before is cleared by the reading that works; a change of primary said by shAnnounce stays.
-    if (shFailing) { shFailing = false; shSay(""); }
     $("shAge").textContent = `Read at ${shClock(shReadAt)}. Read again every 5 seconds.`;
   } catch (e) {
     const why = await shWhy(e);

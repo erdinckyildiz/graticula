@@ -6430,7 +6430,13 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-backups .bknote code { overflow-wrap: anywhere; }
 /* ADR-317: a validation's or a restore's steps, and the restore's confirmation. */
 #view-backups .bkrsteps { margin: var(--gap-2) 0 0; padding-left: 1.4em; display: grid; gap: var(--gap-1); }
-#view-backups .bkrsteps .rowmeta { margin-left: var(--gap-2); }
+#view-backups .bkrsteps .rowmeta { margin-left: var(--gap-2); font-variant-numeric: tabular-nums; }
+/* The outcome leads, at body size in ink; the steps fold under it once the operation has ended (second render, BK-N1). */
+#view-backups .bkroutcome { margin: var(--gap-1) 0; color: var(--ink); font-size: var(--t-body, 1rem); }
+#view-backups .bkroutcome:empty { display: none; }
+#view-backups .bkroutcome.bad-inline { color: var(--alert); font-size: var(--t-body, 1rem); }
+#view-backups .bkrstepsbox { margin-top: var(--gap-2); }
+#view-backups .bkrstepsbox summary { cursor: pointer; color: var(--muted); font-size: var(--t-small); }
 #bkrDialog .dialogbody ul { padding-left: 1.2em; }
 #bkrDialog .dialogbody code { overflow-wrap: anywhere; }
 #bkrDialog #bkrConfirm { width: 100%; box-sizing: border-box; height: 36px; margin-top: var(--gap-1); }
@@ -6546,6 +6552,8 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-database .shh { font-size: var(--t-body, 1rem); margin: 0 0 6px; }
 #view-database .settingcard p + p { margin-top: 8px; }
 #shSays:empty { display: none; }
+#view-database .shcallout a { text-decoration: underline; }
+#view-database .shrep { display: block; min-width: 0; }
 .pill.p-info { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 /* Narrow: the machine's name and its address take the whole row, and its buttons go under them, so another machine's
    address -- its first meta item, unbroken -- never runs under the Stop button (design review of phase 4). */

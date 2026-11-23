@@ -2978,7 +2978,10 @@ function idpDialogClosed() {
  */
 function idpBackToSave() {
   $("idpSave").focus();
-  $("idpSave").scrollIntoView({ block: "nearest" });
+  // To the end of the dialog's scrolling body, so the button's focus ring is in view too, not only its border (N1).
+  const body = $("idpSave").closest(".dialogbody");
+  if (body) body.scrollTop = body.scrollHeight;
+  else $("idpSave").scrollIntoView({ block: "nearest" });
 }
 
 async function saveIdp() {
@@ -4449,13 +4452,16 @@ function drawSecurityPages(want) {
   // Until a reader chooses, the page is the first that exists: the sections that depend on a privilege answer after the
   // others, and the page should not be Sign-in because Two-step sign-in had not been drawn yet.
   if (want && present.includes(want)) { securityPage = want; securityChosen = true; }
-  if (!securityChosen || !present.includes(securityPage)) securityPage = present[0] || "idp";
-  view.dataset.secpage = securityPage;
+  if (!securityChosen) securityPage = present[0] || "idp";
+  // A page asked for (`?tab=sf`) whose section has not answered yet is kept as the wish, and the first that exists is
+  // shown meanwhile; writing the stand-in back would lose the wish before its section appears (second render, N2).
+  const shown = present.includes(securityPage) ? securityPage : present[0] || "idp";
+  view.dataset.secpage = shown;
 
   for (const b of view.querySelectorAll("[data-secpage-go]")) {
     const k = b.dataset.secpageGo;
     b.hidden = !present.includes(k);
-    b.setAttribute("aria-pressed", String(k === securityPage));
+    b.setAttribute("aria-pressed", String(k === shown));
   }
 }
 
