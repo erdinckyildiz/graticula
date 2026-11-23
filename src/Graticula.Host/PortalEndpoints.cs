@@ -510,6 +510,26 @@ internal static partial class PortalEndpoints
         (string? name, string? password) = await CredentialsAsync(context, cancellation)
             .ConfigureAwait(false);
 
+        // ADR-315 §5.7: the portal's door takes a certificate as /rest/generateToken does.
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrEmpty(password)
+            && await Graticula.Host.Pki.PkiEndpoints.TokenAsync(context, login, cancellation).ConfigureAwait(false)
+                is { Asked: true } byCertificate)
+        {
+            if (byCertificate.Token is null)
+            {
+                await PortalError(context, byCertificate.Status, $"Unable to generate token. {byCertificate.Refusal}").ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new
+            {
+                token = byCertificate.Token,
+                expires = byCertificate.Expires.ToUnixTimeMilliseconds(),
+                ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password))
         {
             await PortalError(context, 400, "'username' and 'password' are required.")

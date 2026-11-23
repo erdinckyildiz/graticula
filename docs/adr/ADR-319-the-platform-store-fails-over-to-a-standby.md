@@ -190,7 +190,7 @@ the primary's replication lag.
    the primary. *(D-497.)*
 
 Then the node calls `pg_promote(true, 60)` on the standby, clears any fence the standby inherited (§5.6), writes a
-row to `store_failover` (migration 149) on the new primary — when, from where to where, the timeline, which node
+row to `store_failover` (migration 148, given 149 and renumbered at the merge) on the new primary — when, from where to where, the timeline, which node
 decided, how long the primary had been unreachable — and raises its epoch. Two nodes deciding at once is harmless:
 the second `pg_promote` finds a primary and does nothing.
 
@@ -300,7 +300,7 @@ standby is configured and links deployment.md §1.6.
 6. The compose standby is an **override file**, not a profile (§5.9).
 7. Manual promotion is **a command, `graticula store promote`**, not an admin route, and it **refuses while a primary
    is reachable** (§5.7).
-8. Failovers are recorded in a table, `store_failover` (migration 149) (§5.4).
+8. Failovers are recorded in a table, `store_failover` (migration 148, given 149 and renumbered at the merge) (§5.4).
 9. **No automatic failback** (§5.8).
 10. Nodes ask each other over HTTP, authenticated by a keyed hash of the site key (§5.4).
 
@@ -371,7 +371,7 @@ fooled (D-496). Every physical connection to a two-host store costs one round tr
 
 **Ports created.** None: no Tier 2 library is adopted. Npgsql is already the store's driver.
 
-**State.** In the store: `store_failover`, one row per promotion (migration 149) — shared, and replicated with the
+**State.** In the store: `store_failover`, one row per promotion (migration 148, given 149 and renumbered at the merge) — shared, and replicated with the
 rest. Node-local: the newest timeline seen per system identifier, in memory and in `store-epoch.json` under the
 node's state path (§5.3), and each host's last probe, the suspect marks and the held reason, in memory only. On the
 database hosts: the fence, as `default_transaction_read_only` in the fenced host's `postgresql.auto.conf`.

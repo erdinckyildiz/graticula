@@ -243,7 +243,7 @@ internal static class CallerAddress
         return colon > 0 && entry.IndexOf(':', colon + 1) < 0 ? entry[..colon] : entry;
     }
 
-    private static bool IsTrusted(IPAddress address, IReadOnlyList<IPNetwork> trusted)
+    internal static bool IsTrusted(IPAddress address, IReadOnlyList<IPNetwork> trusted)
     {
         IPAddress candidate = address.IsIPv4MappedToIPv6
             ? address.MapToIPv4()

@@ -256,6 +256,13 @@ internal static partial class AdminEndpoints
             // ADR-090: what a SAML provider is given about this server.
             acsUrl = Graticula.Host.Saml.SamlEndpoints.AcsUrl(context),
             samlEntityId = Graticula.Host.Saml.SamlEndpoints.DefaultEntityId(context),
+
+            // ADR-315 §5.2: whether this server receives client certificates at all, and from whom it believes them.
+            clientCertificates = Graticula.Host.Pki.PkiEndpoints.Describe(
+                context.RequestServices.GetRequiredService<Graticula.Host.Pki.ClientCertificates>().Settings),
+
+            // ADR-316: whether this server signs people in with Windows.
+            windows = new { enabled = context.RequestServices.GetRequiredService<Graticula.Host.Iwa.WindowsSignIn>().Enabled },
             roles = defined.Select(r => r.Name).ToArray(),
             userTypes = UserTypes.All.ToArray(),
             providers = all.Select(DescribeProvider).ToArray(),
@@ -449,6 +456,41 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-316: Windows is checked by whether this server is configured for it.
+        if (provider.Settings.Kind == "iwa")
+        {
+            if (!context.RequestServices.GetRequiredService<Graticula.Host.Iwa.WindowsSignIn>().Enabled)
+            {
+                await Refuse(context, 503,
+                    "This server is not configured to sign people in with Windows, so nobody can sign in with this provider. "
+                    + "Set Graticula:Iwa:Enabled, and on Linux Graticula:Iwa:Keytab, and restart.").ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new { reachable = true, iwa = true }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-315: a certificate provider is checked by what this server is configured to receive.
+        if (provider.Settings.Kind == "pki")
+        {
+            Graticula.Host.Pki.ClientCertificateSettings transport =
+                context.RequestServices.GetRequiredService<Graticula.Host.Pki.ClientCertificates>().Settings;
+
+            if (!transport.Enabled)
+            {
+                await Refuse(context, 503,
+                    "This server is not configured to receive client certificates, so nobody can sign in with this provider. "
+                    + "Set Graticula:ClientCertificates:Mode, or :Header behind a proxy, and :Authorities, and restart.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new { reachable = true, pki = true, clientCertificates = Graticula.Host.Pki.PkiEndpoints.Describe(transport) })
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         // ADR-089: a directory is checked by binding with its search account and reading its search base.
         if (provider.Settings.Kind == "ldap")
         {
@@ -586,8 +628,37 @@ internal static partial class AdminEndpoints
         string kind = string.IsNullOrWhiteSpace(request.Kind) ? "oidc" : request.Kind.Trim().ToLowerInvariant();
         bool directory = kind == "ldap";
         bool saml = kind == "saml";
+        bool pki = kind == "pki";
+        bool iwa = kind == "iwa";
         string issuer = (request.Issuer ?? string.Empty).Trim().TrimEnd('/');
         string clientId = (request.ClientId ?? string.Empty).Trim();
+
+        // ADR-315 §5.1: a certificate provider holds no address and no client; the authorities are the transport's.
+        string field = (request.UsernameClaim ?? string.Empty).Trim().ToLowerInvariant();
+
+        if (pki)
+        {
+            issuer = "client-certificate";
+            clientId = string.Empty;
+            field = field.Length == 0 ? "cn" : field;
+        }
+
+        // ADR-316 §5.1: Windows holds no address and no client either; the name is the ticket's.
+        if (iwa)
+        {
+            issuer = "negotiate";
+            clientId = string.Empty;
+            field = "name";
+        }
+
+        // ADR-315 §5.1: one certificate is one person, so one PKI provider is on in an organisation.
+        bool enabled = request.Enabled ?? true;
+        string? second = (pki || iwa) && enabled
+            && (await context.RequestServices.GetRequiredService<IIdentityProviderStore>().ListAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(p => p.Settings is { Enabled: true } && p.Settings.Kind == kind && p.Id != before?.Id) is { } other
+            ? $"{other.Settings.Name} already signs people in with {(pki ? "a certificate, and one certificate cannot be two people" : "Windows, and one Windows sign-in cannot be two")}. "
+              + "Turn it off first, or add this one turned off."
+            : null;
 
         // ADR-090: a SAML provider is its metadata, read from its URL now or taken as uploaded; its issuer is where
         // the metadata came from, and its client id is this server's entity id there.
@@ -635,10 +706,16 @@ internal static partial class AdminEndpoints
         string groupBase = (request.GroupBase ?? ldapBefore?.GroupBase ?? string.Empty).Trim();
         string userType = string.IsNullOrWhiteSpace(request.DefaultUserType) ? UserTypes.Unrestricted : request.DefaultUserType.Trim();
 
-        string? refusal = kind is not ("oidc" or "ldap" or "saml")
-            ? "A sign-in provider is an OpenID Connect provider (oidc), an LDAP directory (ldap) or a SAML provider (saml)."
+        string? refusal = kind is not ("oidc" or "ldap" or "saml" or "pki" or "iwa")
+            ? "A sign-in provider is an OpenID Connect provider (oidc), an LDAP directory (ldap), a SAML provider (saml), "
+              + "a client certificate (pki) or Windows (iwa)."
             : name.Length is 0 or > 100
             ? "A sign-in provider has a name of 1 to 100 characters: it is what the sign-in button says."
+            : second is not null
+                ? second
+            : pki && !Graticula.Host.Pki.ClientCertificates.Fields.Contains(field)
+                ? $"'{field}' is not a field a certificate names an account by. It is cn (the subject's common name), email "
+                  + "(the e-mail address in its alternative names) or upn (the user principal name a smart card carries)."
             : samlRefusal is not null
                 ? samlRefusal
             : directory && Graticula.Host.Ldap.LdapDirectory.AddressRefusal(issuer, request.StartTls) is { } badAddress
@@ -685,11 +762,12 @@ internal static partial class AdminEndpoints
             issuer,
             clientId,
             string.IsNullOrWhiteSpace(request.Scopes) ? "openid profile email" : request.Scopes.Trim(),
-            string.IsNullOrWhiteSpace(request.UsernameClaim) ? (saml ? "NameID" : "preferred_username") : request.UsernameClaim.Trim(),
+            pki || iwa ? field
+                : string.IsNullOrWhiteSpace(request.UsernameClaim) ? (saml ? "NameID" : "preferred_username") : request.UsernameClaim.Trim(),
             request.AutoCreate,
             role,
             userType,
-            request.Enabled ?? true,
+            enabled,
             kind,
             string.IsNullOrWhiteSpace(request.GroupsClaim) ? (saml ? SamlGroupsAttribute : "groups") : request.GroupsClaim.Trim(),
             directory

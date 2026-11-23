@@ -190,6 +190,8 @@ public static class Program
 
         HostSettings settings;
         Graticula.Host.Geocoding.GeocoderSettings? geocoding;
+        Graticula.Host.Pki.ClientCertificateSettings clientCertificates;
+        Graticula.Host.Iwa.WindowsSignIn windows;
 
         // <b>The refusal is written carefully and then thrown away — [D-171](../../docs/architecture-debt.md).</b>
         // `HostSettings.Read` says exactly what is missing, where to set it, and that the
@@ -219,6 +221,13 @@ public static class Program
 
             // ADR-258: a GeocodeServer over a Photon the operator runs, only when one is configured.
             geocoding = Graticula.Host.Geocoding.GeocoderSettings.Read(builder.Configuration);
+
+            // ADR-315: client certificates, read once; a setting that cannot work refuses to start, as TrustedProxies does.
+            clientCertificates = Graticula.Host.Pki.ClientCertificateSettings.Read(
+                builder.Configuration, settings.RequireHttps, settings.TrustedProxies);
+
+            // ADR-316: Windows sign-in, off unless turned on.
+            windows = Graticula.Host.Iwa.WindowsSignIn.Read(builder.Configuration);
         }
         catch (InvalidOperationException misconfigured)
         {
@@ -234,7 +243,16 @@ public static class Program
             return await RefuseConfigurationAsync(builder.Configuration, misconfigured.Message).ConfigureAwait(false);
         }
 
-        ConfigureKestrel(builder, settings);
+        ConfigureKestrel(builder, settings, clientCertificates);
+
+        // ADR-316: the Negotiate handler, registered only when Windows sign-in is turned on.
+        windows.Register(builder.Services);
+
+        // ADR-315: what reads, checks and maps a client certificate, for the sign-in route and for Kestrel's handshake.
+        builder.Services.AddSingleton(clientCertificates);
+        builder.Services.AddSingleton(services => new Graticula.Host.Pki.ClientCertificates(
+            clientCertificates, settings.TrustedProxies,
+            services.GetRequiredService<ILogger<Graticula.Host.Pki.ClientCertificates>>()));
 
         // <b>Registered so a handler can be given it rather than reaching for
         // configuration again.</b> Added with Q-113's response ceiling: the query
@@ -1054,7 +1072,16 @@ public static class Program
             services.GetRequiredService<SourceBreaker>(),
             services.GetRequiredService<AnonymousGrants>(),
             services.GetRequiredService<BasicCredentials>(),
-            services.GetRequiredService<IApiKeyStore>()));
+            services.GetRequiredService<IApiKeyStore>(),
+
+            // ADR-315 §5.5a: only where this server receives certificates at all.
+            clientCertificates.Enabled
+                ? new Graticula.Host.Pki.CertificatePrincipals(
+                    services.GetRequiredService<Graticula.Host.Pki.ClientCertificates>(),
+                    services.GetRequiredService<IIdentityProviderStore>(),
+                    services.GetRequiredService<TimeProvider>(),
+                    services.GetRequiredService<ILogger<Graticula.Host.Pki.CertificatePrincipals>>())
+                : null));
 
         // ADR-203: the recycle bin — deleted items kept whole with their ids until they expire.
         builder.Services.AddSingleton<IRecycleBin>(services =>
@@ -2914,7 +2941,10 @@ public static class Program
         }
     }
 
-    private static void ConfigureKestrel(WebApplicationBuilder builder, HostSettings settings)
+    private static void ConfigureKestrel(
+        WebApplicationBuilder builder,
+        HostSettings settings,
+        Graticula.Host.Pki.ClientCertificateSettings? clientCertificates = null)
     {
         /*
           <b>ADR-014 §2b: a replacement must not need a restart.</b> Only when the operator
@@ -2987,6 +3017,22 @@ public static class Program
                     // is written and wrong two years later, and the platform is
                     // maintained by people who track this full time.
                     https.SslProtocols = System.Security.Authentication.SslProtocols.None;
+
+                    // <b>ADR-315 §5.2 and §5.8: a client certificate asked for at the handshake</b>, never by
+                    // renegotiation, so TLS 1.3 and HTTP/2 stay. `Allow` takes whatever is presented and leaves the
+                    // check to the sign-in route; `Require` checks the chain here, against this deployment's
+                    // authorities alone — the platform's own check would consult the machine's store instead.
+                    if (clientCertificates is { Mode: not Graticula.Host.Pki.ClientCertificateMode.Off } asked)
+                    {
+                        bool require = asked.Mode == Graticula.Host.Pki.ClientCertificateMode.Require;
+                        https.ClientCertificateMode = require
+                            ? Microsoft.AspNetCore.Server.Kestrel.Https.ClientCertificateMode.RequireCertificate
+                            : Microsoft.AspNetCore.Server.Kestrel.Https.ClientCertificateMode.AllowCertificate;
+                        https.ClientCertificateValidation = (certificate, _, _) =>
+                            !require
+                            || kestrel.ApplicationServices.GetRequiredService<Graticula.Host.Pki.ClientCertificates>()
+                                .Refusal(certificate) is null;
+                    }
                 });
 
                 // HTTP/2 is not optional: Q-78 put gRPC in scope, and it
@@ -3505,7 +3551,7 @@ public static class Program
 
                     // ADR-088: a way in through each provider an operator configured and left on.
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
-                        .Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })
+                        .Where(p => Graticula.Host.Oidc.OidcEndpoints.IsButton(context, p))
                         .Select(p => (Graticula.Host.Oidc.OidcEndpoints.StartPath(p), p.Settings.Name))],
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
                         .Where(p => p.Settings is { Enabled: true, Kind: "ldap" })
@@ -3518,6 +3564,8 @@ public static class Program
 
         Graticula.Host.Oidc.OidcEndpoints.Map(app);
         Graticula.Host.Saml.SamlEndpoints.Map(app);
+        Graticula.Host.Pki.PkiEndpoints.Map(app);
+        Graticula.Host.Iwa.WindowsSignIn.Map(app);
 
         app.MapGet("/rest/whoami", async (HttpContext context, TenantDirectory tenants) =>
         {

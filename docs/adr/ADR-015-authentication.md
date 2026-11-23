@@ -75,7 +75,7 @@ is bound the damage, and §4 does.
 | Principal | Authenticates with | Notes |
 |---|---|---|
 | **User** | Local password, OIDC, SAML | A person. Owns items (§2.0), holds roles |
-| **Service** | API key, or mTLS client certificate | A machine. Never owns items; roles only |
+| **Service** | API key, or mTLS client certificate *(amended 2026-11-23 by [ADR-315](ADR-315-a-member-signs-in-with-a-client-certificate.md): a client certificate signs a **person** in; a service account has API keys)* | A machine. Never owns items; roles only |
 | **Anonymous** | nothing | A real principal, not the absence of one — see §2a |
 
 **Anonymous is a principal.** Open data portals are a normal deployment of a GIS
@@ -262,7 +262,7 @@ SAML 2.0 and LDAP follow, by the owner's order; SCIM, API keys and mTLS are as t
 | **SAML 2.0** | Supported, free | The peer server gates at **Enterprise**. Still common in government and defence, which are plausible customers |
 | **SCIM 2.0** | Supported, free | Provisioning, not authentication. Included because Q-83 put it in scope |
 | **API keys** | Service principals only — **built 2026-10-18, [ADR-200](ADR-200-service-accounts-sign-in-with-api-keys.md)** | Long-lived by nature, so scoped narrowly and revocable |
-| **mTLS** | Off by default | [ADR-014](ADR-014-tls-and-certificates.md) §6 validates the certificate; **this ADR interprets the identity in it**. That boundary was set deliberately |
+| **mTLS** | Off by default | [ADR-014](ADR-014-tls-and-certificates.md) §6 validates the certificate; **this ADR interprets the identity in it**. That boundary was set deliberately. *(Since 2026-11-23, [ADR-315](ADR-315-a-member-signs-in-with-a-client-certificate.md): a **person** signs in with a client certificate, as ArcGIS Enterprise's PKI does — the transport configured under `Graticula:ClientCertificates`, the identity read by a sign-in provider of kind `pki`. §2's row giving mTLS to a service principal is amended by it; a service account keeps API keys.)* |
 
 **Local accounts are first-class rather than a bootstrap convenience**, and that
 is a real position: it means password storage, lockout policy and rotation are

@@ -198,7 +198,7 @@ internal sealed partial class StoreFailover : BackgroundService
         }
         catch (PostgresException missing) when (missing.SqlState == "42P01")
         {
-            // A store before migration 149 remembers none.
+            // A store before migration 148 remembers none.
         }
         catch (Exception e) when (StoreOutage.Is(e) || e is InvalidOperationException)
         {
