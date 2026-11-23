@@ -1303,8 +1303,8 @@ function wmfOnCardInput(event) {
 }
 
 /**
- * A number box's text into its field's control: "90,5" and "90.5" are 90.5, a space or a second separator groups
- * thousands (WMF_F.decimalText). Text that is not a number is kept as typed, so the save refuses it naming the field,
+ * A number box's text into its field's control: "90,5" and "90.5" are 90.5, and "1,500" is refused as ambiguous, by the
+ * rule every Studio screen reads numbers with (WMF_F.decimalText). Text that is not a number is kept as typed, so the save refuses it naming the field,
  * and the box says so while it is typed.
  */
 function wmfReadNumber(form, box, control) {
@@ -1313,7 +1313,10 @@ function wmfReadNumber(form, box, control) {
   const says = form.querySelector(`#${CSS.escape(`${control.id}-says`)}`);
   const field = (wmfEditing.info.fields || []).find(f => f.name === control.dataset.field);
   const label = (field && field.alias) || control.dataset.field;
-  const problem = read === null ? `${label} takes a number.`
+  const typed = box.value.trim();
+  const problem = read === null && WMF_F.ambiguousNumber(typed)
+    ? `${typed} could mean ${typed.replace(",", "")} or ${typed.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "")}. Type one of them.`
+    : read === null ? `${label} takes a number.`
     : box.dataset.wmfNumber === "whole" && read !== "" && !Number.isInteger(Number(read)) ? `${label} takes a whole number.` : "";
   if (problem) {
     box.setAttribute("aria-invalid", "true");

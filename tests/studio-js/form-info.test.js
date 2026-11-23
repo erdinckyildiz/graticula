@@ -371,10 +371,13 @@ test("removing an element hands focus to the next, else the previous, else its g
 });
 
 test("a typed number is read with a decimal comma, and text that is not a number is refused (third review)", () => {
-  for (const [typed, read] of [["90,5", "90.5"], ["90.5", "90.5"], [" 1 234,5 ", "1234.5"], ["1.234,5", "1234.5"], ["1,234.5", "1234.5"],
-    ["1.234.567", "1234567"], ["-3", "-3"], ["", ""], [",5", "0.5"], ["2e3", "2000"]]) {
+  for (const [typed, read] of [["90,5", "90.5"], ["90.5", "90.5"], [" 10,50 ", "10.5"], ["-3", "-3"], ["", ""], [",5", "0.5"],
+    ["2e3", "2000"], ["1500", "1500"]]) {
     assert.equal(F.decimalText(typed), read, typed);
   }
-  for (const typed of ["abc", "9,0,5x", "1-2", "--1"]) assert.equal(F.decimalText(typed), null, typed);
+  // One rule with webmap.js and contingent.js: nothing groups thousands, and "1,500" is ambiguous, so refused.
+  for (const typed of ["abc", "9,0,5x", "1-2", "--1", "1,500", "1.234,5", "1 234"]) assert.equal(F.decimalText(typed), null, typed);
+  assert.equal(F.ambiguousNumber("1,500"), true);
+  assert.equal(F.ambiguousNumber("10,50"), false);
   assert.equal(F.decimalText(null), "");
 });

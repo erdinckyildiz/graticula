@@ -620,33 +620,29 @@
   }
 
   /**
-   * A typed number as JavaScript reads it, or null when it is not one; "" stays "". A decimal comma is read as a point
-   * ("90,5" is 90.5); spaces, and a separator that appears more than once, group thousands; with both a comma and a
-   * point, the last one is the decimal separator ("1.234,5" and "1,234.5" are 1234.5). A single comma is always a
-   * decimal comma, never a thousands separator (INFERRED, ADR-313 §7 o).
+   * A typed number as JavaScript reads it, or null when it is not one; "" stays "". One rule for every Studio screen
+   * (webmap.js wmParseNumber, contingent.js cvParseNumber): a single comma or point is the decimal separator ("90,5" and
+   * "90.5" are 90.5), nothing groups thousands, and "1,500" is refused because it could mean 1500 or 1.5
+   * (ambiguousNumber). Studio's screens disagreed on this until 2026-11-23.
    */
   function decimalText(raw) {
-    let text = String(raw === null || raw === undefined ? "" : raw).trim().replace(/[\s\u00a0\u202f']/g, "");
+    const text = String(raw === null || raw === undefined ? "" : raw).trim();
     if (text === "") return "";
-    const comma = text.lastIndexOf(",");
-    const point = text.lastIndexOf(".");
-    const count = mark => text.split(mark).length - 1;
-    if (comma >= 0 && point >= 0) {
-      const at = Math.max(comma, point);
-      text = `${text.slice(0, at).replace(/[.,]/g, "")}.${text.slice(at + 1)}`;
-    } else if (comma >= 0) {
-      text = count(",") > 1 ? text.replace(/,/g, "") : text.replace(",", ".");
-    } else if (count(".") > 1) {
-      text = text.replace(/\./g, "");
-    }
-    return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(text) ? String(Number(text)) : null;
+    if (ambiguousNumber(text)) return null;
+    if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(text)) return null;
+    return String(Number(text.replace(",", ".")));
+  }
+
+  /** Whether typed text could be a thousands separator as well as a decimal comma — "1,500". */
+  function ambiguousNumber(raw) {
+    return /^[-+]?\d{1,3},\d{3}$/.test(String(raw === null || raw === undefined ? "" : raw).trim());
   }
 
   const api = {
     SYSTEM_TRUE, SYSTEM_FALSE, INPUT_LABELS, EXPRESSION_PROPERTIES, inputTypesFor, defaultInput, fromFields, walk,
     fieldElements, locate, setExpression, setFixed, modeOf, prune, expressionInfo, returnTypeFor, compile, evaluate,
     missing, substitute, markdownHtml, problems, toArcade, fromArcade, codedValues,
-    featureNames, warnings, textTitle, lengthLimit, neighbourOf, decimalText,
+    featureNames, warnings, textTitle, lengthLimit, neighbourOf, decimalText, ambiguousNumber,
   };
 
   if (typeof module === "object" && module.exports) module.exports = api;
