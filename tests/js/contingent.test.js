@@ -233,7 +233,7 @@ test("on the REST resource, which cannot say what is retired, an unchanged held 
   const held = { make: "BOE", model: 707 };
   const said = cv.cvSentences(rest, held, null, held, look);
   assert.equal(said.key, "", "no live lead when nothing changed");
-  assert.equal(said.note, "This feature already holds a combination the layer no longer offers for new edits.");
+  assert.equal(said.note, "This feature holds a combination the layer does not offer for new edits.");
   assert.equal(cv.cvWarning(said), "");
   const changed = cv.cvSentences(rest, { make: "BOE", model: 999 }, null, held, look);
   assert.equal(changed.key, "make_model", "a change is warned about as before");
@@ -356,4 +356,46 @@ test("the server's refusal names rows and fields as the screen does", () => {
     cv.cvRenameRefusal("Contingent value 6, field 'size': 5 is outside the range.", names, f => (f === "size" ? "Size" : f)),
     "Value 3 of make_model, field Size: 5 is outside the range.");
   assert.equal(cv.cvRenameRefusal("Contingent value 9 names no subtype.", names), "Contingent value 9 names no subtype.");
+});
+
+// ---- third review ----
+
+test("R1: beside a retired pair, only the value that is itself retired says so; a live make does not", () => {
+  const held = { make: "BOE", model: 707 };
+  const makes3 = [{ code: "BOE", name: "Boeing" }, { code: "AIR", name: "Airbus" }];
+  const make = cv.cvNarrow(makes3, cv.cvAllowance(planes, "make", held, null, held), ["BOE"], "BOE");
+  assert.deepEqual(make.map(o => cv.cvOptionLabel(o)), ["Boeing"], "Boeing is listed with 737 and 747, so it is not retired");
+  const model = cv.cvNarrow(models, cv.cvAllowance(planes, "model", held, null, held), [707], 707);
+  assert.deepEqual(model.map(o => cv.cvOptionLabel(o)), ["737", "747", "707 (retired)"]);
+});
+
+test("R2: the hint names only fields that remove a value, joins them with and, and names the list for its field", () => {
+  const twoGroups = cv.cvFromStored({
+    fieldGroups: [{ name: "mm", fields: ["make", "model"] }, { name: "ms", fields: ["make", "size"] }],
+    contingentValues: [
+      { id: 1, fieldGroup: "mm", entries: [["make", "CODED_VALUE", "BOE"], ["model", "CODED_VALUE", 737]] },
+      { id: 2, fieldGroup: "mm", entries: [["make", "CODED_VALUE", "AIR"], ["model", "CODED_VALUE", 320]] },
+      { id: 3, fieldGroup: "ms", entries: [["make", "CODED_VALUE", "BOE"], ["size", "RANGE", [1, 100]]] },
+      { id: 4, fieldGroup: "ms", entries: [["make", "CODED_VALUE", "AIR"], ["size", "RANGE", [1, 100]]] },
+    ],
+  });
+  const domain = [{ code: "BOE" }, { code: "AIR" }];
+  const now = { model: 737, size: 46 };
+  const limits = cv.cvAllowance(twoGroups, "make", now, null, null);
+  assert.equal(cv.cvNarrowedBecause(limits, now, look, domain, "make"), "Showing makes that go with Model 737. Clear Model to see all.",
+    "Size 46 allows both makes, so it is not named");
+  const tight = { model: 737, size: 46 };
+  const both = cv.cvFromStored({ ...JSON.parse(JSON.stringify({ fieldGroups: [{ name: "mm", fields: ["make", "model"] }, { name: "ms", fields: ["make", "size"] }] })),
+    contingentValues: [
+      { id: 1, fieldGroup: "mm", entries: [["make", "CODED_VALUE", "BOE"], ["model", "CODED_VALUE", 737]] },
+      { id: 2, fieldGroup: "ms", entries: [["make", "CODED_VALUE", "BOE"], ["size", "RANGE", [1, 100]]] },
+    ] });
+  assert.equal(cv.cvNarrowedBecause(cv.cvAllowance(both, "make", tight, null, null), tight, look, domain, "make"),
+    "Showing makes that go with Model 737 and Size 46. Clear them to see all.");
+});
+
+test("R7: the quiet line for a definition that cannot say what is retired does not claim the combination was once offered", () => {
+  const rest = { ...planes, values: planes.values.filter(v => !v.retired), retiredKnown: false };
+  const held = { make: "AIR", model: 747 };
+  assert.equal(cv.cvSentences(rest, held, null, held, look).note, "This feature holds a combination the layer does not offer for new edits.");
 });

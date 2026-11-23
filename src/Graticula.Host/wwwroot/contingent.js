@@ -256,7 +256,12 @@ function cvAllowance(definition, field, attributes, subtype, original = null) {
     const live = mine.filter(v => !v.retired && fits(v));
     const kept = original ? mine.filter(v => v.retired && fits(v) && cvFits(v, group, original)) : [];
     if (!live.length && !kept.length) continue;
-    limits.push({ group: group.name, by: others, live: live.map(v => cvEntry(v, field)), kept: kept.map(v => cvEntry(v, field)) });
+    limits.push({
+      group: group.name, by: others, live: live.map(v => cvEntry(v, field)), kept: kept.map(v => cvEntry(v, field)),
+      // What this field may hold in any live value of the group, whatever the other fields hold: a value listed here is
+      // not itself retired even when only a retired pair lets it stand beside the others now (third review R1).
+      anyLive: mine.filter(v => !v.retired).map(v => cvEntry(v, field)),
+    });
   }
   return limits.length ? limits : null;
 }
@@ -264,14 +269,21 @@ function cvAllowance(definition, field, attributes, subtype, original = null) {
 /**
  * Whether an allowance lets a field hold a value.
  *
- * @returns {"ok"|"retired"|null} "retired" when only the retired value the feature held allows it
+ * @returns {"ok"|"retired"|"held"|null} "retired" when only the retired value the feature held allows it and the value
+ *   itself is in no live value of the group — the value that is retired; "held" when only that retired value allows it
+ *   now but the value is listed elsewhere — Boeing beside a retired Boeing 707, which is not itself retired (R1)
  */
 function cvAllows(limits, value) {
   if (!limits) return "ok";
   let state = "ok";
   for (const limit of limits) {
     if (limit.live.some(e => cvMatches(e, value))) continue;
-    if (limit.kept.some(e => cvMatches(e, value))) { state = "retired"; continue; }
+    if (limit.kept.some(e => cvMatches(e, value))) {
+      const itself = !(limit.anyLive || []).some(e => cvMatches(e, value));
+      if (itself) state = "retired";
+      else if (state === "ok") state = "held";
+      continue;
+    }
     return null;
   }
   return state;
@@ -286,7 +298,7 @@ function cvAllows(limits, value) {
  *   never changes what is held without the editor choosing it
  * @param {*} [saved] the value the feature held, which stays offered too and, when not allowed, is the one value
  *   labelled — about the value, "(saved value)", since why it is not allowed is the warning's to say (re-review N2)
- * @returns {Array<{code, name, state: "ok"|"retired"|"saved"|"kept"}>}
+ * @returns {Array<{code, name, state: "ok"|"retired"|"held"|"saved"|"kept"}>}
  */
 function cvNarrow(codedValues, limits, keep = [], saved = null) {
   const out = [];
@@ -307,21 +319,39 @@ function cvOptionLabel(option) {
   return String(option.name);
 }
 
+/** A field's alias as a plural noun for a list of its values: "makes", "models"; an alias with capitals inside is kept. */
+function cvPlural(alias) {
+  const a = String(alias);
+  const word = /^[A-Z]?[a-z0-9 _-]*$/.test(a) ? a.toLowerCase() : a;
+  if (/(s|x|z|ch|sh)$/i.test(word)) return `${word}es`;
+  if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`;
+  return `${word}s`;
+}
+
 /**
- * Why a list is shorter than its domain, or "": "Showing values that go with Model 737. Clear Model to see all."
- * (re-review N11).
+ * Why a list is shorter than its domain, or "": "Showing models that go with Make Boeing. Clear Make to see all."
+ * Only a field whose group removes at least one of the domain's values is named, and they are joined with "and",
+ * since each narrows the list (re-review N11, third review R2).
  *
  * @param {Array|null} limits what {@link cvAllowance} returned
  * @param {object} attributes the values now
  * @param {object} [look] how the layer names fields and codes
+ * @param {Array<{code}>} [codedValues] the domain's values; without them every narrowing field is named
+ * @param {string} [field] the narrowed field, which names the list ("models"); "values" without it
  */
-function cvNarrowedBecause(limits, attributes, look = CV_PLAIN_LOOK) {
+function cvNarrowedBecause(limits, attributes, look = CV_PLAIN_LOOK, codedValues = null, field = null) {
   if (!limits) return "";
   const by = [];
-  for (const l of limits) for (const f of l.by || []) if (!by.some(x => cvSame(x, f))) by.push(f);
+  for (const l of limits) {
+    const removes = !codedValues
+      || codedValues.some(c => !l.live.some(e => cvMatches(e, c.code)) && !l.kept.some(e => cvMatches(e, c.code)));
+    if (!removes) continue;
+    for (const f of l.by || []) if (!by.some(x => cvSame(x, f))) by.push(f);
+  }
   if (!by.length) return "";
   const said = by.map(f => `${look.alias(f)} ${cvValueSaid(look, f, cvRead(attributes, f), true)}`);
-  return `Showing values that go with ${cvJoin(said)}. Clear ${cvJoin(by.map(f => look.alias(f)), "or")} to see all.`;
+  const list = field ? cvPlural(look.alias(field)) : "values";
+  return `Showing ${list} that go with ${cvJoin(said)}. ${by.length === 1 ? `Clear ${look.alias(by[0])}` : "Clear them"} to see all.`;
 }
 
 /** "A", "A and B", "A, B and C" — or with "or". */
@@ -395,7 +425,7 @@ function cvSentences(definition, attributes, subtype, original = null, look = CV
   const broken = all.filter(b => !b.held);
   // A combination the feature already held, on a definition that cannot say whether it is retired, is said once in a
   // line that is not live and is not called "not listed" (N1): it may be a retired value the owner's decision keeps.
-  const note = all.some(b => b.held) ? "This feature already holds a combination the layer no longer offers for new edits." : "";
+  const note = all.some(b => b.held) ? "This feature holds a combination the layer does not offer for new edits." : "";
   if (!broken.length) return { key: "", broken, fields: [], lead: "", detail: "", note };
   const fields = [];
   for (const b of broken) for (const f of b.fields) if (!fields.some(x => cvSame(x, f))) fields.push(f);
@@ -424,32 +454,28 @@ function cvWarning(said, saved = false) {
 // ------------------------------------------------------------------------------- Studio's authoring (contingent-studio.js)
 
 /**
- * A typed number, or null when the text is not one. A decimal comma is read as a point, as a reader who writes "10,5"
- * means ten and a half (design review 2026-11-22, finding 3); a thousands separator is not accepted, since "1,500"
- * would be ambiguous.
+ * The number rule every Studio screen reads typed numbers by (number-text.js): in Node it is required beside this file,
+ * in the browser it is number-text.js's globals, which load first.
  */
+function cvNumberRule() {
+  if (typeof ntParseNumber === "function") return { ntParseNumber, ntAmbiguous, ntAmbiguousSaid };
+  return require("./number-text.js");
+}
+
+/** A typed number by the shared rule, or null when it is not one, is ambiguous, or is empty. */
 function cvParseNumber(text) {
-  const t = String(text ?? "").trim();
-  if (cvAmbiguousNumber(t)) return null;
-  if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(t)) return null;
-  const n = Number(t.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  const read = cvNumberRule().ntParseNumber(text);
+  return "value" in read ? read.value : null;
 }
 
-/**
- * Whether typed text could be a thousands separator as well as a decimal comma — "1,500" — so it is refused with a
- * sentence rather than read either way (re-review N3).
- */
+/** Whether typed text could be read two ways — "1,500", "1.500" (number-text.js). */
 function cvAmbiguousNumber(text) {
-  return /^[-+]?\d{1,3},\d{3}$/.test(String(text ?? "").trim());
+  return cvNumberRule().ntAmbiguous(text);
 }
 
-/** The sentence an ambiguous number is refused with. */
-function cvAmbiguousSaid(text) {
-  const t = String(text).trim();
-  const thousands = t.replace(",", "");
-  const decimal = t.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "");
-  return `${t} could mean ${thousands} or ${decimal}. Type ${thousands} or ${decimal}.`;
+/** The sentence an ambiguous number is refused with; a field of whole numbers is offered only the whole reading. */
+function cvAmbiguousSaid(text, whole = false) {
+  return cvNumberRule().ntAmbiguousSaid(text, whole);
 }
 
 /** Whether two values of one group list the same combination for the same subtype. */

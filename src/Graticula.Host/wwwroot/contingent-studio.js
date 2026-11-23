@@ -273,17 +273,17 @@ function cvsEntryControl(v, vi, n, field, ro) {
   if (entry.kind === "CODED_VALUE") {
     more = coded
       ? `<select data-cvs-key="${h(key)}code" data-cvs-value="${vi}" data-cvs-entry="${h(field)}" data-cvs-prop="code"
-          aria-label="${h(label)} of value ${n}"${ro ? " disabled" : ""}>
+          aria-label="${h(label)} of value ${n}" aria-describedby="cvsMsg-v${vi}"${ro ? " disabled" : ""}>
           ${(domain.codedValues || []).map(c => `<option value="${h(c.code)}"${String(c.code) === String(entry.code) ? " selected" : ""}>${
             h(c.name)}</option>`).join("")}</select>`
       : `<input type="text" data-cvs-key="${h(key)}code" data-cvs-value="${vi}" data-cvs-entry="${h(field)}" data-cvs-prop="code"
-          aria-label="${h(label)} of value ${n}" aria-describedby="${h(msg)}" value="${h(entry.code ?? "")}"${ro ? " readonly" : ""}>`;
+          aria-label="${h(label)} of value ${n}" aria-describedby="cvsMsg-v${vi} ${h(msg)}" value="${h(entry.code ?? "")}"${ro ? " readonly" : ""}>`;
   } else if (entry.kind === "RANGE") {
     more = `<span class="cvsrange"><input type="text" inputmode="decimal" class="cvsnum" data-cvs-key="${h(key)}min" data-cvs-value="${vi}"
-        data-cvs-entry="${h(field)}" data-cvs-prop="min" aria-label="${h(label)} minimum of value ${n}" aria-describedby="${h(msg)}"
+        data-cvs-entry="${h(field)}" data-cvs-prop="min" aria-label="${h(label)} minimum of value ${n}" aria-describedby="cvsMsg-v${vi} ${h(msg)}"
         value="${h(entry.minText ?? entry.min ?? "")}"${ro ? " readonly" : ""}>
       <span aria-hidden="true">to</span> <input type="text" inputmode="decimal" class="cvsnum" data-cvs-key="${h(key)}max" data-cvs-value="${vi}"
-        data-cvs-entry="${h(field)}" data-cvs-prop="max" aria-label="${h(label)} maximum of value ${n}" aria-describedby="${h(msg)}"
+        data-cvs-entry="${h(field)}" data-cvs-prop="max" aria-label="${h(label)} maximum of value ${n}" aria-describedby="cvsMsg-v${vi} ${h(msg)}"
         value="${h(entry.maxText ?? entry.max ?? "")}"${ro ? " readonly" : ""}></span>`;
   }
   return `<span class="cvscell"><span class="cvsentry"><select data-cvs-key="${h(key)}kind" data-cvs-value="${vi}" data-cvs-entry="${h(field)}" data-cvs-prop="kind"
@@ -324,7 +324,11 @@ function cvsProblems() {
     const repeats = cvDuplicates(values.map(x => x.v));
     for (const { v, vi } of values) {
       if (repeats.has(v)) {
-        out.push({ msg: `v${vi}`, keys: v.entries.map(e => `v${vi}e${e.field}kind`), text: `Same as value ${repeats.get(v)}. Remove one.` });
+        // The controls that repeat: a code, a range's two ends, or — for Any and Null, which have nothing else — the kind
+        // (third review R5).
+        const keys = v.entries.flatMap(e => e.kind === "CODED_VALUE" ? [`v${vi}e${e.field}code`]
+          : e.kind === "RANGE" ? [`v${vi}e${e.field}min`, `v${vi}e${e.field}max`] : [`v${vi}e${e.field}kind`]);
+        out.push({ msg: `v${vi}`, keys, text: `Same as value ${repeats.get(v)}. Remove one.` });
       }
       for (const e of v.entries) {
         const key = `v${vi}e${e.field}`;
@@ -334,7 +338,7 @@ function cvsProblems() {
           const unclear = [e.minText ?? e.min, e.maxText ?? e.max].find(t => cvAmbiguousNumber(t));
           if (unclear !== undefined) {
             out.push({ msg: key, keys: [...(cvAmbiguousNumber(e.minText ?? e.min) ? [`${key}min`] : []),
-              ...(cvAmbiguousNumber(e.maxText ?? e.max) ? [`${key}max`] : [])], text: cvAmbiguousSaid(unclear) });
+              ...(cvAmbiguousNumber(e.maxText ?? e.max) ? [`${key}max`] : [])], text: cvAmbiguousSaid(unclear, /Integer/.test((cvsField(e.field) || {}).type || "")) });
           } else if (min === null || max === null) {
             const which = min === null && max === null ? "the minimum and the maximum" : min === null ? "the minimum" : "the maximum";
             out.push({ msg: key, keys: [...(min === null ? [`${key}min`] : []), ...(max === null ? [`${key}max`] : [])],
@@ -384,7 +388,8 @@ function cvsCheck() {
   // `#cvsBlocked` is not live, so a Save that goes grey is silent; the change of state — not each count — is said once.
   const stopped = cvsState.dirty && n > 0;
   if (cvsState.stopped !== undefined && stopped !== cvsState.stopped && cvsState.dirty) {
-    cvsSay(stopped ? `Save is unavailable: ${problems[0].text}` : "Ready to save.", stopped);
+    // No reason in it: the reason changes while Save stays unavailable, and this line would go stale (third review R3).
+    cvsSay(stopped ? "Save is unavailable until the marked problems are fixed." : "Ready to save.", stopped);
   }
   cvsState.stopped = stopped;
   return problems;

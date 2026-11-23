@@ -103,8 +103,18 @@ async function cveWarnFor(layer, attributes, original, saved = false) {
   return cvWarning(cvSentences(definition, attributes, subtype, original, cveLook(info, subtype)), saved);
 }
 
+/**
+ * A definition without the groups that hold a field whose text is not a value of it: until the field is right its own
+ * message is what is wrong, and judging its group on an empty value would say "Boeing allows Size from 30 to 80" about
+ * "abc" (third review R4).
+ */
+function cveWithout(definition, unread) {
+  if (!unread.size) return definition;
+  return { ...definition, groups: definition.groups.filter(g => !g.fields.some(f => unread.has(String(f).toLowerCase()))) };
+}
+
 /** The values the open form holds now: what the feature held, with each control's reading over it. */
-function cveFormValues(form, held) {
+function cveFormValues(form, held, unread = new Set()) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const values = { ...(held.feature.attributes || {}), ...(held.preset || {}) };
   for (const control of form.querySelectorAll("[data-field]")) {
@@ -112,7 +122,10 @@ function cveFormValues(form, held) {
     if (!field) continue;
     const was = values[field.name] === undefined ? null : values[field.name];
     const read = wmReadControl(control, field, was);
-    values[field.name] = read.same ? was : read.problem ? control.value : read.value;
+    // A control whose text is not a value of its field ("abc", "1,500") is no value to the check: the field's own
+    // message says what is wrong with it, and the check does not judge it as if it were one (third review R4).
+    values[field.name] = read.same ? was : read.problem ? null : read.value;
+    if (read.problem) unread.add(field.name.toLowerCase());
   }
   return values;
 }
@@ -151,8 +164,9 @@ function cveNarrowSelect(select, definition, attributes, subtype, original, look
     select.value = chosen;
   }
   if (!plain && select.id) {
-    const offered = list.filter(o => o.state === "ok" || o.state === "retired").length;
-    const because = offered < select._cveAll.length && look ? cvNarrowedBecause(limits, attributes, look) : "";
+    const offered = list.filter(o => ["ok", "retired", "held"].includes(o.state)).length;
+    const because = offered < select._cveAll.length && look
+      ? cvNarrowedBecause(limits, attributes, look, select._cveAll, field) : "";
     let hint = document.getElementById(`${select.id}-cv`);
     if (because && !hint) {
       select.insertAdjacentHTML("afterend", `<p class="cvhint" id="${wmEscape(select.id)}-cv"></p>`);
@@ -200,10 +214,12 @@ async function cveCheckForm(form) {
   const definition = await cveDefinition(held.layer);
   if (turn !== cveTurn || !form.isConnected || !definition) return;
   const info = (wmRuntime.get(held.layer) || {}).info || {};
-  const values = cveFormValues(form, held);
+  const unread = new Set();
+  const values = cveFormValues(form, held, unread);
+  const judged = cveWithout(definition, unread);
   const original = held.isNew ? null : (held.feature.attributes || {});
   const subtype = cveSubtype(info, values);
-  const said = cvSentences(definition, values, subtype, original, cveLook(info, subtype));
+  const said = cvSentences(judged, values, subtype, original, cveLook(info, subtype));
 
   // The live lead only when the set of broken groups changes; the detail beside it, which is not live, every time.
   const lead = line.querySelector("#editCvLead");
@@ -239,14 +255,15 @@ function cveRowName(info, attributes, index) {
 }
 
 /** One table row's values now: what the feature holds, with each cell control's reading over it. */
-function cveRowValues(info, feature, row) {
+function cveRowValues(info, feature, row, unread = new Set()) {
   const values = { ...(feature.attributes || {}) };
   for (const control of row.querySelectorAll("[data-cell]")) {
     const field = (info.fields || []).find(f => f.name === control.dataset.field);
     if (!field) continue;
     const was = values[field.name] === undefined ? null : values[field.name];
     const read = wmReadControl(control, field, was);
-    values[field.name] = read.same ? was : read.problem ? control.value : read.value;
+    values[field.name] = read.same ? was : read.problem ? null : read.value;
+    if (read.problem) unread.add(field.name.toLowerCase());
   }
   return values;
 }
@@ -260,9 +277,11 @@ function cveCheckRow(definition, info, row) {
   const feature = wmTable.rows[index];
   if (!feature) return null;
   const original = feature.attributes || {};
-  const values = cveRowValues(info, feature, row);
+  const unread = new Set();
+  const values = cveRowValues(info, feature, row, unread);
+  const judged = cveWithout(definition, unread);
   const subtype = cveSubtype(info, values);
-  const said = cvSentences(definition, values, subtype, original, cveLook(info, subtype));
+  const said = cvSentences(judged, values, subtype, original, cveLook(info, subtype));
   const text = said.key ? `Not a listed combination ${said.lead}. ${said.detail}` : "";
   for (const control of row.querySelectorAll("[data-cell]")) {
     const cell = control.closest("td");
@@ -276,7 +295,7 @@ function cveCheckRow(definition, info, row) {
       cell.removeAttribute("title");
       control.removeAttribute("aria-description");
     }
-    if (control.tagName === "SELECT") cveNarrowSelect(control, definition, values, subtype, original, null, true);
+    if (control.tagName === "SELECT") cveNarrowSelect(control, judged, values, subtype, original, null, true);
   }
   return said.key ? { index, feature, said } : null;
 }

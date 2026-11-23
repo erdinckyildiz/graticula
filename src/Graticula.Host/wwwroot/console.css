@@ -8139,9 +8139,11 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
   .cvs .cvsfields label, .cvs td input[type="checkbox"] { min-height: 32px; display: inline-flex; align-items: center; gap: 4px; }
   .cvs button.tiny { min-height: 44px; }
   /* Retired and Remove share the card's last line, and the Value line sits on one baseline (N12). */
-  .cvs tbody tr { display: flex; flex-wrap: wrap; column-gap: var(--gap-3); }
-  .cvs tbody td { flex: 1 1 100%; }
-  .cvs tbody td.cvsret { flex: 1 1 auto; }
-  .cvs tbody td.cvsact { flex: 0 0 auto; }
+  .cvs .cvsvalues tbody tr { display: flex; flex-wrap: wrap; column-gap: var(--gap-3); }
+  .cvs .cvsvalues tbody td { flex: 1 1 100%; }
+  .cvs .cvsvalues tbody td.cvsret { flex: 1 1 auto; }
+  .cvs .cvsvalues tbody td.cvsact { flex: 0 0 auto; }
+  /* A group card's Remove keeps the right edge (third review R6). */
+  .cvs .cvsgroups td.cvsact { justify-content: flex-end; }
   .cvs td.cvsid { align-items: baseline; }
 }
