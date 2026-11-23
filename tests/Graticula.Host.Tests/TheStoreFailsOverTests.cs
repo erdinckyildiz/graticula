@@ -284,6 +284,51 @@ public sealed class TheStoreFailsOverTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// §5.7: with <c>Graticula:StoreFailover=manual</c> a lost primary is not replaced until an administrator promotes
+    /// the standby with <c>graticula store promote</c> — refused while the primary answers, done once it is gone, and
+    /// recorded as manual. <b>A command, because this test found the admin route could never work</b>: it answered 401,
+    /// since with the primary gone no session can be read.
+    /// </summary>
+    [Fact]
+    public async Task A_manual_site_waits_for_an_administrator_to_promote_the_standby()
+    {
+        await using StandbyStore store = await StandbyStore.StartAsync();
+        TwoNodeSite site = new(build: null, migrate: true, database: store.Hosts());
+
+        try
+        {
+            await site.InitializeAsync();
+            TwoNodeSite.Node node = await site.StartAsync("ha-manual", new Dictionary<string, string> { ["Graticula__StoreFailover"] = "manual" });
+            string token = await node.SignInAsync();
+
+            (int refused, string said) = await site.RunAsync(["store", "promote"]);
+            Assert.True(refused == 1, $"store promote beside a live primary exited {refused}: {said}");
+            Assert.Contains("can still write to the primary", said, StringComparison.Ordinal);
+
+            await store.KillAsync(store.PrimaryData);
+            await TwoNodeSite.Node.UntilAsync(
+                () => node.SendAsync(HttpMethod.Get, "/healthz/ready", null),
+                r => r.Status == 503 && r.Body.Contains("manual", StringComparison.Ordinal),
+                TimeSpan.FromSeconds(20), "Readiness saying the failover waits for an administrator");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            Assert.True(await StandbyStore.ScalarAsync<bool>(store.StandbyPort, "select pg_is_in_recovery()", "postgres"),
+                "A manual site promoted on its own.");
+
+            (int promoted, string body) = await site.RunAsync(["store", "promote"]);
+            Assert.True(promoted == 0, $"store promote exited {promoted}: {body}");
+            Assert.Contains("is the primary now, on timeline 2", body, StringComparison.Ordinal);
+
+            await TwoNodeSite.Node.UntilAsync(() => TryWriteAsync(node, token, "manual", 0), done => done,
+                TimeSpan.FromSeconds(30), "A write after the administrator promoted");
+            Assert.Equal("manual", await StandbyStore.ScalarAsync<string>(store.StandbyPort, $"select how from {site.Schema}.store_failover"));
+        }
+        finally
+        {
+            await DisposeQuietlyAsync(site);
+        }
+    }
+
     private static async Task<bool> TryWriteAsync(TwoNodeSite.Node node, string token, string what, int i)
     {
         try

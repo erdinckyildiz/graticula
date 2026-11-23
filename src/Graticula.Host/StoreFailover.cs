@@ -55,7 +55,8 @@ internal sealed partial class StoreFailover : BackgroundService
 
     private const string ProbeSql =
         "select pg_is_in_recovery(), (select system_identifier from pg_control_system()), "
-        + "case when pg_is_in_recovery() then 0 else ('x' || substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8))::bit(32)::int end, "
+        + "case when pg_is_in_recovery() then (select timeline_id from pg_control_checkpoint()) "
+        + "else ('x' || substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8))::bit(32)::int end, "
         + "current_setting('default_transaction_read_only') = 'on', "
         + "(select status from pg_stat_wal_receiver limit 1), "
         + "coalesce((select rolsuper from pg_roles where rolname = current_user), false) or pg_has_role('pg_monitor', 'member')";
@@ -386,7 +387,9 @@ internal sealed partial class StoreFailover : BackgroundService
 
         try
         {
-            string from = _primary ?? "(none)";
+            string from = _primary
+                ?? _views.Values.FirstOrDefault(v => !string.Equals(v.Address, standby.Address, StringComparison.OrdinalIgnoreCase))?.Address
+                ?? "(none)";
             int? unreachable = _lostSince is { } since ? (int)(DateTimeOffset.UtcNow - since).TotalMilliseconds : null;
             string probe = _hosts.First(h => string.Equals(h.Address, standby.Address, StringComparison.OrdinalIgnoreCase)).Probe;
             Promoting(_log, standby.Address, from, how);
@@ -428,6 +431,44 @@ internal sealed partial class StoreFailover : BackgroundService
         {
             _promoting.Release();
         }
+    }
+
+    /// <summary>
+    /// §5.7: <c>graticula store promote</c> — ArcGIS Data Store's <c>makePrimary</c>, as a command on a machine of the site.
+    /// </summary>
+    /// <remarks>
+    /// <b>A command and not an admin route, and a test found why.</b> The route was written first, and
+    /// <c>A_manual_site_waits_for_an_administrator_to_promote_the_standby</c> showed it could never succeed: it is needed
+    /// exactly when the primary is gone, and then the server cannot read the session that would prove the caller is an
+    /// administrator (401, by design — Authentication refuses rather than assume). Whoever can run this binary with the
+    /// site's settings already holds the store's credentials, which is the authority promoting needs.
+    /// </remarks>
+    /// <param name="output">Where it says what it did.</param>
+    /// <param name="cancellation">The command's.</param>
+    /// <returns>The process's exit code: 0 when promoted.</returns>
+    internal async Task<int> PromoteFromCommandLineAsync(System.IO.TextWriter output, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        await ObserveAsync(cancellation).ConfigureAwait(false);
+        (HostView? standby, string? refusal) = ManualCandidate();
+
+        if (standby is null)
+        {
+            await output.WriteLineAsync(refusal).ConfigureAwait(false);
+            return 1;
+        }
+
+        Failover? done = await PromoteAsync(standby, "manual", cancellation).ConfigureAwait(false);
+
+        if (done is null)
+        {
+            await output.WriteLineAsync("A promotion is already under way.").ConfigureAwait(false);
+            return 1;
+        }
+
+        await output.WriteLineAsync($"{done.To} is the primary now, on timeline {done.Timeline}, in place of {done.From}. "
+            + "Rewind the old primary and start it as the standby (deployment.md §1.6).").ConfigureAwait(false);
+        return 0;
     }
 
     /// <summary>§5.7: the standby an administrator may promote now, or why not.</summary>

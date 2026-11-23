@@ -10,9 +10,10 @@ using Microsoft.AspNetCore.Http;
 namespace Graticula.Host;
 
 /// <summary>
-/// The platform store's primary and standby, as this node sees them — ADR-319 §5.10: <c>/admin/site/store</c>, and
-/// <c>/admin/site/store/promote</c>, ArcGIS Data Store's <c>makePrimary</c> (§5.7). And the question the nodes ask each
-/// other before a failover, <c>/healthz/store</c> (§5.4).
+/// The platform store's primary and standby, as this node sees them — ADR-319 §5.10: <c>/admin/site/store</c>. And the
+/// question the nodes ask each other before a failover, <c>/healthz/store</c> (§5.4). Promoting by hand is a command,
+/// <c>graticula store promote</c> (§5.7, <see cref="StoreFailover.PromoteFromCommandLineAsync"/>), not a route: it is
+/// needed when the store is gone, and then no session can be read to authorise a route.
 /// </summary>
 /// <remarks>
 /// <b>The system's</b>, as a machine of the site is: under <c>/admin/site</c>, so on the system's organisation only, and
@@ -27,7 +28,6 @@ internal static class StoreEndpoints
         ArgumentNullException.ThrowIfNull(app);
 
         app.MapGet("/admin/site/store", ReadAsync).Governed(SharingGovernedExtensions.ByPrivilege);
-        app.MapPost("/admin/site/store/promote", PromoteAsync).Governed(SharingGovernedExtensions.ByPrivilege);
         app.MapGet(StoreFailover.ViewPath, View);
     }
 
@@ -115,25 +115,4 @@ internal static class StoreEndpoints
         : view.Recovering ? "standby"
         : string.Equals(view.Address, primary, StringComparison.OrdinalIgnoreCase) ? "primary"
         : "fenced";
-
-    private static async Task<IResult> PromoteAsync(HttpContext context, StoreFailover failover, CancellationToken cancellation)
-    {
-        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
-        {
-            return Results.Empty;
-        }
-
-        (StoreFailover.HostView? standby, string? refusal) = failover.ManualCandidate();
-
-        if (standby is null)
-        {
-            return Results.Json(new { error = new { code = 409, message = refusal } }, statusCode: StatusCodes.Status409Conflict);
-        }
-
-        StoreFailover.Failover? done = await failover.PromoteAsync(standby, "manual", cancellation).ConfigureAwait(false);
-
-        return done is null
-            ? Results.Json(new { error = new { code = 409, message = "A promotion is already under way on this node." } }, statusCode: StatusCodes.Status409Conflict)
-            : Results.Ok(new { promoted = done.To, timeline = done.Timeline, from = done.From });
-    }
 }

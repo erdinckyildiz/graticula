@@ -1270,6 +1270,14 @@ public static class Program
                 BackupBeforeMigration(args, app.Services.GetRequiredService<Backups>)).ConfigureAwait(false);
         }
 
+        // ADR-319 §5.7: ArcGIS Data Store's makePrimary, as this binary's verb -- needed when the primary is gone, and then no
+        // session can be read to authorise an admin route.
+        if (args is ["store", "promote", ..])
+        {
+            return await app.Services.GetRequiredService<StoreFailover>()
+                .PromoteFromCommandLineAsync(Console.Out, CancellationToken.None).ConfigureAwait(false);
+        }
+
         // ADR-193: backup and restore are this binary's own verbs, as migrate is.
         if (args is ["backup", ..])
         {
