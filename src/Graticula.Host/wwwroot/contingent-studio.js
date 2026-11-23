@@ -250,7 +250,7 @@ function cvsValuesMarkup(group, ro) {
             `<option value="${h(t.code)}"${Number(t.code) === Number(v.subtype) ? " selected" : ""}>${h(t.name)}</option>`).join("")}
           </select></td>` : ""}
         ${group.fields.map(f => `<td data-l="${h(cvsAlias(f))}">${cvsEntryControl(v, vi, n + 1, f, ro)}</td>`).join("")}
-        <td data-l="Retired"><input type="checkbox" data-cvs-key="v${vi}retired" data-cvs-value="${vi}" data-cvs-prop="retired"
+        <td data-l="Retired" class="cvsret"><input type="checkbox" data-cvs-key="v${vi}retired" data-cvs-value="${vi}" data-cvs-prop="retired"
           aria-label="Value ${n + 1} is retired"${v.retired ? " checked" : ""}${ro ? " disabled" : ""}></td>
         ${ro ? "" : `<td class="cvsact"><button type="button" class="tiny ghost" data-cvs-key="v${vi}remove" data-cvs-act="removeValue"
           data-cvs-value="${vi}" aria-label="Remove value ${n + 1}">Remove</button></td>`}
@@ -287,7 +287,7 @@ function cvsEntryControl(v, vi, n, field, ro) {
         value="${h(entry.maxText ?? entry.max ?? "")}"${ro ? " readonly" : ""}></span>`;
   }
   return `<span class="cvscell"><span class="cvsentry"><select data-cvs-key="${h(key)}kind" data-cvs-value="${vi}" data-cvs-entry="${h(field)}" data-cvs-prop="kind"
-      aria-label="What ${h(label)} allows in value ${n}"${ro ? " disabled" : ""}>
+      aria-label="What ${h(label)} allows in value ${n}" aria-describedby="cvsMsg-v${vi} ${h(msg)}"${ro ? " disabled" : ""}>
       ${kinds.map(k => `<option value="${k}"${k === entry.kind ? " selected" : ""}>${CVS_KIND_LABELS[k]}</option>`).join("")}
     </select> ${more}</span>${cvsMsg(key)}</span>`;
 }
@@ -316,20 +316,26 @@ function cvsProblems() {
   s.copy.groups.forEach((g, i) => {
     const name = String(g.name || "").trim();
     if (!name) out.push({ msg: `g${i}name`, keys: [`g${i}name`], text: "Give the field group a name." });
-    else if (s.copy.groups.some((o, j) => j !== i && cvSame(String(o.name || "").trim(), name))) {
+    else if (s.copy.groups.some((o, j) => j < i && cvSame(String(o.name || "").trim(), name))) {
       out.push({ msg: `g${i}name`, keys: [`g${i}name`], text: `Another field group is already named “${name}”. A name is used once, whatever its case.` });
     }
     if (!g.fields.length) out.push({ msg: `g${i}fields`, keys: [], text: "Tick at least one field." });
     const values = cvsGroupValues(g);
     const repeats = cvDuplicates(values.map(x => x.v));
     for (const { v, vi } of values) {
-      if (repeats.has(v)) out.push({ msg: `v${vi}`, keys: [`v${vi}remove`], text: `Same as value ${repeats.get(v)}. Remove one.` });
+      if (repeats.has(v)) {
+        out.push({ msg: `v${vi}`, keys: v.entries.map(e => `v${vi}e${e.field}kind`), text: `Same as value ${repeats.get(v)}. Remove one.` });
+      }
       for (const e of v.entries) {
         const key = `v${vi}e${e.field}`;
         if (e.kind === "RANGE") {
           const min = cvParseNumber(e.minText ?? e.min);
           const max = cvParseNumber(e.maxText ?? e.max);
-          if (min === null || max === null) {
+          const unclear = [e.minText ?? e.min, e.maxText ?? e.max].find(t => cvAmbiguousNumber(t));
+          if (unclear !== undefined) {
+            out.push({ msg: key, keys: [...(cvAmbiguousNumber(e.minText ?? e.min) ? [`${key}min`] : []),
+              ...(cvAmbiguousNumber(e.maxText ?? e.max) ? [`${key}max`] : [])], text: cvAmbiguousSaid(unclear) });
+          } else if (min === null || max === null) {
             const which = min === null && max === null ? "the minimum and the maximum" : min === null ? "the minimum" : "the maximum";
             out.push({ msg: key, keys: [...(min === null ? [`${key}min`] : []), ...(max === null ? [`${key}max`] : [])],
               text: `Type a number for ${which}, such as 10 or 10.5.` });
@@ -370,11 +376,17 @@ function cvsCheck() {
   const save = body.querySelector('[data-cvs-act="save"]');
   if (save) save.disabled = !cvsState.dirty || problems.length > 0;
   const blocked = $("cvsBlocked");
+  const n = problems.length;
   if (blocked) {
-    const n = problems.length;
     const text = cvsState.dirty && n ? `Not ready to save: ${n} ${n === 1 ? "problem is" : "problems are"} marked above.` : "";
     if (blocked.textContent !== text) blocked.textContent = text;
   }
+  // `#cvsBlocked` is not live, so a Save that goes grey is silent; the change of state — not each count — is said once.
+  const stopped = cvsState.dirty && n > 0;
+  if (cvsState.stopped !== undefined && stopped !== cvsState.stopped && cvsState.dirty) {
+    cvsSay(stopped ? `Save is unavailable: ${problems[0].text}` : "Ready to save.", stopped);
+  }
+  cvsState.stopped = stopped;
   return problems;
 }
 
@@ -398,6 +410,28 @@ function cvsAlign(value, group) {
   value.entries = group.fields.map(f => value.entries.find(e => e.field === f) || { field: f, kind: "ANY" });
 }
 
+/**
+ * Puts a group's new name into every label that carries it, in place — its heading and caption when open, Remove's and
+ * Restrictive's labels, its fields' legend — so nothing reads the old name until a redraw (N10). Not a redraw: one on
+ * `change` would replace the button a reader was pressing when the name lost focus, and lose that click.
+ */
+function cvsRenamed(group, i) {
+  const named = group.name || `group ${i + 1}`;
+  const body = $("cvsBody");
+  if (!body) return;
+  const set = (el, attr, text) => { if (el && el.getAttribute(attr) !== text) el.setAttribute(attr, text); };
+  set(body.querySelector(`[data-cvs-key="g${i}restrictive"]`), "aria-label", `Field group ${named} is restrictive`);
+  set(body.querySelector(`[data-cvs-key="g${i}remove"]`), "aria-label", `Remove field group ${named}`);
+  const legend = body.querySelector(`[data-cvs-key="g${i}restrictive"]`)?.closest("tr")?.querySelector("fieldset legend");
+  if (legend) legend.textContent = `Fields of ${named}`;
+  if (cvsState.open === group.key) {
+    const title = `Contingent values of ${group.name || "the unnamed group"}`;
+    if ($("cvsValuesTitle")) $("cvsValuesTitle").textContent = title;
+    const caption = body.querySelector("#cvsValues caption");
+    if (caption) caption.textContent = title;
+  }
+}
+
 /** Handles a typed or ticked control: changes the copy, and redraws only when the shape of the page changes. */
 function cvsInput(event) {
   const t = event.target;
@@ -412,6 +446,7 @@ function cvsInput(event) {
     if (prop === "name") {
       // The values follow the group by its key, so a name typed through another group's name takes nothing from it.
       group.name = t.value.trim();
+      cvsRenamed(group, Number(t.getAttribute("data-cvs-group")));
       cvsChanged(false, key);
       return;
     }

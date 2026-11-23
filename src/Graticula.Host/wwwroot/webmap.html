@@ -221,6 +221,10 @@
     text-align: center; }
   .said.cvwarn .cvlead b { color: var(--warn); }
   .said.cvwarn .cvmore:not(:empty) { display: block; margin-top: 2px; }
+  /* A feature that already holds a combination the resource cannot call retired or unlisted: one quiet line (N1). */
+  .said.cvwarn.held:not(.on) { padding: 4px 0; color: var(--muted); }
+  /* Why a list is shorter than its domain (N11). */
+  .cvhint { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
   /* A table cell whose row holds a combination the layer does not list (contingent-editor.js). */
   #tableGrid td.celledit[data-cv] { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn-line); position: relative;
     padding-right: 20px; }
@@ -228,6 +232,8 @@
     width: 14px; height: 14px; border-radius: 50%; background: var(--warn); color: var(--surface);
     font: 700 10px/14px system-ui, sans-serif; text-align: center; pointer-events: none; }
   #tableGrid option[data-cv-state] { color: var(--muted); }
+  /* A narrowed cell's list is as wide as its longest value, and the table scrolls rather than clip it (N2). */
+  #tableGrid select[data-cell] { min-width: max-content; }
   .said.bad { color: var(--alert); }
 
   button, select, input, textarea { font: inherit; font-size: 13px; }
