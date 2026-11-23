@@ -70,7 +70,8 @@ function ntAmbiguousSaid(raw, whole = false) {
   const t = String(raw).trim();
   const thousands = t.replace(/[.,]/, "");
   if (whole) return `${t}: type ${thousands} if you mean ${ntWords(Number(thousands))}.`;
-  const value = String(Number(t.replace(",", ".")));
+  // The decimal reading is said with the reader's own separator, as the suggestion after it is (fifth render P3).
+  const value = String(Number(t.replace(",", "."))).replace(".", t.includes(",") ? "," : ".");
   return `${t} could mean ${thousands} or ${value}. Type ${thousands}, or ${ntDecimalForm(t)} for the decimal.`;
 }
 

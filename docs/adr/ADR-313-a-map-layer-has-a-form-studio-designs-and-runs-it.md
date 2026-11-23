@@ -279,4 +279,9 @@ None recorded.
    `color-scheme: light dark` drew white calendar icons on white in the light theme under a dark system. Those, four
    smaller items, and a decimal comma the card's number boxes read as a thousands separator, were repaired the same
    day and driven at 390, 768, 1000, 1024, 1100, 1280, 1366, 1440 and 1920 px with the Layers panel closed and open.
-   It stays PARTLY DISCHARGED until the designer is rendered a fourth time.
+   ~~It stays PARTLY DISCHARGED until the designer is rendered a fourth time.~~ **DISCHARGED 2026-11-23**: the
+   **fourth render** verdicted *accept with fixes, the designer can ship* — eight of nine claims held at every width from
+   390 to 1920 with Layers open and closed, both themes, axe, state and target gates clean — and its one Major (`1.500`
+   read as 1.5 on a decimal field) and three wording minors were repaired by moving every screen onto one number rule
+   (`number-text.js`), which the contingent screens' fifth render confirmed in the form card too, together with the
+   designer's sticky column headings.

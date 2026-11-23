@@ -230,8 +230,10 @@
      suffix on the field's own label line is drawn while the list has focus. It takes no room and covers nothing — a
      floating hint covered the next field's label and swallowed clicks there (fourth render, M2). */
   .cvhint.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .cvsuffix { display: none; font-weight: 400; color: var(--muted); pointer-events: none; }
-  :has(> select:focus) > label .cvsuffix, label:has(+ select:focus) .cvsuffix { display: inline; }
+  /* Never adds a line to its label, so nothing below moves when the field takes or loses focus (fifth render P1). */
+  .cvsuffix { display: none; font-weight: 400; color: var(--muted); pointer-events: none; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 50%; vertical-align: bottom; }
+  :has(> select:focus) > label .cvsuffix, label:has(+ select:focus) .cvsuffix { display: inline-block; }
   /* A table cell whose row holds a combination the layer does not list (contingent-editor.js). */
   #tableGrid td.celledit[data-cv] { background: var(--warn-soft); box-shadow: inset 0 0 0 1px var(--warn-line); position: relative;
     padding-right: 20px; }

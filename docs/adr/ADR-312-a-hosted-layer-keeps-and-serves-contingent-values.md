@@ -366,6 +366,11 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
    `node --test tests/js/contingent.test.js` 28 pass. The **third render** verdicted **accept with fixes**, not to be
    merged before R1 (a live make labelled *(retired)* beside a retired pair); R1–R8 were repaired on `b2-fix-cv` after
    it was brought up to b2-merge (ADR-314 in), and driven at 1440, 768 and 390. Still open until the lead confirms
-   R1–R8.
+   R1–R8. A **fourth render** found two more (M1: a three-decimal number refused with advice that repeated it;
+   M2: the narrowing hint covering the next field) and three minors; all were repaired. **DISCHARGED 2026-11-23** on the
+   **fifth render**, verdict *ship*: every earlier finding confirmed fixed at 1440, 768 and 390 in both themes, a real
+   click at the next field's top edge lands at every width, every decimal form the screen suggests is accepted, axe and
+   the state, target and overflow gates clean on the reviewed sections; its two layout and wording minors (P1, P3) were
+   repaired by the lead the same day, and P2 (the table keeps a superseded reason until blur) and P4 are left as minors.
 7. **The offline replica carries the definition** (D-472). Open: the blob's encoding is not public.
 8. **Pro's publish carries the definition** (D-473). Open: the file geodatabase's storage is not public.

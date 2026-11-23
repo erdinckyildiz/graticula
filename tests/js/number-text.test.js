@@ -24,8 +24,8 @@ test("a separator before exactly three digits is ambiguous, whichever it is — 
   }
   for (const typed of ["1,50", "1.5", "1500", "1,5000", "1234,567"]) assert.equal(nt.ntAmbiguous(typed), false, typed);
   assert.equal(nt.ntAmbiguousSaid("1.500"), "1.500 could mean 1500 or 1.5. Type 1500, or 1.5 for the decimal.");
-  assert.equal(nt.ntAmbiguousSaid("1,500"), "1,500 could mean 1500 or 1.5. Type 1500, or 1,5 for the decimal.");
-  assert.equal(nt.ntAmbiguousSaid("2,250"), "2,250 could mean 2250 or 2.25. Type 2250, or 2,25 for the decimal.");
+  assert.equal(nt.ntAmbiguousSaid("1,500"), "1,500 could mean 1500 or 1,5. Type 1500, or 1,5 for the decimal.");
+  assert.equal(nt.ntAmbiguousSaid("2,250"), "2,250 could mean 2250 or 2,25. Type 2250, or 2,25 for the decimal.");
 });
 
 test("on a whole-number field the sentence offers only the whole reading, in words", () => {
@@ -63,7 +63,7 @@ test("M1: a whole part of 0, or one starting with 0, groups no thousands and is 
 
 test("M1: three decimals that are all needed are offered with a fourth zero, in the reader's separator", () => {
   assert.equal(nt.ntAmbiguousSaid("2.125"), "2.125 could mean 2125 or 2.125. Type 2125, or 2.1250 for the decimal.");
-  assert.equal(nt.ntAmbiguousSaid("2,125"), "2,125 could mean 2125 or 2.125. Type 2125, or 2,1250 for the decimal.");
+  assert.equal(nt.ntAmbiguousSaid("2,125"), "2,125 could mean 2125 or 2,125. Type 2125, or 2,1250 for the decimal.");
   assert.equal(nt.ntAmbiguousSaid("1,000"), "1,000 could mean 1000 or 1. Type 1000, or 1 for the decimal.");
   assert.deepEqual(nt.ntParseNumber("2.1250"), { value: 2.125 });
   assert.equal(cv.cvParseNumber("2.1250"), 2.125, "contingent.js accepts it");

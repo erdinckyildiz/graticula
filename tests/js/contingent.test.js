@@ -331,7 +331,7 @@ test("a typed number takes a decimal comma, and text that is not a number is ref
   assert.equal(cv.cvParseNumber("1,500"), null, "N3: one comma before three digits is ambiguous and refused");
   assert.equal(cv.cvAmbiguousNumber("1,500"), true);
   assert.equal(cv.cvAmbiguousNumber("10,5"), false);
-  assert.equal(cv.cvAmbiguousSaid("1,500"), "1,500 could mean 1500 or 1.5. Type 1500, or 1,5 for the decimal.");
+  assert.equal(cv.cvAmbiguousSaid("1,500"), "1,500 could mean 1500 or 1,5. Type 1500, or 1,5 for the decimal.");
   assert.equal(cv.cvParseNumber("10,50"), 10.5, "two decimals are not ambiguous");
   assert.equal(cv.cvParseNumber(4), 4);
 });

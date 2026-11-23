@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>c4097f77</code> · 2026-11-23 03:10</p>
+<p class="stamp">Generated from commit <code>4b893cd2</code> · 2026-11-23 04:29</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">299</div><div class="kpi-l">ADRs</div><div class="kpi-n">96 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">753/797</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">33 live · 11 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">755/797</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">31 live · 11 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">245 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">36</div><div class="kpi-l">open debts</div><div class="kpi-n">358 repaid · 23 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,17 +126,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">73 items</span></div><p><b>33 ADR conditions</b> outstanding across 25 decisions — the largest commitment on this page.</p><p><b>36 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">71 items</span></div><p><b>31 ADR conditions</b> outstanding across 24 decisions — the largest commitment on this page.</p><p><b>36 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-312 · A hosted layer keeps and serves it</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-312 · A hosted layer keeps and serves it</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -155,7 +155,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-311 · Extract Changes on hosted layers t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-313 · A map&#x27;s layer has a form: Studio d</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -470,8 +469,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">309</td><td>The 12.2 query gaps are closed where the public reference says how, and refused by name where it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">310</td><td>Append on the service, into registered layers, and from addresses</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the routes are tested end to end against a running server, the geocoder against…</td><td class="num"></td></tr>
 <tr><td class="id">311</td><td>Extract Changes on hosted layers that keep their history, and a webhook&#x27;s `changesUrl`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the operation&#x27;s parameters and its answer&#x27;s keys are ArcGIS&#x27;s public reference;…</td><td class="num">3/4</td></tr>
-<tr><td class="id">312</td><td>A hosted layer keeps and serves its contingent values, Studio writes them, and nothing refuses an edit for them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the resource&#x27;s keys are the public reference&#x27;s, but how a value is encoded in it…</td><td class="num">5/8</td></tr>
-<tr><td class="id">313</td><td>A map&#x27;s layer has a form: Studio designs its `formInfo` and runs it with its own Arcade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the language core and the form logic are tested headless against the…</td><td class="num">5/6</td></tr>
+<tr><td class="id">312</td><td>A hosted layer keeps and serves its contingent values, Studio writes them, and nothing refuses an edit for them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the resource&#x27;s keys are the public reference&#x27;s, but how a value is encoded in it…</td><td class="num">6/8</td></tr>
+<tr><td class="id">313</td><td>A map&#x27;s layer has a form: Studio designs its `formInfo` and runs it with its own Arcade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the language core and the form logic are tested headless against the…</td><td class="num">6/6</td></tr>
 <tr><td class="id">314</td><td>Contingent values are served as protobuf in the encoding an ArcGIS server was observed to write, and their JSON takes the shape it was observed to have</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every key and field number below was read off answers ArcGIS Online wrote for…</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
@@ -707,6 +706,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>4b893cd2</code><time>2026-11-23</time><span>The table test expects Save to wait for a valid cell and the whole-number sentence on leaving it (ADR-312 fourth render m1, m2)</span></li>
+<li><code>226bf384</code><time>2026-11-23</time><span>The narrowed-list hint is a suffix on the field&#x27;s own label; errors wait for blur; the table&#x27;s Save waits for valid cells (fourth render M2, m1-m3)</span></li>
+<li><code>1418d431</code><time>2026-11-23</time><span>The number rule never refuses a whole part of 0, and every form it offers is one it accepts (fourth render M1)</span></li>
+<li><code>d58631b7</code><time>2026-11-23</time><span>ADR-312 §5.6 and ADR-313 INFERRED (o) describe the one number rule; ADR-312 records the third render and ADR-314&#x27;s retired key</span></li>
+<li><code>9b4dc8bb</code><time>2026-11-23</time><span>One function reads a typed number on every Studio screen, and 1.500 is as ambiguous as 1,500 (ADR-312 §5.6, ADR-313 INFERRED (o))</span></li>
+<li><code>897249d8</code><time>2026-11-23</time><span>Contingent values, third review: a live value beside a retired pair is not labelled retired, hints name only what narrows (ADR-312 R1-R8)</span></li>
+<li><code>9be83e45</code><time>2026-11-23</time><span>ADR-312 condition 5 and ADR-314 condition 1 discharged: Field Maps narrows a coded list from this server&#x27;s contingent values, on the emulator</span></li>
 <li><code>c4097f77</code><time>2026-11-23</time><span>Merge b2-cv-pbf into b2-merge: contingent values as protobuf (ADR-314), with the REST reader trusting the retired key</span></li>
 <li><code>cc559379</code><time>2026-11-23</time><span>Contingent values answer f=pbf in the encoding observed on ArcGIS Online, a layer serves its fieldGroups, and the JSON takes the observed shape (ADR-314 conditions 2 and 3, D-474 and D-480 repaid)</span></li>
 <li><code>7b20c404</code><time>2026-11-23</time><span>Every Studio screen reads a typed number by one rule, and CI runs the contingent-values scripts (ADR-312, ADR-313)</span></li>
@@ -714,13 +720,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7b083098</code><time>2026-11-23</time><span>Merge branch &#x27;b2-fix-cv&#x27; into b2-merge</span></li>
 <li><code>b936284a</code><time>2026-11-23</time><span>The designer&#x27;s shape follows its panel, native boxes follow the app&#x27;s theme, and the card reads a decimal comma (ADR-313 third review)</span></li>
 <li><code>98a6a46a</code><time>2026-11-23</time><span>ADR-312 records the second design review and the retired-value reading; D-480 says what a reader without the privilege still lacks</span></li>
-<li><code>6e8bcdd9</code><time>2026-11-23</time><span>Studio&#x27;s field-group editor: ambiguous numbers refused, duplicates marked on their entries, Save&#x27;s state said (ADR-312 re-review N3, N6-N8, N10, N12)</span></li>
-<li><code>01c227a5</code><time>2026-11-23</time><span>The Map Viewer keeps a held retired value without a warning, labels only the saved value, reads 90,5 as 90.5 and names coded values (ADR-312 re-review N1, N2, N4, N5, N9, N11)</span></li>
-<li><code>8385b100</code><time>2026-11-23</time><span>ADR-314: contingent values are served as protobuf in the encoding an ArcGIS server was observed to write, and their JSON takes the observed shape (research note, D-484, D-485)</span></li>
-<li><code>48271bcc</code><time>2026-11-23</time><span>The form designer&#x27;s columns scroll on their own in the order they are seen, its list is one Tab stop, and Forms gives the Layers panel back (ADR-313 re-review N1-N12)</span></li>
-<li><code>e3bf1b11</code><time>2026-11-23</time><span>Merge branch &#x27;b2-fix-cv&#x27; into b2-merge</span></li>
-<li><code>559e54c0</code><time>2026-11-23</time><span>ADR-312 records the owner&#x27;s narrowing decision and the service&#x27;s format; D-474 records Field Maps asking for pbf, D-480 the retired label</span></li>
-<li><code>b36abdb3</code><time>2026-11-23</time><span>Studio&#x27;s field-group editor holds groups by key, checks before it sends, and fits a phone (ADR-312 §5.6, design review findings 1-3, 6, 8, 11, 12)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
