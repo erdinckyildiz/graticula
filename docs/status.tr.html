@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>7b20c404</code> · 2026-11-23 03:03</p>
+<p class="stamp">Şu commit’ten üretildi: <code>c4097f77</code> · 2026-11-23 03:10</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">299</div><div class="kpi-l">ADR</div><div class="kpi-n">96 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">751/797</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">35 canlı · 11 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">753/797</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">33 canlı · 11 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">245 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">36</div><div class="kpi-l">açık borç</div><div class="kpi-n">358 ödendi · 23 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,37 +126,36 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">75 madde</span></div><p><b>35 ADR conditions</b> outstanding across 26 decisions — the largest commitment on this page.</p><p><b>36 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">73 madde</span></div><p><b>33 ADR conditions</b> outstanding across 25 decisions — the largest commitment on this page.</p><p><b>36 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">ADR-312 · A hosted layer keeps and serves it</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:75%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-311 · Extract Changes on hosted layers t</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-313 · A map&#x27;s layer has a form: Studio d</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-314 · Contingent values are served as pr</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-252 · grapy holds linear referencing sys</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-312 · A hosted layer keeps and serves it</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-283 · The owner&#x27;s two answers: IFC and U</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-259 · The Map Viewer takes ArcGIS Map Vi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-278 · A 3D Tiles archive is served from </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-282 · 3D models are converted to glb by </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-311 · Extract Changes on hosted layers t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-313 · A map&#x27;s layer has a form: Studio d</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -471,9 +470,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">309</td><td>The 12.2 query gaps are closed where the public reference says how, and refused by name where it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">310</td><td>Append on the service, into registered layers, and from addresses</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the routes are tested end to end against a running server, the geocoder against…</td><td class="num"></td></tr>
 <tr><td class="id">311</td><td>Extract Changes on hosted layers that keep their history, and a webhook&#x27;s `changesUrl`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the operation&#x27;s parameters and its answer&#x27;s keys are ArcGIS&#x27;s public reference;…</td><td class="num">3/4</td></tr>
-<tr><td class="id">312</td><td>A hosted layer keeps and serves its contingent values, Studio writes them, and nothing refuses an edit for them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the resource&#x27;s keys are the public reference&#x27;s, but how a value is encoded in it…</td><td class="num">4/8</td></tr>
+<tr><td class="id">312</td><td>A hosted layer keeps and serves its contingent values, Studio writes them, and nothing refuses an edit for them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the resource&#x27;s keys are the public reference&#x27;s, but how a value is encoded in it…</td><td class="num">5/8</td></tr>
 <tr><td class="id">313</td><td>A map&#x27;s layer has a form: Studio designs its `formInfo` and runs it with its own Arcade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the language core and the form logic are tested headless against the…</td><td class="num">5/6</td></tr>
-<tr><td class="id">314</td><td>Contingent values are served as protobuf in the encoding an ArcGIS server was observed to write, and their JSON takes the shape it was observed to have</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every key and field number below was read off answers ArcGIS Online wrote for…</td><td class="num">2/3</td></tr>
+<tr><td class="id">314</td><td>Contingent values are served as protobuf in the encoding an ArcGIS server was observed to write, and their JSON takes the shape it was observed to have</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every key and field number below was read off answers ArcGIS Online wrote for…</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -708,6 +707,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>c4097f77</code><time>2026-11-23</time><span>Merge b2-cv-pbf into b2-merge: contingent values as protobuf (ADR-314), with the REST reader trusting the retired key</span></li>
+<li><code>cc559379</code><time>2026-11-23</time><span>Contingent values answer f=pbf in the encoding observed on ArcGIS Online, a layer serves its fieldGroups, and the JSON takes the observed shape (ADR-314 conditions 2 and 3, D-474 and D-480 repaid)</span></li>
 <li><code>7b20c404</code><time>2026-11-23</time><span>Every Studio screen reads a typed number by one rule, and CI runs the contingent-values scripts (ADR-312, ADR-313)</span></li>
 <li><code>6749229d</code><time>2026-11-23</time><span>Merge branch &#x27;b2-fix-forms&#x27; into b2-merge</span></li>
 <li><code>7b083098</code><time>2026-11-23</time><span>Merge branch &#x27;b2-fix-cv&#x27; into b2-merge</span></li>
@@ -715,13 +716,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>98a6a46a</code><time>2026-11-23</time><span>ADR-312 records the second design review and the retired-value reading; D-480 says what a reader without the privilege still lacks</span></li>
 <li><code>6e8bcdd9</code><time>2026-11-23</time><span>Studio&#x27;s field-group editor: ambiguous numbers refused, duplicates marked on their entries, Save&#x27;s state said (ADR-312 re-review N3, N6-N8, N10, N12)</span></li>
 <li><code>01c227a5</code><time>2026-11-23</time><span>The Map Viewer keeps a held retired value without a warning, labels only the saved value, reads 90,5 as 90.5 and names coded values (ADR-312 re-review N1, N2, N4, N5, N9, N11)</span></li>
+<li><code>8385b100</code><time>2026-11-23</time><span>ADR-314: contingent values are served as protobuf in the encoding an ArcGIS server was observed to write, and their JSON takes the observed shape (research note, D-484, D-485)</span></li>
 <li><code>48271bcc</code><time>2026-11-23</time><span>The form designer&#x27;s columns scroll on their own in the order they are seen, its list is one Tab stop, and Forms gives the Layers panel back (ADR-313 re-review N1-N12)</span></li>
 <li><code>e3bf1b11</code><time>2026-11-23</time><span>Merge branch &#x27;b2-fix-cv&#x27; into b2-merge</span></li>
 <li><code>559e54c0</code><time>2026-11-23</time><span>ADR-312 records the owner&#x27;s narrowing decision and the service&#x27;s format; D-474 records Field Maps asking for pbf, D-480 the retired label</span></li>
 <li><code>b36abdb3</code><time>2026-11-23</time><span>Studio&#x27;s field-group editor holds groups by key, checks before it sends, and fits a phone (ADR-312 §5.6, design review findings 1-3, 6, 8, 11, 12)</span></li>
-<li><code>afa633c1</code><time>2026-11-23</time><span>The Map Viewer narrows each coded-value list to what the field groups allow, and says a broken combination in words (ADR-312 §5.6)</span></li>
-<li><code>61f1fcb2</code><time>2026-11-23</time><span>The form designer takes Map Viewer&#x27;s shape: list, preview, properties; the card clears a filled required field and describes each control (ADR-313 review, findings 1-16)</span></li>
-<li><code>65c2a294</code><time>2026-11-23</time><span>A form&#x27;s warnings, a text&#x27;s list name, a field&#x27;s real limit and the row focus goes to after a removal are form logic (ADR-313 review, findings 4, 10, 14, 15)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

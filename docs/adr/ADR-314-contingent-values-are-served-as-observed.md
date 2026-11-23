@@ -230,7 +230,7 @@ None recorded.
 ## 11. Conditions
 
 1. **Field Maps on a device narrows a coded list from a definition this server serves**, measured by the lead on the
-   emulator against a build with this ADR. Open: needs the device, which this work does not drive.
+   emulator against a build with this ADR. ~~Open: needs the device, which this work does not drive.~~ **DISCHARGED 2026-11-23**, on dev.graticula.com (branch b2-merge, c4097f77) with Field Maps 26.2.2 on the Android emulator, on a hosted layer whose `make` (Boeing, Airbus) and `model` (A320, B737, B747) carry coded domains and one restrictive group allowing Airbus–A320, Boeing–B737 and Boeing–B747: Field Maps asked `contingentValues?f=pbf` and `fieldGroups?f=json`, both answered 200; with *Make* Boeing the *Model* list put B737 and B747 under *Recommended* and the rest under *Other*; with Airbus it recommended A320 alone and selected it; and Boeing with no model was marked *Value combination is invalid* on both fields. Before ADR-314 the same device asked pbf twice, got 400 and offered all three models flat (2026-11-22).
 2. **The protobuf answer decodes to the JSON answer's definition** for this project's own definitions — integer, text,
    date and range values, `Any`, `Null`, subtypes, a retired value and the unobserved types' degradation — checked by unit
    tests with a reader written in the test, and `f=pbf` checked by a conformance test against a running server. **DISCHARGED

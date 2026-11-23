@@ -339,8 +339,8 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
    test adds a group in example five's shape and a value in example six's (a text code through `stringDicts`), reads
    `addedContingentValueIds` `[5]`, finds both in the resource, and is refused a group that already exists.
 5. **A real ArcGIS client reads a definition from this server and offers only the allowed combinations** — Field Maps on a
-   device, or the Maps SDK for JavaScript's Editor. Open: needs a device or a browser session with the SDK, which this
-   work did not drive.
+   device, or the Maps SDK for JavaScript's Editor. ~~Open: needs a device or a browser session with the SDK, which this
+   work did not drive.~~ **DISCHARGED 2026-11-23**, on dev.graticula.com (branch b2-merge, c4097f77) with Field Maps 26.2.2 on the Android emulator, once ADR-314 served the protobuf Field Maps asks for, on a hosted layer whose `make` (Boeing, Airbus) and `model` (A320, B737, B747) carry coded domains and one restrictive group allowing Airbus–A320, Boeing–B737 and Boeing–B747: Field Maps asked `contingentValues?f=pbf` and `fieldGroups?f=json`, both answered 200; with *Make* Boeing the *Model* list put B737 and B747 under *Recommended* and the rest under *Other*; with Airbus it recommended A320 alone and selected it; and Boeing with no model was marked *Value combination is invalid* on both fields. Before ADR-314 the same device asked pbf twice, got 400 and offered all three models flat (2026-11-22).
 6. **Studio's attribute form and table warn in an `aria-live` region and still save**, with the check tested headless in
    Node and the screens reviewed. **PARTLY DISCHARGED 2026-11-22**: `node --test tests/js/contingent.test.js` (8 pass)
    checks the decoding and the check; the attribute form was driven in headless Chrome on the fixture — typing
