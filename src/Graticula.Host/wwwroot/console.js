@@ -2396,11 +2396,12 @@ function drawSignin() {
 
   $("idpRows").innerHTML = idpList.length === 0
     ? `<tr><td colspan="5" class="empty">No provider is set, so people sign in with a password on this server only.
-        Add one to let them use their organization's sign-in.</td></tr>`
+        Add one to let them use their organization's sign-in, a certificate or smart card, or their Windows
+        sign-in.</td></tr>`
     : idpList.map((p, i) => `
       <tr>
-        <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}${samlExpiring(p)}</td>
-        <td class="val idpissuer" data-l="Address"><span><span class="hint">${idpKindName(p.kind)}</span>
+        <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}${samlExpiring(p)}${idpNotSetUp(p)}</td>
+        <td class="val idpissuer" data-l="Signs in through"><span><span class="hint">${idpKindName(p.kind)}</span>
           ${p.kind === "pki" ? `<span>${h(pkiNamedBy(p.usernameClaim))}</span>`
             : p.kind === "iwa" ? `<span>Named by the Windows account</span>` : `<code>${h(p.issuer)}</code>`}</span></td>
         <td data-l="First sign-in"><span>${p.autoCreate
@@ -2554,7 +2555,7 @@ ${kind === "pki" ? pkiFormPart(p) : kind === "iwa" ? iwaFormPart() : kind === "s
     <input id="idpUserFilter" type="text" spellcheck="false" aria-describedby="idpUserFilterHint"
       value="${h(p ? p.userFilter || "" : "(&(objectClass=person)(|(sAMAccountName={0})(uid={0})(userPrincipalName={0})))")}">
     <p class="hint" id="idpUserFilterHint">{0} is the name typed. The default finds an Active Directory or OpenLDAP person
-      by their account name or their e-mail-style name; CONTOSO\jane is read as jane.</p>
+      by their account name or their e-mail-style name; <code>CONTOSO\\jane</code> is read as <code>jane</code>.</p>
 ` : `    <h5>1. At your provider</h5>
     <p class="hint" id="idpRegisterHint">Register this server there as an application — Entra ID: App registrations;
       Keycloak: Clients; Okta: Applications; Google: Credentials, OAuth client — and give it this redirect URI:</p>
@@ -2595,9 +2596,12 @@ ${kind === "pki" ? pkiFormPart(p) : kind === "iwa" ? iwaFormPart() : kind === "s
           ? "<b>Anyone signed in to the domain gets in.</b>"
           : "<b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft app, that is anyone at all."}</label>
     </fieldset>
-    <label for="idpRole">Role for a new account, and for anyone none of whose mapped groups gives one</label>
+    <label for="idpRole">${kind === "pki" || kind === "iwa"
+      ? "Role for a new account" : "Role for a new account, and for anyone none of whose mapped groups gives one"}</label>
     <select id="idpRole" aria-describedby="idpRoleHint">${roles.map(r => `<option value="${h(r)}" ${p && p.defaultRole === r ? "selected" : ""}>${h(roleDisplay(r))}</option>`).join("")}</select>
-    <p class="hint" id="idpRoleHint">Change it on Members afterwards, unless the provider's Groups set it. An
+    <p class="hint" id="idpRoleHint">${kind === "pki" || kind === "iwa"
+      // Design review 2026-11-23 (6): a certificate and a Windows sign-in carry no groups, so nothing here maps one.
+      ? "Change it on Members afterwards." : "Change it on Members afterwards, unless the provider's Groups set it."} An
       administrator is never made this way.</p>
     <div id="idpAutoRow" ${auto ? "" : "hidden"}>
       <label for="idpType">Their user type</label>
@@ -2658,11 +2662,25 @@ ${kind === "pki" ? pkiFormPart(p) : kind === "iwa" ? iwaFormPart() : kind === "s
     <p class="hint" id="idpEnabledHint">Off hides it from the sign-in page and stops everyone who uses it from signing in,
       until it is turned back on.</p>
 
+    <!-- Design review 2026-11-23 (1): what Save or Add is refused with is said here, in the dialog, where the eye and
+         the focus are. It went to #idpSays, behind the modal, where nobody could read it. -->
+    <p class="hint" id="idpFormSays" role="status" aria-live="polite"></p>
     <div class="row">
       <button class="primary" id="idpSave">${p ? "Save" : "Add"}</button>
       <button class="ghost" id="idpCancel">Cancel</button>
     </div>
   </div>`;
+}
+
+/**
+ * Under a certificate or Windows sign-in's name, when this server is not set up for it — design review 2026-11-23 (4).
+ * Such a provider is saved and listed like any other, and the sign-in pages leave it out; without this, only Check said so.
+ */
+function idpNotSetUp(p) {
+  const off = p.kind === "pki" ? !(idpMeta.clientCertificates || {}).enabled
+    : p.kind === "iwa" ? !(idpMeta.windows || {}).enabled : false;
+  const what = p.kind === "pki" ? "certificates" : "Windows sign-in";
+  return off ? `<span class="warn-inline" style="display:block">Not on the sign-in pages: this server is not set up for ${what}</span>` : "";
 }
 
 /** What the provider table calls a kind of provider. */
@@ -2692,16 +2710,20 @@ function pkiFormPart(p) {
   return `    <h5>1. This server</h5>
     <p class="hint" id="idpPkiTransport">${t.enabled
       ? `This server ${how}, and believes those issued by ${t.authorities.map(a => h(a.subject)).join("; ")}. Revocation: ${h(t.revocation)}.`
-      : `<b>This server is not set up to receive certificates</b>, so nobody can sign in with this until it is. Set
-        Graticula:ClientCertificates:Mode (or :Header behind a proxy) and :Authorities, then restart — see the deployment
-        guide. Until then the sign-in page does not show it.`}</p>
+      // Design review 2026-11-23 (3): the names as the deployment guide writes them, so that a search finds them, with
+      // the two settings each choice also needs, and the guide's section linked rather than mentioned.
+      : `<b>This server is not set up to receive certificates</b>, so nobody can sign in with this until it is, and the
+        sign-in pages leave it out. Set <code>Graticula__ClientCertificates__Mode</code> (which needs
+        <code>Graticula__RequireHttps</code> true), or <code>Graticula__ClientCertificates__Header</code> behind a proxy
+        (with <code>Graticula__TrustedProxies</code>), and <code>Graticula__ClientCertificates__Authorities</code>, then
+        restart. ${idpGuideLink("pki")}.`}</p>
 
     <h5>2. The account</h5>
     <label for="idpClaim">What names the account</label>
     <select id="idpClaim" aria-describedby="idpClaimHint">
-      <option value="cn" ${field === "cn" ? "selected" : ""}>The certificate's common name (CN)</option>
-      <option value="email" ${field === "email" ? "selected" : ""}>The e-mail address in the certificate</option>
-      <option value="upn" ${field === "upn" ? "selected" : ""}>The user principal name in the certificate — smart cards</option>
+      <option value="cn" ${field === "cn" ? "selected" : ""}>Common name (CN) in the subject — as ArcGIS's Subject</option>
+      <option value="email" ${field === "email" ? "selected" : ""}>E-mail address (subject alternative name)</option>
+      <option value="upn" ${field === "upn" ? "selected" : ""}>User principal name (UPN) — CAC and PIV smart cards</option>
     </select>
     <p class="hint" id="idpClaimHint">An account made at a first sign-in is named by its part before an @, with spaces
       as dots: Ada Lovelace becomes Ada.Lovelace. Only one certificate sign-in can be on at a time.</p>
@@ -2717,12 +2739,21 @@ function iwaFormPart() {
   return `    <h5>1. This server</h5>
     <p class="hint" id="idpIwaTransport">${on
       ? "This server signs people in with Windows (Kerberos). Its name, as people's browsers reach it, must have an HTTP service principal in the domain."
-      : `<b>This server is not set up for Windows sign-in</b>, so nobody can sign in with this until it is. Set
-        Graticula:Iwa:Enabled, and on Linux Graticula:Iwa:Keytab, then restart — see the deployment guide. Until then the
-        sign-in page does not show it.`}</p>
-    <p class="hint">An account made at a first sign-in is named by the Windows account alone: CONTOSO\jane and
-      jane@CONTOSO.COM both become jane. Only one Windows sign-in can be on at a time.</p>
+      : `<b>This server is not set up for Windows sign-in</b>, so nobody can sign in with this until it is, and the
+        sign-in pages leave it out. Set <code>Graticula__Iwa__Enabled</code> (on Linux also
+        <code>Graticula__Iwa__Keytab</code>, a service principal and krb5.conf), then restart. ${idpGuideLink("iwa")}.`}</p>
+
+    <h5>2. The account</h5>
+    <p class="hint">An account made at a first sign-in is named by the Windows account alone: <code>CONTOSO\\jane</code>
+      and <code>jane@CONTOSO.COM</code> both become <code>jane</code>. Only one Windows sign-in can be on at a time.</p>
 `;
+}
+
+/** The deployment guide's section on setting this server up for a certificate (§6) or a Windows (§7) sign-in. */
+function idpGuideLink(kind) {
+  const at = kind === "pki" ? ["6", "6-signing-in-with-a-certificate-pki"] : ["7", "7-signing-in-with-windows-iwa"];
+  return `<a href="https://github.com/erdinckyildiz/graticula/blob/main/docs/deployment.md#${at[1]}" target="_blank"
+    rel="noopener">Deployment guide §${at[0]}</a>`;
 }
 
 /** Under a SAML provider's name, when its signing certificate runs out within thirty days — ADR-090. */
@@ -2914,9 +2945,40 @@ async function saveIdpGroups() {
   }
 }
 
+/**
+ * Says something about sign-in providers. `bad` is true for a refusal and "warn" for a known state that is not one.
+ *
+ * <b>While the dialog is open, in the dialog</b> — design review 2026-11-23 (1). A refused Add or Save, a failed Copy
+ * and a new encryption key were all said in #idpSays, which sits behind the modal, so none of them could be read.
+ */
 function idpSay(text, bad = false) {
-  $("idpSays").textContent = text;
-  $("idpSays").classList.toggle("bad-inline", bad);
+  const here = $("idpDialog")?.open && $("idpFormSays") ? $("idpFormSays") : $("idpSays");
+  here.textContent = text;
+  here.classList.toggle("bad-inline", bad === true);
+  here.classList.toggle("warn-inline", bad === "warn");
+  if (here.id === "idpFormSays") $("idpSays").textContent = "";
+}
+
+/**
+ * The provider dialog closed without a save — by Cancel, ✕ or Escape. The edit ends, and the focus goes back to what
+ * opened the dialog: that row's Edit, or Add a provider. Design review 2026-11-23 (2): ✕ and Escape left it on the body.
+ */
+function idpDialogClosed() {
+  const was = idpEditing;
+  idpEditing = null;
+  drawSignin();
+  idpSay("");
+  const at = idpList.findIndex(x => x.id === was);
+  (at >= 0 ? document.querySelector(`[data-idp-edit="${at}"]`) : $("idpNew"))?.focus();
+}
+
+/**
+ * After a refused Add or Save: the focus stays on the button, and the button is scrolled back into the dialog. It already
+ * had the focus, so focusing it again did not scroll, and the sentence said above it pushed it below the dialog's edge.
+ */
+function idpBackToSave() {
+  $("idpSave").focus();
+  $("idpSave").scrollIntoView({ block: "nearest" });
 }
 
 async function saveIdp() {
@@ -2978,7 +3040,7 @@ async function saveIdp() {
       }));
     if (!saved) {
       idpSay("Not saved.");
-      $("idpSave").focus();
+      idpBackToSave();
       return;
     }
     idpEditing = null;
@@ -2991,7 +3053,7 @@ async function saveIdp() {
     (document.querySelector(`[data-idp-check="${at}"]`) || $("idpNew")).focus();
   } catch (e) {
     idpSay(e.message, true);
-    $("idpSave").focus();
+    idpBackToSave();
   }
 }
 
@@ -4446,6 +4508,10 @@ function openScreen(surface, screen, folder) {
     // load that can show or hide a section draws the control again, since which of the four exist depends on the reader.
     securityChosen = appsAsked;
     if (appsAsked) securityPage = "apps";
+    // `?tab=idp` opens Sign-in, which Members' *change on Sign-in* links to (design review 2026-11-23, 12); without it
+    // the page opened on Two-step sign-in, where the provider's Groups that link opens could not be seen.
+    const askedTab = hashQuery.get("tab");
+    if (["sf", "sa", "idp", "apps"].includes(askedTab)) { securityChosen = true; securityPage = askedTab; }
     drawSecurityPages();
     section("two-step sign-in", loadSecondFactorRequirement).then(() => drawSecurityPages());
     section("service accounts", loadServiceAccounts, "saRows").then(() => drawSecurityPages());
@@ -16527,7 +16593,7 @@ async function loadMembers() {
         : `<span class="val">none</span>`}${m.roleManaged
         // ADR-089, by owner decision: the mapping decides, and the row says where to change it.
         ? `<span class="hint" id="roleFrom-${h(roleFromId(m.name))}" style="display:block">Set by ${h(m.signsInWith)}'s groups —
-            <a href="#/signin" data-open-groups="${h(m.signsInWith)}">change on Sign-in</a></span>`
+            <a href="#/signin?tab=idp" data-open-groups="${h(m.signsInWith)}">change on Sign-in</a></span>`
         : ""}</span></td>
       <td class="acts act">
         <details class="rowmenu">
@@ -17598,7 +17664,7 @@ document.addEventListener("click", event => {
 
 document.addEventListener("close", event => {
   if (event.target.id === "domainEditDialog" && domainEdit) { domainEdit = null; drawDomains(); }
-  if (event.target.id === "idpDialog" && idpEditing) { idpEditing = null; idpSay(""); drawIdpForm(); }
+  if (event.target.id === "idpDialog" && idpEditing) idpDialogClosed();
 }, true);
 
 /** Asks the server again from the first page, which every change to the question must do. */
@@ -32718,7 +32784,7 @@ async function handleClick(event) {
   // ---- from Members: "change on Sign-in" opens that provider's Groups ----
   if (t.dataset && t.dataset.openGroups !== undefined) {
     idpGroupsOpenName = t.dataset.openGroups;
-    return; // the link navigates to #/signin, whose load opens it
+    return; // the link navigates to #/signin?tab=idp, whose load opens it
   }
 
   // ---- a provider's group mappings (ADR-089) ----
@@ -32782,12 +32848,7 @@ async function handleClick(event) {
   }
 
   if (t.id === "idpCancel") {
-    idpSay("");
-    const was = idpEditing;
-    idpEditing = null;
-    drawSignin();
-    const at = idpList.findIndex(x => x.id === was);
-    (at >= 0 ? document.querySelector(`[data-idp-edit="${at}"]`) : $("idpNew")).focus();
+    idpDialogClosed();
     return;
   }
 
@@ -32911,12 +32972,18 @@ async function handleClick(event) {
           : " It does not say it supports PKCE, which this server uses; if a sign-in fails at the provider, that is why."),
         !r.pkce);
     } catch (e) {
+      // Design review 2026-11-23 (11): a certificate or Windows sign-in the server is not set up for is a known state,
+      // said as a warning with the guide's section, not a refusal that tells the reader the same thing twice.
+      if ((p.kind === "pki" || p.kind === "iwa") && e.status === 503) {
+        idpSay(`${p.name}: ${e.message} Deployment guide §${p.kind === "pki" ? "6" : "7"}.`, "warn");
+        return;
+      }
       idpSay(`${p.name}: ${e.message} ` + (p.kind === "ldap"
         ? "Check the address, the port and the search account. If they are right, a firewall may be in the way."
         : p.kind === "saml"
         ? "Check the metadata URL. If it is right and this server cannot reach it, upload the metadata file in Edit instead."
         : p.kind === "pki" || p.kind === "iwa"
-        ? "The deployment guide says how to set it up."
+        ? `Deployment guide §${p.kind === "pki" ? "6" : "7"}.`
         : "Check the issuer for a typing mistake. If it is right, this server cannot reach the provider: a firewall or a proxy may be in the way."), true);
     } finally {
       t.disabled = false;

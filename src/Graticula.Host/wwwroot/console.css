@@ -773,6 +773,10 @@ label.field {
 #idpForm .hint { margin: 2px 0 8px; }
 .idpissuer code { overflow-wrap: anywhere; }
 .idpissuer .hint { display: block; margin: 0; }
+/* Design review 2026-11-23 (13): at 1280 the row's four buttons wrapped onto two lines. A phone stacks them below. */
+#idpRows td.idpacts { white-space: nowrap; }
+/* The dialog's own status (design review 2026-11-23, 1) takes no room until it has something to say. */
+#idpForm #idpFormSays:empty { margin: 0; }
 #idpGroups .valuesgrid input[type=text] { width: 100%; min-width: 14ch; }
 #idpGroups .valuesgrid select { min-width: 16ch; }
 #idpGroups .tablewrap { overflow-x: auto; max-width: 100%; }
@@ -800,7 +804,7 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 #appRows button.danger { border-color: var(--alert-line); }
 @media (max-width: 719px) {
   #view-signin .panel table.rowblocks { min-width: 0; }
-  #idpRows td.idpacts { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  #idpRows td.idpacts { grid-column: 1 / -1; grid-row: auto; text-align: left; white-space: normal; }
   #view-signin table.rowblocks code { overflow-wrap: anywhere; }
 }
 
