@@ -70,7 +70,8 @@ impossible.
   measured three minutes for a 7 GB dump), when restoring into the new database while the old one still served would
   be down only for the swap. But anything written during those minutes would be discarded silently by the swap; Esri's
   own documentation says the organization *"will be unavailable until the process is completed"*. Honest downtime
-  over lost edits.
+  over lost edits. **Confirmed by the owner, 2026-11-23** — *"Baştan sona kapalı"* (down from start to end), asked
+  against the alternative of closing only for the swap and losing the edits made meanwhile.
 - **The status is a file**, not a job row: one more place state lives. It has to be, for the reason in §1.
 
 ## 4. Evidence
@@ -116,7 +117,8 @@ impossible.
    2. **Maintenance.** Every node's configured state is recorded and set to `maintenance` through ADR-012's own
       mechanism (`site_node`, announced), a marker `site.restore` is written to `server_setting`, and a `restore`
       announcement goes to the site. Every node then answers **503 `restoring`** to everything except `/healthz/live`
-      and the operation's own status — the readiness reason is a named state beside ADR-318's, so a balancer stops
+      and the operation's own status, which answers without a session — the restored database holds none — and is
+      protected by its 128-bit id alone (**confirmed by the owner, 2026-11-23**: *"Kalsın"*, keep it) — the readiness reason is a named state beside ADR-318's, so a balancer stops
       sending it requests. *(`INFERRED`: liveness stays 200 during a restore, unlike a refusal, because a restart of
       the node running the restore would kill it half way.)*
    3. **Drain.** This node's requests in flight finish, and so do the queries other nodes have running on the
