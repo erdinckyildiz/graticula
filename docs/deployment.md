@@ -206,7 +206,7 @@ serving role, so a default that named one would stop every existing deployment t
 decision of 2026-10-19 is that the switch comes **with a deployment's first second organisation, not before**
 (ADR-204 condition 9), and the server holds the line itself: it will not make a second organisation over a superuser
 connection, and it will not *start* over a store that already holds several (event 1095, critical) — so a serving
-role lost in an upgrade stops the server instead of letting every organisation read every other's rows.
+role lost in an upgrade keeps the server from serving (it stays up and answers 503, ADR-318) instead of letting every organisation read every other's rows.
 
 ```bash
 docker compose run --rm server backup                          # first
@@ -878,7 +878,7 @@ certificate names the account and what a first sign-in gets.
 | `Graticula__ClientCertificates__Header` | unset | Behind a proxy that ends TLS: the header the proxy forwards the certificate in. Read **only** from an address in `Graticula__TrustedProxies` |
 | `Graticula__ClientCertificates__Revocation` | `SoftFail` | `SoftFail`: a revoked certificate is refused, one whose CRL or OCSP cannot be reached is accepted and logged — the default because an air-gapped site cannot reach either (ADR-014 §7). `HardFail` refuses that one too. `Off` checks nothing |
 
-A setting that cannot work stops the server at start with the key named: a mode or a header without readable
+A setting that cannot work keeps the server from serving, with the key named in every 503 it answers ([ADR-318](adr/ADR-318-a-refusing-server-stays-up-and-says-why.md)): a mode or a header without readable
 authorities; a header with `TrustedProxies` empty; a mode with `RequireHttps=false`.
 
 Then, in **Server › Sign-in**, *Add a provider*, *Their certificate*. Choose what names the account: the common name

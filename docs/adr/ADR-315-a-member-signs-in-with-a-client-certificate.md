@@ -128,7 +128,7 @@ two people — `INFERRED`.
 | `Header` | the header a trusted proxy forwards the certificate in; empty means no header is ever read | empty |
 | `Revocation` | `SoftFail`, `HardFail`, `Off` (§5.6) | `SoftFail` |
 
-**A setting that cannot work refuses to start**, as `TrustedProxies` does: `Mode` other than `Off`, or a `Header`,
+**A setting that cannot work refuses to start**, as `TrustedProxies` does — *since ADR-318 (the same day's merge) a refusal stays up and answers 503 with state `configuration` and the key named, rather than exiting 78*: `Mode` other than `Off`, or a `Header`,
 without readable `Authorities`; a `Header` with `TrustedProxies` empty (a header nobody may send is a mistake, not a
 setting); a `Mode` with `RequireHttps=false` (there is no handshake to ask in).
 

@@ -451,15 +451,18 @@ public sealed class ACertificateSignsAMemberInTests(CertificateNodes nodes) : IC
         }
     }
 
-    /// <summary>A header with no trusted proxy to send it refuses to start, and says which setting to fix.</summary>
+    /// <summary>
+    /// A header with no trusted proxy to send it is refused, and says which setting to fix — since ADR-318 a configuration
+    /// refusal stays up and answers 503 with state <c>configuration</c>, where it used to exit 78.
+    /// </summary>
     [Fact]
     public async Task A_header_with_no_trusted_proxy_refuses_to_start()
     {
-        (int? exit, string said) = await nodes.Kestrel.Site.StartRefusedAsync("pki-misconfigured", TestPki.Settings(
+        (string? refused, string said) = await nodes.Kestrel.Site.StartRefusedAsync("pki-misconfigured", TestPki.Settings(
             ("Graticula__ClientCertificates__Header", CertificateNodes.Header),
             ("Graticula__ClientCertificates__Authorities", "unused.pem")));
 
-        Assert.Equal(78, exit);
+        Assert.Equal("configuration", refused);
         Assert.Contains("Graticula:TrustedProxies is empty", said, StringComparison.Ordinal);
     }
 }
