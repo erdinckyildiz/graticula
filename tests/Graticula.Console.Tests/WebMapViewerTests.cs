@@ -1207,12 +1207,15 @@ public sealed class WebMapViewerTests : ConsoleTest
         await WaitForAsync("document.getElementById('tableSave').textContent === 'Save 2 rows' && document.querySelectorAll('#tableGrid td.changed').length === 2",
             "The changed cells were not marked and counted.");
 
-        // A fraction in a whole-number cell stops the save and is marked.
+        // A fraction in a whole-number cell is marked and keeps Save unavailable while it is there (ADR-312 fourth render,
+        // m1), and is said in the table's status once the cell is left (m2) — not on the first keystroke.
         await Browser.EvaluateAsync<bool>(
             "(() => { const i = document.querySelector('#tableGrid [data-field=area_m2]'); i.value = '1.5'; i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
-        await ClickAsync("#tableSave");
         await WaitForAsync("document.querySelector('#tableGrid [data-field=area_m2]').getAttribute('aria-invalid') === 'true'"
-            + " && document.getElementById('tableStatus').textContent.includes('whole number')", "A fraction in a whole-number cell was not refused.");
+            + " && document.getElementById('tableSave').disabled", "A fraction in a whole-number cell did not stop the save.");
+        await Browser.EvaluateAsync<bool>(
+            "(() => { document.querySelector('#tableGrid [data-field=area_m2]').dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await WaitForAsync("document.getElementById('tableStatus').textContent.includes('whole number')", "A fraction in a whole-number cell was not said when left.");
         Assert.Empty(await WritesAsync());
 
         await Browser.EvaluateAsync<bool>(
