@@ -166,10 +166,27 @@ None recorded.
    `/rest/info/healthcheck` and a data path 503 with `store-not-migrated`; it is still running after twenty seconds;
    and `migrate --apply` from another process brings it into service without a restart. The test fails with the
    change removed.
+   **DISCHARGED 2026-11-23** — `ARefusingServerStaysUpTests.Against_an_unmigrated_store_it_stays_up_says_why_and_serves_once_migrated`,
+   a real `Graticula.Host.dll` over an empty schema: the three health routes and `/rest/services` answered 503
+   `store-not-initialised` (the schema missing altogether; `A_store_older_than_the_build_is_refused_as_not_migrated_until_it_is`
+   covers `store-not-migrated`, one schema behind), the process was running after twenty seconds, and after `migrate
+   --apply` from a second process the same process logged *has cleared* and answered live. With the handshake's
+   refusal put back to `return 1` and the configuration's to `return 78`, all three tests of the class failed on their
+   first assertion — nothing was listening.
 2. **A configuration refusal stays up** and answers 503 `configuration` naming the missing setting.
+   **DISCHARGED 2026-11-23** — `A_missing_setting_is_said_on_the_port_and_the_process_stays_up`: `Graticula__SecretKey`
+   empty, `/rest/services` answered 503 `configuration` with *Graticula:SecretKey is not configured*, and the process
+   was running twelve seconds later.
 3. **The site's own refusal tests hold under the new contract** — the node with another key, another setting, a taken
    name, other server directories, a store whose minimum reader is above it — each answering 503 `node-refused` or
    `store-newer` with its sentence, instead of exiting.
+   **DISCHARGED 2026-11-23** — `TwoNodeSite.StartRefusedAsync` now waits for `/healthz/ready` to name a refusal, and
+   the five tests assert the state: `ASiteOfTwoNodesTests` (14 of 14 passed), `ASiteSharesItsServerDirectoriesTests`
+   (7 of 8 — the eighth, *An image uploaded through one node…*, fails *could not find the repository root* because the
+   build output is outside the tree here, and touches no refusal) and
+   `A_node_refuses_to_start_on_a_store_whose_minimum_reader_is_above_it`. Run one class at a time: in parallel the
+   shared PostgreSQL's 100 connections ran out (`53300`) and nodes refused as `store-unreachable`, which
+   `StartRefusedAsync` now waits through.
 4. **In a container**, with `compose.yaml`: a restart of the Docker daemon (or the host) brings the server back, and a
    server started against an un-migrated store stays `Up (unhealthy)` with a restart count of 0, then turns healthy
    after `docker compose run --rm server migrate --apply`. Needs Docker, which this machine does not have.

@@ -51,8 +51,9 @@ you skip it, `migrate` says so and exits 1; before 2026-08-15 it threw
 `3F000: no schema has been selected to create in`, which is Postgres's way of
 saying the same thing and nobody's idea of a first impression.
 
-**3. Configuration.** Two settings are required and the server refuses to start
-without either:
+**3. Configuration.** Two settings are required and the server refuses to serve
+without either (since [ADR-318](adr/ADR-318-a-refusing-server-stays-up-and-says-why.md) it stays up
+and answers every request 503 with the setting it is missing, rather than exiting):
 
 | | |
 |---|---|
@@ -390,8 +391,9 @@ the minimum reader, and is refused while any machine older than it is up.
 4. Repeat for the next machine. While builds differ, Machines says a rolling upgrade is in progress, which machines run
    which build, and which is next; `/admin/site/machines` has the same as `rollingUpgrade`.
 
-A node never migrates on its own start (ADR-016 §4b), and a node older than the store's minimum reader refuses to start
-and says both numbers. **What has run:** two nodes on the previous release's build upgraded to the next behind a
+A node never migrates on its own start (ADR-016 §4b), and a node older than the store's minimum reader refuses to serve
+and says both numbers — staying up and answering 503 `store-newer` since ADR-318. A node started before the store is
+migrated answers 503 `store-not-migrated` and starts serving by itself within ten seconds of `migrate --apply`. **What has run:** two nodes on the previous release's build upgraded to the next behind a
 health-checking balancer under steady load, with no failed request, and the same with one build (`ARollingUpgradeTests`,
 2026-11-01). Not run: an upgrade behind a real Caddy, and a contract migration in a live site.
 
