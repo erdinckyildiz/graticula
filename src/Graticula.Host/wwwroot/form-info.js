@@ -22,6 +22,8 @@
   "use strict";
 
   const Arcade = typeof module === "object" && module.exports ? require("./arcade.js") : root.GraticulaArcade;
+  // The one number rule (number-text.js): required in Node, its globals in the browser, where it loads first.
+  const NT = typeof module === "object" && module.exports ? require("./number-text.js") : root;
 
   const SYSTEM_TRUE = "expr/system/true";
   const SYSTEM_FALSE = "expr/system/false";
@@ -620,29 +622,31 @@
   }
 
   /**
-   * A typed number as JavaScript reads it, or null when it is not one; "" stays "". One rule for every Studio screen
-   * (webmap.js wmParseNumber, contingent.js cvParseNumber): a single comma or point is the decimal separator ("90,5" and
-   * "90.5" are 90.5), nothing groups thousands, and "1,500" is refused because it could mean 1500 or 1.5
-   * (ambiguousNumber). Studio's screens disagreed on this until 2026-11-23.
+   * A typed number as JavaScript reads it, or null when it is not one; "" stays "". The rule is number-text.js's, the
+   * one every Studio screen reads by (webmap.js wmParseNumber, contingent.js cvParseNumber): one comma or point is the
+   * decimal separator, nothing groups thousands, and "1,500" or "1.500" is refused because it could be read two ways.
    */
   function decimalText(raw) {
-    const text = String(raw === null || raw === undefined ? "" : raw).trim();
-    if (text === "") return "";
-    if (ambiguousNumber(text)) return null;
-    if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(text)) return null;
-    return String(Number(text.replace(",", ".")));
+    const read = NT.ntParseNumber(raw);
+    if (read.empty) return "";
+    return "value" in read ? String(read.value) : null;
   }
 
-  /** Whether typed text could be a thousands separator as well as a decimal comma — "1,500". */
+  /** Whether typed text could be read two ways — "1,500", "1.500". */
   function ambiguousNumber(raw) {
-    return /^[-+]?\d{1,3},\d{3}$/.test(String(raw === null || raw === undefined ? "" : raw).trim());
+    return NT.ntAmbiguous(raw);
+  }
+
+  /** The sentence an ambiguous number is refused with, from the one rule; `whole` offers only the whole reading. */
+  function ambiguousSaid(raw, whole = false) {
+    return NT.ntAmbiguousSaid(raw, whole);
   }
 
   const api = {
     SYSTEM_TRUE, SYSTEM_FALSE, INPUT_LABELS, EXPRESSION_PROPERTIES, inputTypesFor, defaultInput, fromFields, walk,
     fieldElements, locate, setExpression, setFixed, modeOf, prune, expressionInfo, returnTypeFor, compile, evaluate,
     missing, substitute, markdownHtml, problems, toArcade, fromArcade, codedValues,
-    featureNames, warnings, textTitle, lengthLimit, neighbourOf, decimalText, ambiguousNumber,
+    featureNames, warnings, textTitle, lengthLimit, neighbourOf, decimalText, ambiguousNumber, ambiguousSaid,
   };
 
   if (typeof module === "object" && module.exports) module.exports = api;

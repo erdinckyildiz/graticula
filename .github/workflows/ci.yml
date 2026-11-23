@@ -957,7 +957,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: the scripts parse
-        run: for f in src/Graticula.Host/wwwroot/arcade.js src/Graticula.Host/wwwroot/form-info.js src/Graticula.Host/wwwroot/webmap-form.js src/Graticula.Host/wwwroot/contingent.js src/Graticula.Host/wwwroot/contingent-studio.js src/Graticula.Host/wwwroot/contingent-editor.js src/Graticula.Host/wwwroot/webmap.js; do node --check "$f"; done
+        run: for f in src/Graticula.Host/wwwroot/number-text.js src/Graticula.Host/wwwroot/arcade.js src/Graticula.Host/wwwroot/form-info.js src/Graticula.Host/wwwroot/webmap-form.js src/Graticula.Host/wwwroot/contingent.js src/Graticula.Host/wwwroot/contingent-studio.js src/Graticula.Host/wwwroot/contingent-editor.js src/Graticula.Host/wwwroot/webmap.js; do node --check "$f"; done
 
       - name: Arcade and the form logic
         run: node --test tests/studio-js/*.test.js

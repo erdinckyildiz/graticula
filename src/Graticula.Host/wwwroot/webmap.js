@@ -5296,19 +5296,14 @@ function wmLocalInput(ms) {
 }
 
 /**
- * A typed number. A decimal comma is read as a point, as somebody who writes "90,5" means ninety and a half: the form's
- * `<input type="number">` read it as 905, and the contingent-values check then warned about a size ten times too large
- * (ADR-312 design re-review 2026-11-23, N4). One comma before exactly three digits — "1,500" — could be either, and is
- * refused with a sentence rather than read one way. `{value}` (NaN when it is not a number) or `{ambiguous}`.
+ * A typed number, by the one rule every Studio screen reads numbers with (number-text.js, ADR-312 §5.6): "90,5" and
+ * "90.5" are ninety and a half — the form's `<input type="number">` once read "90,5" as 905 (re-review N4) — and
+ * "1,500" or "1.500" is refused with a sentence. `{value}` (NaN when it is not a number) or `{ambiguous}`.
  */
-function wmParseNumber(raw) {
-  const t = String(raw).trim();
-  if (/^[-+]?\d{1,3},\d{3}$/.test(t)) {
-    const decimal = t.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "");
-    return { ambiguous: `${t} could mean ${t.replace(",", "")} or ${decimal}. Type ${t.replace(",", "")} or ${decimal}.` };
-  }
-  if (!/^[-+]?(\d+([.,]\d*)?|[.,]\d+)([eE][-+]?\d+)?$/.test(t)) return { value: NaN };
-  return { value: Number(t.replace(",", ".")) };
+function wmParseNumber(raw, whole = false) {
+  const read = ntParseNumber(raw, whole);
+  if (read.ambiguous) return { ambiguous: read.ambiguous };
+  return { value: "value" in read ? read.value : NaN };
 }
 
 /** The whole-number limits ArcGIS's integer types hold. */
@@ -5400,8 +5395,8 @@ function wmReadControl(control, field, was) {
   }
   if (WM_NUMBER_TYPES.has(field.type) || ((field.domain || {}).type === "codedValue"
     && typeof ((field.domain.codedValues || [])[0] || {}).code === "number")) {
-    const parsed = wmParseNumber(raw);
-    if (parsed.ambiguous) return { problem: `${label}: ${parsed.ambiguous}` };
+    const parsed = wmParseNumber(raw, /Integer/.test(field.type));
+    if (parsed.ambiguous) return { problem: `${label} — ${parsed.ambiguous}` };
     const value = parsed.value;
     const limits = WM_INT_RANGE[field.type];
     if (!Number.isFinite(value)) return { problem: `${label} takes a number, such as 10 or 10,5.` };
@@ -5708,7 +5703,49 @@ wm$("identify").addEventListener("click", event => {
   if (t.dataset.delete !== undefined) { wmDeleteFeature(t.dataset.delete); return; }
   if (t.dataset.editCancel !== undefined && wmMayLeaveEdit()) wmCancelEdit();
 });
+/**
+ * A field's own problem — text that is not a number, "1,500" — is said under it as it is typed and cleared as soon as
+ * what is typed is right again, rather than only when Save is pressed (ADR-312 third review R4; the forms reviewer's
+ * fourth render, item 4).
+ */
+function wmCheckField(control, settle) {
+  const form = control.closest("form.editform");
+  const held = form && wmIdentified.get(form.dataset.editing);
+  const says = control.id && document.getElementById(`${control.id}-says`);
+  if (!held || !says || control.dataset.cell !== undefined) return;
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  const field = (info.fields || []).find(f => f.name === control.dataset.field);
+  if (!field) return;
+  const was = (held.feature.attributes || {})[field.name];
+  const read = wmReadControl(control, field, was === undefined ? null : was);
+  // A required field left empty is the save's to say, not the keyboard's: only a value that is wrong is said as typed.
+  const problem = read.problem && control.value.trim() !== "" ? read.problem : "";
+  if (problem && settle) {
+    control.setAttribute("aria-invalid", "true");
+    if (says.textContent !== problem) says.textContent = problem;
+  } else if (!problem && control.getAttribute("aria-invalid") === "true") {
+    control.setAttribute("aria-invalid", "false");
+    says.textContent = "";
+  }
+  wmClearNotSaved(form);
+}
+
+/**
+ * Takes "Not saved: correct the field marked below it." away once no field of the form is marked any more, in the
+ * plain card and the form's card alike (the forms reviewer's fourth render, item 4: it stayed after the field was right).
+ */
+function wmClearNotSaved(form) {
+  const says = form && form.querySelector("#editSays");
+  if (says && /^Not saved: correct the field/.test(says.textContent) && !form.querySelector('[aria-invalid="true"]')) {
+    says.textContent = "";
+  }
+}
+wm$("identify").addEventListener("change", event => {
+  if (event.target instanceof Element && event.target.matches("form.editform [data-field]")) wmCheckField(event.target, true);
+});
+
 wm$("identify").addEventListener("input", event => {
+  if (event.target instanceof Element && event.target.matches("form.editform [data-field]")) wmCheckField(event.target, true);
   if (event.target instanceof Element && event.target.closest("form.editform")) wmEditing.dirty = true;
 });
 wm$("identify").addEventListener("submit", event => {
@@ -6123,6 +6160,11 @@ wm$("tablePanel").addEventListener("input", event => {
   if (!(event.target instanceof Element && event.target.matches("[data-cell]"))) return;
   delete event.target.dataset.refused;
   wmTableCount();
+  // The cell's own problem is said in the table's status as it is typed (the forms reviewer's fourth render, item 4);
+  // the lines below put the row count back once no cell has one.
+  const feature = wmTable.rows[Number(event.target.dataset.cell)];
+  const mine = event.target.getAttribute("aria-invalid") === "true" && event.target.value.trim() !== "" ? event.target.title : "";
+  if (mine) wmSayIn("tableStatus", `Not saved: ${mine}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
   // A problem said for a cell goes once the cells have none, and the line says the rows again.
   if (/^Not saved: /.test(wm$("tableStatus").textContent) && !wmTableChanges().some(c => c.problems.length)) {
     wmSayIn("tableStatus", wmTable.countSaid || "");

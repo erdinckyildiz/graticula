@@ -378,6 +378,8 @@ test("a typed number is read with a decimal comma, and text that is not a number
   // One rule with webmap.js and contingent.js: nothing groups thousands, and "1,500" is ambiguous, so refused.
   for (const typed of ["abc", "9,0,5x", "1-2", "--1", "1,500", "1.234,5", "1 234"]) assert.equal(F.decimalText(typed), null, typed);
   assert.equal(F.ambiguousNumber("1,500"), true);
+  assert.equal(F.ambiguousNumber("1.500"), true, "a point before three digits is as ambiguous as a comma");
+  assert.equal(F.decimalText("1.500"), null);
   assert.equal(F.ambiguousNumber("10,50"), false);
   assert.equal(F.decimalText(null), "");
 });

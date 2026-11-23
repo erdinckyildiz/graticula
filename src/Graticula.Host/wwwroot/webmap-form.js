@@ -1303,29 +1303,38 @@ function wmfOnCardInput(event) {
 }
 
 /**
- * A number box's text into its field's control: "90,5" and "90.5" are 90.5, and "1,500" is refused as ambiguous, by the
- * rule every Studio screen reads numbers with (WMF_F.decimalText). Text that is not a number is kept as typed, so the save refuses it naming the field,
- * and the box says so while it is typed.
+ * A number box's text into its field's control: "90,5" and "90.5" are 90.5, and "1,500" or "1.500" is refused, by the
+ * rule every Studio screen reads numbers with (number-text.js through WMF_F.decimalText). Text that is not a number is
+ * kept as typed, so the save refuses it naming the field. What is wrong is said as it is typed, in the words the save
+ * would use — wmReadControl's, so the card has one wording for one fault (the forms reviewer's fourth render, item 3) —
+ * and "Not saved" goes once nothing is marked (item 4).
  */
 function wmfReadNumber(form, box, control) {
   const read = WMF_F.decimalText(box.value);
   control.value = read === null ? box.value : read;
   const says = form.querySelector(`#${CSS.escape(`${control.id}-says`)}`);
   const field = (wmfEditing.info.fields || []).find(f => f.name === control.dataset.field);
-  const label = (field && field.alias) || control.dataset.field;
   const typed = box.value.trim();
-  const problem = read === null && WMF_F.ambiguousNumber(typed)
-    ? `${typed} could mean ${typed.replace(",", "")} or ${typed.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "")}. Type one of them.`
-    : read === null ? `${label} takes a number.`
-    : box.dataset.wmfNumber === "whole" && read !== "" && !Number.isInteger(Number(read)) ? `${label} takes a whole number.` : "";
+  const checked = field && typed !== "" ? wmReadControl(control, field, null) : {};
+  const problem = checked.problem || "";
   if (problem) {
     box.setAttribute("aria-invalid", "true");
     if (says) { says.textContent = problem; says.dataset.wmfNumber = "1"; }
-  } else if (says && says.dataset.wmfNumber) {
-    box.removeAttribute("aria-invalid");
-    says.textContent = "";
-    delete says.dataset.wmfNumber;
+  } else {
+    if (says && says.dataset.wmfNumber) {
+      box.removeAttribute("aria-invalid");
+      says.textContent = "";
+      delete says.dataset.wmfNumber;
+    }
+    // The save marks the field's control itself (wmReadEdit); once the box reads right, that mark goes too, or the
+    // card's "Not saved" would stay for a field that is no longer wrong (item 4).
+    if (control.getAttribute("aria-invalid") === "true") {
+      control.setAttribute("aria-invalid", "false");
+      box.removeAttribute("aria-invalid");
+      if (says && !says.dataset.wmfRequired) says.textContent = "";
+    }
   }
+  if (typeof wmClearNotSaved === "function") wmClearNotSaved(form);
 }
 
 /**
