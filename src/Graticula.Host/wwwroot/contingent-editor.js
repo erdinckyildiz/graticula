@@ -165,15 +165,25 @@ function cveNarrowSelect(select, definition, attributes, subtype, original, look
   }
   if (!plain && select.id) {
     const offered = list.filter(o => ["ok", "retired", "held"].includes(o.state)).length;
-    const because = offered < select._cveAll.length && look
-      ? cvNarrowedBecause(limits, attributes, look, select._cveAll, field) : "";
+    const narrowed = offered < select._cveAll.length && look;
+    const because = narrowed ? cvNarrowedBecause(limits, attributes, look, select._cveAll, field) : "";
+    const short = narrowed ? cvNarrowedShort(limits, attributes, look, select._cveAll) : "";
+    // The whole sentence describes the list for a screen reader and is not drawn; what is drawn is a short suffix on the
+    // field's own label line, shown while the list has focus — it takes no room and covers nothing (fourth render, M2).
     let hint = document.getElementById(`${select.id}-cv`);
     if (because && !hint) {
-      select.insertAdjacentHTML("afterend", `<p class="cvhint" id="${wmEscape(select.id)}-cv"></p>`);
+      select.insertAdjacentHTML("afterend", `<span class="cvhint sr-only" id="${wmEscape(select.id)}-cv"></span>`);
       hint = document.getElementById(`${select.id}-cv`);
     }
     if (hint && hint.textContent !== because) hint.textContent = because;
     cveDescribedBy(select, `${select.id}-cv`, !!because);
+    const label = document.querySelector(`label[for="${CSS.escape(select.id)}"]`);
+    let suffix = label && label.querySelector(".cvsuffix");
+    if (short && label && !suffix) {
+      label.insertAdjacentHTML("beforeend", `<span class="cvsuffix" aria-hidden="true"></span>`);
+      suffix = label.querySelector(".cvsuffix");
+    }
+    if (suffix && suffix.textContent !== (short ? ` · ${short}` : "")) suffix.textContent = short ? ` · ${short}` : "";
   }
   return limits;
 }

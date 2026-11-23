@@ -5718,9 +5718,11 @@ function wmCheckField(control, settle) {
   if (!field) return;
   const was = (held.feature.attributes || {})[field.name];
   const read = wmReadControl(control, field, was === undefined ? null : was);
-  // A required field left empty is the save's to say, not the keyboard's: only a value that is wrong is said as typed.
+  // A required field left empty is the save's to say, not the keyboard's. While typing only an ambiguous number is said
+  // ("1,500"), since "a" or a lone "-" is a number not yet finished; anything else wrong is said when the field is left
+  // (fourth render, m2). A problem is cleared as soon as it is gone, either way.
   const problem = read.problem && control.value.trim() !== "" ? read.problem : "";
-  if (problem && settle) {
+  if (problem && (settle || ntAmbiguous(control.value))) {
     control.setAttribute("aria-invalid", "true");
     if (says.textContent !== problem) says.textContent = problem;
   } else if (!problem && control.getAttribute("aria-invalid") === "true") {
@@ -5745,7 +5747,7 @@ wm$("identify").addEventListener("change", event => {
 });
 
 wm$("identify").addEventListener("input", event => {
-  if (event.target instanceof Element && event.target.matches("form.editform [data-field]")) wmCheckField(event.target, true);
+  if (event.target instanceof Element && event.target.matches("form.editform [data-field]")) wmCheckField(event.target, false);
   if (event.target instanceof Element && event.target.closest("form.editform")) wmEditing.dirty = true;
 });
 wm$("identify").addEventListener("submit", event => {
@@ -6037,7 +6039,8 @@ function wmTableCount() {
   const n = changes.length;
   wm$("tableSave").hidden = !wmTable.editing;
   wm$("tableDiscard").hidden = !wmTable.editing;
-  wm$("tableSave").disabled = n === 0;
+  // A cell whose value is wrong keeps Save unavailable until it is right (fourth render, m1).
+  wm$("tableSave").disabled = n === 0 || changes.some(c => c.problems.length);
   wm$("tableDiscard").disabled = n === 0;
   wm$("tableSave").textContent = n ? `Save ${n} ${n === 1 ? "row" : "rows"}` : "Save changes";
 }
@@ -6164,14 +6167,31 @@ wm$("tablePanel").addEventListener("input", event => {
   // the lines below put the row count back once no cell has one.
   const feature = wmTable.rows[Number(event.target.dataset.cell)];
   const mine = event.target.getAttribute("aria-invalid") === "true" && event.target.value.trim() !== "" ? event.target.title : "";
-  if (mine) wmSayIn("tableStatus", `Not saved: ${mine}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
+  // Nothing has been saved or refused yet, so no "Not saved:" while typing (fourth render, m1); and only an ambiguous
+  // number is said as it is typed — the rest when the cell is left (m2, the change listener below).
+  if (mine && ntAmbiguous(event.target.value)) {
+    wmSayIn("tableStatus", `${mine}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
+    wm$("tableStatus").dataset.cellSaid = "1";
+  } else if (wm$("tableStatus").dataset.cellSaid && !wmTableChanges().some(c => c.problems.length)) {
+    // A cell's sentence goes as soon as no cell is wrong, and the line says the rows again.
+    delete wm$("tableStatus").dataset.cellSaid;
+    wmSayIn("tableStatus", wmTable.countSaid || "");
+  }
   // A problem said for a cell goes once the cells have none, and the line says the rows again.
   if (/^Not saved: /.test(wm$("tableStatus").textContent) && !wmTableChanges().some(c => c.problems.length)) {
     wmSayIn("tableStatus", wmTable.countSaid || "");
   }
 });
 wm$("tablePanel").addEventListener("change", event => {
-  if (event.target instanceof Element && event.target.matches("[data-cell]")) wmTableCount();
+  if (!(event.target instanceof Element && event.target.matches("[data-cell]"))) return;
+  wmTableCount();
+  // A cell left with a value that is wrong says so in the status, by its row (m2); nothing is "Not saved" until Save.
+  const t = event.target;
+  const feature = wmTable.rows[Number(t.dataset.cell)];
+  if (t.getAttribute("aria-invalid") === "true" && t.value.trim() !== "" && t.title && !t.dataset.refused) {
+    wmSayIn("tableStatus", `${t.title}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
+    wm$("tableStatus").dataset.cellSaid = "1";
+  }
 });
 
 /**

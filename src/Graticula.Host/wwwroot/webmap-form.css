@@ -85,8 +85,8 @@
 .wmf-wide .wmf-propcol .wmf-editor, .wmf-wide .wmf-propcol .wmf-formsettings { margin-top: 0; }
 .wmf-wide > .wmf-listcol > .wmf-h:first-child, .wmf-wide > .wmf-propcol > .wmf-h:first-child { margin-top: 0; }
 /* A column's heading stays while its column scrolls under it (the forms reviewer's fourth render, item 5). */
-.wmf-wide > :is(.wmf-listcol, .wmf-pvcol, .wmf-propcol) > .wmf-h:first-child { position: sticky; top: 0; background: var(--surface); z-index: 1;
-  padding-bottom: 4px; }
+.wmf-wide > :is(.wmf-listcol, .wmf-pvcol, .wmf-propcol) > .wmf-h:first-child { position: sticky; top: -3px; background: var(--surface); z-index: 1;
+  margin: -3px -3px 6px; padding: 3px 3px 4px; border-bottom: 1px solid var(--rule); }
 .wmf-wide > .wmf-pvcol > .wmf-h:first-child { margin-top: 10px; }
 /* Three columns from 752 px of panel (a window of about 1,220 px with the Layers panel closed). */
 @container (min-width: 752px) {

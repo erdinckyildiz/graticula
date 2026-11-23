@@ -354,6 +354,23 @@ function cvNarrowedBecause(limits, attributes, look = CV_PLAIN_LOOK, codedValues
   return `Showing ${list} that go with ${cvJoin(said)}. ${by.length === 1 ? `Clear ${look.alias(by[0])}` : "Clear them"} to see all.`;
 }
 
+/**
+ * The same reason, short, for the field's own label line: "narrowed by Model 707" (fourth render, M2: a floating hint
+ * covered the next field). Empty when nothing removes a value.
+ */
+function cvNarrowedShort(limits, attributes, look = CV_PLAIN_LOOK, codedValues = null) {
+  if (!limits) return "";
+  const by = [];
+  for (const l of limits) {
+    const removes = !codedValues
+      || codedValues.some(c => !l.live.some(e => cvMatches(e, c.code)) && !l.kept.some(e => cvMatches(e, c.code)));
+    if (!removes) continue;
+    for (const f of l.by || []) if (!by.some(x => cvSame(x, f))) by.push(f);
+  }
+  if (!by.length) return "";
+  return `narrowed by ${cvJoin(by.map(f => `${look.alias(f)} ${cvValueSaid(look, f, cvRead(attributes, f), true)}`))}`;
+}
+
 /** "A", "A and B", "A, B and C" — or with "or". */
 function cvJoin(items, word = "and") {
   const list = [...items];
@@ -524,7 +541,7 @@ function cvRenameRefusal(message, names, alias = f => f) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     cvFromRest, cvFromStored, cvToStored, cvMatches, cvViolations, cvAllowance, cvAllows, cvNarrow, cvOptionLabel,
-    cvJoin, cvSentences, cvWarning, cvExplain, cvParseNumber, cvAmbiguousNumber, cvAmbiguousSaid, cvNarrowedBecause, cvSameCombination, cvDuplicates, cvRenameRefusal,
+    cvJoin, cvSentences, cvWarning, cvExplain, cvParseNumber, cvAmbiguousNumber, cvAmbiguousSaid, cvNarrowedBecause, cvNarrowedShort, cvSameCombination, cvDuplicates, cvRenameRefusal,
     CV_KINDS, CV_TYPE_CODES,
   };
 }

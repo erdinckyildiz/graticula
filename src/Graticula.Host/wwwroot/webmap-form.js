@@ -1289,7 +1289,7 @@ function wmfOnCardInput(event) {
     if (control) {
       if (target.type === "radio") control.value = target.value;
       else if (target.type === "checkbox") control.value = target.checked ? target.dataset.on : target.dataset.off;
-      else if (target.dataset.wmfNumber) wmfReadNumber(form, target, control);
+      else if (target.dataset.wmfNumber) wmfReadNumber(form, target, control, event.type === "change");
       else if (target.type === "date") {
         // The time of day the feature had is kept when only its day changes.
         const time = (control.value || "T00:00:00").slice(10) || "T00:00:00";
@@ -1309,14 +1309,16 @@ function wmfOnCardInput(event) {
  * would use — wmReadControl's, so the card has one wording for one fault (the forms reviewer's fourth render, item 3) —
  * and "Not saved" goes once nothing is marked (item 4).
  */
-function wmfReadNumber(form, box, control) {
+function wmfReadNumber(form, box, control, settle = true) {
   const read = WMF_F.decimalText(box.value);
   control.value = read === null ? box.value : read;
   const says = form.querySelector(`#${CSS.escape(`${control.id}-says`)}`);
   const field = (wmfEditing.info.fields || []).find(f => f.name === control.dataset.field);
   const typed = box.value.trim();
   const checked = field && typed !== "" ? wmReadControl(control, field, null) : {};
-  const problem = checked.problem || "";
+  // While typing only an ambiguous number is said; "a" or a lone "-" is a number not finished yet, said when the box is
+  // left (fourth render, m2). Clearing is immediate either way.
+  const problem = checked.problem && (settle || WMF_F.ambiguousNumber(typed)) ? checked.problem : "";
   if (problem) {
     box.setAttribute("aria-invalid", "true");
     if (says) { says.textContent = problem; says.dataset.wmfNumber = "1"; }
