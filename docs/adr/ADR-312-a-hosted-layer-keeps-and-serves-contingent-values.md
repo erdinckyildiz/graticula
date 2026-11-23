@@ -223,15 +223,25 @@ leave empty is not narrowed by them, so an empty form offers the values some com
   warning's to say. In the table's cells no option carries a label — the cell's mark does (design re-review N2);
 - **the server still does not refuse** (§5.7);
 - **retired values are not offered for a new edit**, and an existing feature's retired value stays selectable, labelled
-  *(retired)*, and is **not warned about** while the feature still holds it. The `contingentValues` resource does not
-  carry retirement (§5.4), so the Map Viewer of a signed-in reader who may read the layer's stored definition
-  (`GET /admin/layers/{name}/contingent-values`, publishing privilege and the layer readable) reads that instead, which
-  has `retired`. Any other reader has only the resource, which cannot tell a retired combination from one never
-  listed: there a combination the feature already holds and still holds is said in one line that is not live —
-  *"This feature already holds a combination the layer no longer offers for new edits."* — its value is labelled
-  *(saved value)*, and a change is warned about as before (re-review N1, D-480).
+  *(retired)*, and is **not warned about** while the feature still holds it. Only the value that is itself retired is
+  labelled: beside a retired Boeing 707, *707* says *(retired)* and *Boeing*, which other combinations list, says
+  nothing (third review R1). Since [ADR-314](ADR-314-contingent-values-are-served-as-observed.md) §5.5 the resource
+  serves a retired value with `retired: 1`, so every reader's Map Viewer knows what is retired; a signed-in reader who
+  may read the layer's stored definition (`GET /admin/layers/{name}/contingent-values`) reads that, which says the same.
+  A definition that cannot say what is retired — one read from a server that serves no `retired` key — is still met
+  quietly: a combination the feature holds and has not changed is said in one line that is not live — *"This feature
+  holds a combination the layer does not offer for new edits."* — its value is labelled *(saved value)*, and a change
+  is warned about as before (re-review N1, third review R7).
 - **INFERRED:** a group whose other fields already hold a combination no value lists does not narrow the field — the
   warning says the combination is not listed, and a list narrowed to nothing would leave no way out but the other field.
+
+**A typed number is read by one rule on every Studio screen** (`wwwroot/number-text.js`, `ntParseNumber`, which
+webmap.js, form-info.js and contingent.js call; tests in `tests/js/number-text.test.js`): one comma or one point is the
+decimal separator, so `90,5` is ninety and a half — the Map Viewer's `<input type=number>` once read it as 905 and the
+check then judged a size ten times too large (re-review N4); nothing groups thousands; and `1,500` or `1.500` is refused
+with a sentence, because either could mean fifteen hundred. The separator is not read from the browser's locale. A
+field whose text is not a number is no value to the check: its own sentence says what is wrong, as it is typed (third
+review R4).
 
 The warning names fields by alias and codes by their names, says what the first field's value allows (*"Boeing allows
 Model 737 or 747. You can still save."*), never names the field group, and says a retired combination is retired. Its
@@ -353,6 +363,9 @@ None recorded. Alternative B is the owner's refusal, not a disagreement.
    findings fixed, one partly — and listed twelve more (N1–N12: chiefly a held retired combination warned about as the
    form opened, kept options all labelled *not listed*, `1,500` read as 1.5, and the Map Viewer's `<input type=number>`
    reading `90,5` as 905). Each was repaired on `b2-fix-cv` and driven in headless Chrome at 1440, 768 and 390;
-   `node --test tests/js/contingent.test.js` 28 pass. Still open until the lead confirms the N1–N12 repairs.
+   `node --test tests/js/contingent.test.js` 28 pass. The **third render** verdicted **accept with fixes**, not to be
+   merged before R1 (a live make labelled *(retired)* beside a retired pair); R1–R8 were repaired on `b2-fix-cv` after
+   it was brought up to b2-merge (ADR-314 in), and driven at 1440, 768 and 390. Still open until the lead confirms
+   R1–R8.
 7. **The offline replica carries the definition** (D-472). Open: the blob's encoding is not public.
 8. **Pro's publish carries the definition** (D-473). Open: the file geodatabase's storage is not public.
