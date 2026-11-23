@@ -428,7 +428,7 @@ Then name both hosts, the primary first, and give the server a superuser connect
 ```text
 Graticula__PlatformStore=Host=db-a:5432,db-b:5432;Database=gis;Username=…;Password=…;Search Path=gisserver,public
 Graticula__MaintenanceStore=Host=db-a:5432,db-b:5432;Database=gis;Username=<superuser>;Password=…
-Graticula__StoreFailover=automatic     # the default with two hosts; `manual` to promote only from the console
+Graticula__StoreFailover=automatic     # the default with two hosts; `manual` to promote only with `graticula store promote`
 ```
 
 **What happens when the primary is lost.** Every node probes both hosts each second. The standby is promoted when this

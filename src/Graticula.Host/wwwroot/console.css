@@ -6511,6 +6511,21 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-machines .mcupgrade p + p { margin-top: 6px; }
 #view-machines .mcupgrade .mcname { white-space: nowrap; }
 #mcSays:empty { display: none; }
+/* System › Database (ADR-319 §5.10): the held, no-primary and no-standby callout is the page's one job, so it is drawn
+   as a warning with the command on a line of its own (design review 2026-11-23, finding 3). */
+#view-database .shcallout {
+  margin: 0 0 var(--gap-3, 12px); padding: 10px 12px; font-size: var(--t-small); border-radius: 7px;
+  background: var(--warn-soft); color: var(--ink); border: 1px solid var(--warn-line);
+}
+#view-database .shcallout[hidden] { display: none; }
+#view-database .shcallout b { color: var(--warn); }
+#view-database .shcallout p { margin: 0; }
+#view-database .shcallout p + p, #view-database .shcallout p + .shcmd { margin-top: 6px; }
+#view-database .shcmd { display: inline-block; padding: 2px 6px; user-select: all; overflow-wrap: anywhere; }
+#view-database .shh { font-size: var(--t-body, 1rem); margin: 0 0 6px; }
+#view-database .settingcard p + p { margin-top: 8px; }
+#shSays:empty { display: none; }
+.pill.p-info { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 /* Narrow: the machine's name and its address take the whole row, and its buttons go under them, so another machine's
    address -- its first meta item, unbroken -- never runs under the Stop button (design review of phase 4). */
 @media (max-width: 719px) {

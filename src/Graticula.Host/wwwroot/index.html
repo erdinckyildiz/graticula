@@ -1093,13 +1093,16 @@
     <p class="hint" id="shSays" role="status" aria-live="polite"></p>
 
     <div class="panel pad settingcard" id="shNone" hidden>
-      <h4>No standby is configured</h4>
+      <h2 class="shh">No standby is configured</h2>
       <p>This server names one database host, so the database has no copy to take over if it is lost. To add a standby,
-        give <code>Graticula:PlatformStore</code> both hosts — the steps are in the deployment guide, section 1.6.</p>
+        start a second PostgreSQL that streams from the first, then name both hosts, the primary first:</p>
+      <p><code class="shcmd">Graticula__PlatformStore=Host=db-a:5432,db-b:5432;…</code></p>
+      <p><a href="https://github.com/erdinckyildiz/graticula/blob/main/docs/deployment.md#16-a-standby-database-promoted-when-the-primary-is-lost-adr-319"
+        target="_blank" rel="noopener">How to add a standby (deployment guide, 1.6)</a></p>
     </div>
 
     <div id="shBody" hidden>
-      <div class="mcupgrade" id="shHeld" role="alert" hidden></div>
+      <div class="shcallout" id="shHeld" role="alert" hidden></div>
       <div class="panel widetable">
         <table class="rowblocks" id="shTable">
           <thead><tr>
@@ -1110,6 +1113,7 @@
       </div>
       <p class="hint" id="shLast"></p>
       <p class="hint" id="shMode"></p>
+      <p class="hint" id="shAge"></p>
     </div>
   </section>
 
