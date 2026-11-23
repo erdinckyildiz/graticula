@@ -6168,8 +6168,10 @@ wm$("tablePanel").addEventListener("input", event => {
   const feature = wmTable.rows[Number(event.target.dataset.cell)];
   const mine = event.target.getAttribute("aria-invalid") === "true" && event.target.value.trim() !== "" ? event.target.title : "";
   // Nothing has been saved or refused yet, so no "Not saved:" while typing (fourth render, m1); and only an ambiguous
-  // number is said as it is typed — the rest when the cell is left (m2, the change listener below).
-  if (mine && ntAmbiguous(event.target.value)) {
+  // number is said as it is typed — the rest when the cell is left (m2, the change listener below). Once a cell's
+  // sentence is showing, though, it follows the typing, so "1.500 could mean…" does not stand beside "abc" until
+  // the cell is left (fifth render, P2).
+  if (mine && (ntAmbiguous(event.target.value) || wm$("tableStatus").dataset.cellSaid)) {
     wmSayIn("tableStatus", `${mine}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
     wm$("tableStatus").dataset.cellSaid = "1";
   } else if (wm$("tableStatus").dataset.cellSaid && !wmTableChanges().some(c => c.problems.length)) {
