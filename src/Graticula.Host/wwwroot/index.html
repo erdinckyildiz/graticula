@@ -1101,6 +1101,13 @@
     </div>
     <p class="hint" id="bkSays" role="status" aria-live="polite"></p>
 
+    <!-- ADR-317: a validation's or a restore's progress, said as each step begins and once when it ends. -->
+    <div class="panel pad settingcard" id="bkrOp" hidden>
+      <h4 id="bkrOpHead">Validation</h4>
+      <p class="hint" id="bkrProgress" role="status" aria-live="polite"></p>
+      <ol class="bkrsteps" id="bkrSteps"></ol>
+    </div>
+
     <div class="panel widetable">
       <table class="rowblocks">
         <thead><tr><th>Taken</th><th>Size</th><th>Server version</th><th><span class="sr-only">Actions</span></th></tr></thead>
@@ -1137,8 +1144,11 @@
           <code>Graticula:BackupPath</code> to storage that is somewhere else.</li>
         <li><b>The secret key is not in it.</b> Only a server with the same key can restore it, so store the key
           separately and as safely.</li>
-        <li><b>Restore with the server stopped:</b> <code>graticula restore <i>name</i></code>. It replaces the database
-          this server uses, which is why this page has no Restore button.</li>
+        <li><b>Validate before you need it.</b> Validate restores a backup into a scratch database beside this one, checks
+          it and drops it; the database this server uses is not touched.</li>
+        <li><b>Restore replaces everything.</b> Every machine of the site stops answering until it is done; the database
+          is restored into a new one and swapped in, and the one it replaces is kept under a name that says so. With the
+          server stopped, <code>graticula restore <i>name</i></code> does the same.</li>
       </ul>
       <p class="hint" id="bkWhere"></p>
     </div>
@@ -3721,6 +3731,27 @@
   several services asked through `confirm()`, which is unthemed, cannot say which button is the destructive one, and
   blocks the page. Nothing is preselected but Cancel.
 -->
+<!--
+  Restore a backup — ADR-317 §5.5. It names what is replaced and where the old database is kept, and is not sent until
+  the backup's own name is typed, which the server also requires.
+-->
+<dialog id="bkrDialog" aria-labelledby="bkrDialogTitle" aria-describedby="bkrDialogBody">
+  <header class="dialoghead">
+    <h3 id="bkrDialogTitle" tabindex="-1">Restore this backup?</h3>
+    <button class="tiny ghost" id="bkrDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+  <div class="dialogbody">
+    <div id="bkrDialogBody"></div>
+    <label for="bkrConfirm">To restore, type the backup's name: <code id="bkrConfirmName"></code></label>
+    <input type="text" id="bkrConfirm" autocomplete="off" spellcheck="false" aria-describedby="bkrConfirmSays">
+    <p class="hint" id="bkrConfirmSays" aria-live="polite"></p>
+  </div>
+  <footer class="dialogfoot">
+    <button class="ghost" id="bkrCancel">Cancel</button>
+    <button class="danger" id="bkrGo" aria-disabled="true">Restore</button>
+  </footer>
+</dialog>
+
 <dialog id="serverConfirm" aria-labelledby="serverConfirmTitle" aria-describedby="serverConfirmBody">
   <header class="dialoghead">
     <h3 id="serverConfirmTitle" tabindex="-1">Are you sure?</h3>
@@ -3918,6 +3949,7 @@
 <script src="contingent.js" defer></script>
 <script src="contingent-studio.js" defer></script>
 <script src="form-designer.js" defer></script>
+<script src="backups-restore.js" defer></script>
 </body>
 </html>
 

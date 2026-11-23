@@ -195,12 +195,50 @@ None recorded.
 
 1. **Validate on a good backup and on a corrupted one** — the good one succeeds with its counts and leaves no scratch
    database; the corrupted one fails naming the part whose checksum differs, and nothing is created.
+   **DISCHARGED 2026-11-23** — `ABackupIsValidatedAndRestoredThroughTheApiTests.A_good_backup_validates_and_a_corrupted_one_is_refused_by_name`,
+   a real server over a database of the test's own: a backup taken through `POST /admin/backups` validated `succeeded`
+   with its counts and no `_validate_` database left; one byte of its `database.dump` flipped, the same validation
+   failed with *'database.dump' is missing or does not match its checksum* and no database was made.
 2. **A restore round trip on a real server process**: a backup taken, a marker table created after it, a restore
    through the API; the marker table is gone, the server answers ready, and the previous database is kept under the
    name the status gives.
+   **DISCHARGED 2026-11-23** — `A_restore_through_the_api_brings_the_backup_back_and_keeps_the_old_database`: a POST
+   without `confirm` answered 400; with it the operation went `checks → maintenance → drain → restore → files → switch →
+   return` and `succeeded`, `/healthz/ready` was seen answering 503 `restoring` while it ran, the table created after
+   the backup was gone, the kept database existed under the name the status gave, no `_restore_` database was left, and
+   the server answered ready and served `/rest/services`.
 3. **A failure injected in the switch** — between the two renames — leaves the old database serving: the marker table
    is still there, the server answers ready, no database is left half named.
+   **DISCHARGED 2026-11-23** — `A_failure_in_the_switch_leaves_the_old_database_serving`, with
+   `GRATICULA_TEST_RESTORE_FAIL_AT=switch` — the first rename done, the second not: the operation `failed` with
+   `failedAt: switch`, the table created after the backup was still there, neither a `_restore_` nor a
+   `_before_restore_` database was left, and the server answered ready and served. **What the runs found on the way**:
+   the status written while the run added to it threw *collection was modified* into a 500, and a status being read held
+   the record's file so that replacing it failed on Windows and failed the restore at `files` for nothing — both seen in
+   test runs, both repaired (a snapshot under the operation's lock; a record that is retried and never fails its
+   operation), and the class then passed 14 of 14 twice with its neighbours.
 4. **The console**: Validate and Restore on System › Backups, the confirmation naming what is replaced, progress in an
    `aria-live` status, focus kept after a re-render — a test of the screen, and a ux-designer review.
+   **PARTLY DISCHARGED 2026-11-23** — `BackupsScreenTests.A_backup_is_validated_and_restored_from_its_row` against an
+   answered API: Validate followed in the polite live region `bkrProgress` to *98 services*; Restore asks in `bkrDialog`,
+   naming the database, `_before_restore_` and *the imagery and the serving certificate*, sends nothing until the name is
+   typed, and both times focus is back on the pressed button after the list is drawn again (which it was not before:
+   `drawBackups` replaced the rows under the reader). 4 of 4 of the class passed. **The ux-designer review is owed** —
+   the screen is `/system/backups`.
 5. **A site of two nodes** restored through one of them: both answer 503 `restoring` during it and both come back.
+   **DISCHARGED 2026-11-23** — `A_restore_through_one_node_of_a_site_closes_and_brings_back_both`: two real nodes over a
+   database of the test's own, the restore through `dr-a`; `dr-b` was seen answering 503 `restoring` while it ran, and
+   both answered ready again on the restored database, which no longer held the table made after the backup. A node that
+   misses the announcement is [D-490](../architecture-debt.md).
 6. **On the fixture**: a round trip measured on a seeded fixture, with the conformance suite after it.
+   **PARTLY DISCHARGED 2026-11-23** — the local fixture (port 18632, database `gisg2d`, seeded as CI seeds it): a backup
+   through the API in 2.2 s; *Validate* succeeded in 3.2 s (`checks → restore → count → drop`, 8 services, 9 layers,
+   8 items, schema 146, the scratch database gone); a table created after the backup; *Restore* succeeded in 3.1 s
+   (`checks → maintenance → drain → restore → files → switch → return`, nothing still running at the drain),
+   `/healthz/ready` seen 503 `restoring` during it and 200 after, the table gone, the 9 layers there, and
+   `gisg2d_before_restore_20261123164505` kept. **The conformance suite after it ran 986 of 1030**; the first run, 768 of
+   1030, was the shared PostgreSQL's 100 connections running out under other agents' suites (`53300`, 236 lines of the
+   server's log), not the restore. Of the 44, 22 cannot find the repository root (this build's output is outside the
+   tree), 7 are user toolboxes that need Linux's Landlock, and the rest — a wrong password reported *Usable* by a
+   cluster that trusts local logins, the request-log tests reading another fixture's log — were read and none touches a
+   restored row; **they were not compared against a run on ae8e76c7**, which is why this is partly.

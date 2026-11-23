@@ -38135,6 +38135,12 @@ async function loadBackups() {
 }
 
 function drawBackups() {
+  // <b>The button the reader is on, found again after the rows are drawn anew</b> (ADR-317): the list is read again while
+  // a backup, a validation or a restore runs, and replacing the rows dropped keyboard focus to the page.
+  const focused = document.activeElement?.closest?.("#bkRows button");
+  const refocus = focused
+    ? [...focused.attributes].find(a => a.name.startsWith("data-backup-"))
+    : null;
   const all = (backupsNow?.backups || []).slice().sort((a, b) => String(b.taken).localeCompare(String(a.taken)));
   const shown = pageOf("bkRows", all);
   const last = backupsNow?.last;
@@ -38173,11 +38179,22 @@ function drawBackups() {
         <td class="val" data-l="Size"><span>${h(fileSize(b.bytes))}</span></td>
         <td class="val" data-l="Server version"><span>${h(b.version || "—")}</span></td>
         <td class="act" style="text-align:right">
+          <button type="button" class="tiny" data-backup-validate="${h(b.name)}"
+            aria-label="Validate the backup of ${h(backupWhen(b.taken))}">Validate</button>
           <button type="button" class="tiny" data-backup-download="${h(b.name)}"
             aria-label="Download the backup of ${h(backupWhen(b.taken))}">Download</button>
+          <button type="button" class="tiny danger" data-backup-restore="${h(b.name)}"
+            aria-label="Restore the backup of ${h(backupWhen(b.taken))}">Restore…</button>
           <button type="button" class="tiny danger" data-backup-delete="${h(b.name)}"
             aria-label="Delete the backup of ${h(backupWhen(b.taken))}">Delete</button></td>
       </tr>`).join("");
+
+  if (refocus) {
+    document.querySelector(`#bkRows [${refocus.name}="${CSS.escape(refocus.value)}"]`)?.focus();
+  }
+
+  // ADR-317: a validation or restore already under way when the page is opened is followed (backups-restore.js).
+  if (typeof bkrNoticed === "function") bkrNoticed(backupsNow?.operation);
 }
 
 /** The schedule's controls, from what the server keeps; left alone while the reader is changing them. */

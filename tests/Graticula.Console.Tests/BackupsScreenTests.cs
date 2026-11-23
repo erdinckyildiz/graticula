@@ -159,6 +159,105 @@ public sealed class BackupsScreenTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// ADR-317 condition 4: Validate and Restore on each backup. Validate is followed in an <c>aria-live</c> status to its
+    /// end; Restore asks first, naming the database it replaces and where the old one is kept, sends nothing until the
+    /// backup's name is typed, and the reader's place survives the list being drawn again.
+    /// </summary>
+    [Fact]
+    public async Task A_backup_is_validated_and_restored_from_its_row()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/system/operations", token);
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const real = window.fetch;
+              window.__bkr = [];
+              const ops = {};
+              const backups = [{ name: "graticula-backup-20261027T020000Z", taken: "2026-10-27T02:00:00Z", version: "1.0.469",
+                schema: 146, bytes: 3080000000 }];
+              const answer = body => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+              window.fetch = async (input, init) => {
+                const url = typeof input === "string" ? input : input.url;
+                const method = ((init && init.method) || "GET").toUpperCase();
+                const path = new URL(url, location.href).pathname;
+                const started = path.match(/^\/admin\/backups\/([^/]+)\/(validate|restore)$/);
+                if (method === "POST" && started) {
+                  window.__bkr.push(started[2] + " " + (init.body || ""));
+                  const id = started[2] === "restore" ? "b".repeat(32) : "a".repeat(32);
+                  ops[id] = { id, kind: started[2], backup: decodeURIComponent(started[1]), reads: 0 };
+                  return new Response(JSON.stringify({ id, kind: started[2], backup: decodeURIComponent(started[1]),
+                    state: "running", step: "checks", steps: [{ name: "checks", at: "2026-11-23T10:00:00Z" }], result: {} }),
+                    { status: 202, headers: { "Content-Type": "application/json" } });
+                }
+                const read = path.match(/^\/admin\/backups\/operations\/([0-9a-f]{32})$/);
+                if (method === "GET" && read && ops[read[1]]) {
+                  const op = ops[read[1]];
+                  op.reads++;
+                  const done = op.reads > 2;
+                  const steps = [{ name: "checks", at: "2026-11-23T10:00:00Z" }, { name: "restore", at: "2026-11-23T10:00:02Z" }];
+                  return answer({ id: op.id, kind: op.kind, backup: op.backup, state: done ? "succeeded" : "running",
+                    step: done ? "done" : "restore", steps,
+                    result: op.kind === "restore" ? { keptDatabase: "gis_before_restore_20261123100000" }
+                      : { services: 98, layers: 120, items: 67, schema: 146 } });
+                }
+                if (method !== "GET" || path !== "/admin/backups") return real(input, init);
+                return answer({ location: "/var/lib/graticula/backups", database: "gis", running: false, last: null,
+                  schedule: { enabled: false, hourUtc: 2, keep: 7 }, backups, operation: null });
+              };
+              return true;
+            })();
+            """);
+        await Browser.EvaluateAsync<bool>("(navigateTo('#/backups'), true)");
+        await WaitForAsync("!!document.querySelector('[data-backup-validate]')", "A backup's row has no Validate.");
+        Assert.StartsWith("Restore the backup of", await Browser.EvaluateAsync<string>(
+            "document.querySelector('[data-backup-restore]').getAttribute('aria-label')") ?? string.Empty, StringComparison.Ordinal);
+
+        // Validate: followed to its end in a polite live region, with what the copy held.
+        Assert.Equal("polite", await Browser.EvaluateAsync<string>("document.getElementById('bkrProgress').getAttribute('aria-live')"));
+        await Browser.EvaluateAsync<bool>("(document.querySelector('[data-backup-validate]').focus(), true)");
+        await ClickAsync("[data-backup-validate]");
+        await WaitForAsync("(document.getElementById('bkrProgress')?.textContent || '').includes('is running')",
+            "Validate's progress was not said.");
+        await WaitForAsync("(document.getElementById('bkrProgress')?.textContent || '').includes('98 services')",
+            "Validate's end was not said with what the copy held.");
+
+        // The list was drawn again when it ended, and the reader is still on the button they pressed.
+        await WaitForAsync("document.activeElement?.hasAttribute('data-backup-validate') === true",
+            "Focus was lost when the list was drawn again.");
+
+        // Restore: asks first and names what it replaces; Restore does nothing until the name is typed.
+        await Browser.EvaluateAsync<bool>("(document.querySelector('[data-backup-restore]').focus(), true)");
+        await ClickAsync("[data-backup-restore]");
+        await WaitForAsync("document.getElementById('bkrDialog')?.open === true", "Restore did not ask first.");
+        string body = await Browser.EvaluateAsync<string>("document.getElementById('bkrDialogBody').textContent") ?? string.Empty;
+        Assert.Contains("gis", body, StringComparison.Ordinal);
+        Assert.Contains("_before_restore_", body, StringComparison.Ordinal);
+        Assert.Contains("imagery and the serving certificate", body, StringComparison.Ordinal);
+        Assert.Equal("bkrConfirm", await Browser.EvaluateAsync<string>("document.activeElement?.id ?? ''"));
+
+        await ClickAsync("#bkrGo");
+        await WaitForAsync("(document.getElementById('bkrConfirmSays')?.textContent || '').includes('Type the backup')",
+            "Restore without the name typed said nothing.");
+        Assert.Empty(await Browser.EvaluateAsync<string[]>("window.__bkr.filter(w => w.startsWith('restore'))") ?? []);
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => { const i = document.getElementById('bkrConfirm'); i.value = 'graticula-backup-20261027T020000Z';
+              i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()
+            """);
+        await ClickAsync("#bkrGo");
+        await WaitForAsync("(document.getElementById('bkrProgress')?.textContent || '').includes('gis_before_restore_20261123100000')",
+            "The restore's end did not name the database it kept.");
+        Assert.Contains(await Browser.EvaluateAsync<string[]>("window.__bkr") ?? [],
+            w => w.StartsWith("restore", StringComparison.Ordinal)
+                && w.Contains("graticula-backup-20261027T020000Z", StringComparison.Ordinal)
+                && w.Contains("confirm", StringComparison.Ordinal));
+        await WaitForAsync("document.activeElement?.hasAttribute('data-backup-restore') === true",
+            "Focus did not come back to Restore after the dialog and the list being drawn again.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     [Fact]
     public async Task System_lists_Backups_in_its_column()
     {
