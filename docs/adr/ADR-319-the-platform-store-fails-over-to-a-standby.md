@@ -303,6 +303,8 @@ standby is configured and links deployment.md §1.6.
 8. Failovers are recorded in a table, `store_failover` (migration 148, given 149 and renumbered at the merge) (§5.4).
 9. **No automatic failback** (§5.8).
 10. Nodes ask each other over HTTP, authenticated by a keyed hash of the site key (§5.4).
+11. System › Database calls a standby **Lagging** beyond **60 s or 64 MB** behind, and says how much would be lost; no
+    source names a threshold (§5.10, added after the design review of 2026-11-23).
 
 ## Conditions
 
