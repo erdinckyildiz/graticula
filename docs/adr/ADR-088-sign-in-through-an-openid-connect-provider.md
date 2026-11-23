@@ -102,6 +102,11 @@ the cookie for a token as it already does for a directory sign-in.
 5.6 **The one outbound file.** `Oidc/OidcClient.cs` fetches the discovery document, the keys and the token; the
 library it uses — `Microsoft.IdentityModel`, MIT — is handed text to parse and validate and opens no connection.
 
+*(2026-11-23: the door this sign-in ends in, `OidcEndpoints.FinishAsync`, is shared by two more kinds of provider —
+a client certificate, [ADR-315](ADR-315-a-member-signs-in-with-a-client-certificate.md), and Windows,
+[ADR-316](ADR-316-a-member-signs-in-with-windows.md) — with the same account rules; its find-or-make step is now
+`OidcEndpoints.FindOrMakeAsync`, which a certificate's `generateToken` and per-request use call too.)*
+
 ## 6. Consequences
 
 **Positive.** An organisation's people sign in with the account they already have; the console, the directory and
