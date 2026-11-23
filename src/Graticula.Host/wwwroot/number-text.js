@@ -14,9 +14,13 @@
  * where tests/js/number-text.test.js loads it.
  */
 
-/** Whether typed text could mean a thousands-grouped whole number as well as a decimal: "1,500", "1.500". */
+/**
+ * Whether typed text could mean a thousands-grouped whole number as well as a decimal: "1,500", "1.500". A number
+ * whose whole part is 0 or starts with 0 — "0.125", "0,500", "012.500" — groups no thousands, so it is never ambiguous
+ * (fourth render, M1: "0.125" was refused and offered "0125").
+ */
 function ntAmbiguous(raw) {
-  return /^[-+]?\d{1,3}[.,]\d{3}$/.test(String(raw === null || raw === undefined ? "" : raw).trim());
+  return /^[-+]?[1-9]\d{0,2}[.,]\d{3}$/.test(String(raw === null || raw === undefined ? "" : raw).trim());
 }
 
 const NT_ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
@@ -44,16 +48,30 @@ function ntWords(n) {
 }
 
 /**
- * The sentence an ambiguous number is refused with. A field of whole numbers offers only the reading it can hold:
- * "1,500: type 1500 if you mean fifteen hundred."; any other offers both: "1.500 could mean 1500 or 1.5. Type 1500
- * or 1.5."
+ * The decimal reading of an ambiguous text, written so the rule accepts it: trailing zeros dropped ("1.500" → "1.5"),
+ * or, when all three decimals are needed, a fourth zero added ("2.125" → "2.1250"), in the separator the reader used.
+ */
+function ntDecimalForm(raw) {
+  const t = String(raw).trim();
+  const separator = t.includes(",") ? "," : ".";
+  const [whole, fraction] = t.split(/[.,]/);
+  const trimmed = fraction.replace(/0+$/, "");
+  if (!trimmed) return whole;
+  return trimmed.length === 3 ? `${whole}${separator}${trimmed}0` : `${whole}${separator}${trimmed}`;
+}
+
+/**
+ * The sentence an ambiguous number is refused with. Every form it tells the reader to type is one the rule accepts
+ * (fourth render, M1: "Type 2125 or 2.125" offered the very text it had refused). A field of whole numbers offers only
+ * the reading it can hold: "1,500: type 1500 if you mean fifteen hundred."; any other offers both: "2.125 could mean
+ * 2125 or 2.125. Type 2125, or 2.1250 for the decimal."
  */
 function ntAmbiguousSaid(raw, whole = false) {
   const t = String(raw).trim();
   const thousands = t.replace(/[.,]/, "");
   if (whole) return `${t}: type ${thousands} if you mean ${ntWords(Number(thousands))}.`;
-  const decimal = t.replace(",", ".").replace(/0+$/, "").replace(/\.$/, "");
-  return `${t} could mean ${thousands} or ${decimal}. Type ${thousands} or ${decimal}.`;
+  const value = String(Number(t.replace(",", ".")));
+  return `${t} could mean ${thousands} or ${value}. Type ${thousands}, or ${ntDecimalForm(t)} for the decimal.`;
 }
 
 /**
@@ -74,5 +92,5 @@ function ntParseNumber(raw, whole = false) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { ntParseNumber, ntAmbiguous, ntAmbiguousSaid, ntWords };
+  module.exports = { ntParseNumber, ntAmbiguous, ntAmbiguousSaid, ntDecimalForm, ntWords };
 }
