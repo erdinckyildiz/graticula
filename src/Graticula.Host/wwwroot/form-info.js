@@ -619,11 +619,34 @@
     return list[index + 1] || list[index - 1] || group || null;
   }
 
+  /**
+   * A typed number as JavaScript reads it, or null when it is not one; "" stays "". A decimal comma is read as a point
+   * ("90,5" is 90.5); spaces, and a separator that appears more than once, group thousands; with both a comma and a
+   * point, the last one is the decimal separator ("1.234,5" and "1,234.5" are 1234.5). A single comma is always a
+   * decimal comma, never a thousands separator (INFERRED, ADR-313 §7 o).
+   */
+  function decimalText(raw) {
+    let text = String(raw === null || raw === undefined ? "" : raw).trim().replace(/[\s\u00a0\u202f']/g, "");
+    if (text === "") return "";
+    const comma = text.lastIndexOf(",");
+    const point = text.lastIndexOf(".");
+    const count = mark => text.split(mark).length - 1;
+    if (comma >= 0 && point >= 0) {
+      const at = Math.max(comma, point);
+      text = `${text.slice(0, at).replace(/[.,]/g, "")}.${text.slice(at + 1)}`;
+    } else if (comma >= 0) {
+      text = count(",") > 1 ? text.replace(/,/g, "") : text.replace(",", ".");
+    } else if (count(".") > 1) {
+      text = text.replace(/\./g, "");
+    }
+    return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(text) ? String(Number(text)) : null;
+  }
+
   const api = {
     SYSTEM_TRUE, SYSTEM_FALSE, INPUT_LABELS, EXPRESSION_PROPERTIES, inputTypesFor, defaultInput, fromFields, walk,
     fieldElements, locate, setExpression, setFixed, modeOf, prune, expressionInfo, returnTypeFor, compile, evaluate,
     missing, substitute, markdownHtml, problems, toArcade, fromArcade, codedValues,
-    featureNames, warnings, textTitle, lengthLimit, neighbourOf,
+    featureNames, warnings, textTitle, lengthLimit, neighbourOf, decimalText,
   };
 
   if (typeof module === "object" && module.exports) module.exports = api;

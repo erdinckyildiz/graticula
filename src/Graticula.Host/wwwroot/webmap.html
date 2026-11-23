@@ -31,6 +31,8 @@
      (--veil, --map-bg, --float, --ol-*) are the map pages' own. The copies are
      webmap.html, view.html, map.html and scene.html; this line, the same in each, is what a test finds them by. */
   :root {
+    /* The app's light theme is light whatever the system's is (session.js): native controls draw their icons to match. */
+    color-scheme: light;
     --paper: #f4f6f9; --surface: #ffffff; --surface-2: #f1f4f8; --surface-3: #e7ecf3;
     --ink: #101826; --muted: #566275; --faint: #616b7a;
     --rule: #e3e8ef; --rule-strong: #cfd7e3; --control-edge: #7e889a;
@@ -229,8 +231,7 @@
   /* Number, date and time boxes in the theme's colours: in the dark theme they were the browser's grey, and an editable
      number read as read-only (ADR-313 re-review N10). Their width is left to each place. */
   input[type="number"], input[type="date"], input[type="datetime-local"], input[type="time"] {
-    border: 1px solid var(--control-edge); border-radius: 3px; padding: 5px 7px; background: var(--surface); color: var(--ink);
-    color-scheme: light dark; }
+    border: 1px solid var(--control-edge); border-radius: 3px; padding: 5px 7px; background: var(--surface); color: var(--ink); }
   label.field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
   .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 

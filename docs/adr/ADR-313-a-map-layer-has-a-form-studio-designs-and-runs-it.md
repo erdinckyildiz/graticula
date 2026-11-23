@@ -164,9 +164,11 @@ fetched; the pages were read through a summarising fetcher, so the examples were
      Delete removes it. *Apply* is the primary action only while there is something to apply. Forms widens the right
      panel to at most 1,000 px and gives up the Layers panel while it is open, and gives it back when it closes
      (INFERRED, §7 n), as Map Viewer's builder takes the page; the Layers panel opened beside it keeps 288 px of map.
-     The three columns need 752 px of panel, a window of about 1,220 px; narrower, the list stands over the preview
-     with the properties beside them. Below a 1,000 px window, and on a phone, it is one column with the properties
-     opened under the chosen row, and on a phone the sheet is full height. An expression that reads a field the layer does not have is a warning
+     The shape follows the panel's own width, not the window's: three columns from 752 px of panel (a window of
+     about 1,220 px with the Layers panel closed), two from 540 px — the list over the preview, the properties beside
+     them — and below 540 px, and on a phone, one column with the properties opened under the chosen row; on a phone
+     the sheet is full height. Below a 1,000 px window the Layers panel and a right-hand tool cannot both stand with
+     any map, so opening Layers closes the tool, whichever it is. An expression that reads a field the layer does not have is a warning
      shown after *Apply*, not a refusal: the form still works where the field exists.
    - Fixed choices are written as expressions, since the specification has no Boolean for them: always required is
      `requiredExpression` naming `expr/system/true`, read-only is `editableExpression` naming `expr/system/false`, with
@@ -180,7 +182,9 @@ fetched; the pages were read through a summarising fetcher, so the examples were
    from `formInfo` when the layer has one with elements, and as before otherwise. It evaluates the expressions as values
    change, without redrawing (so focus stays where it is), hides and shows elements, marks required ones, makes
    read-only ones read-only, fills calculated values, clears hidden values as §5.2 says, and says in a live region how
-   many questions appeared or went. Save refuses a visible required field left empty, naming it. The same `applyEdits`
+   many questions appeared or went. Save refuses a visible required field left empty, naming it. A number is typed
+   in a text box with a numeric keyboard and read with a decimal comma (INFERRED, §7 o): a number box had turned
+   "90,5" into 905 without a word. The same `applyEdits`
    writes the change, so the server's rules are unchanged.
 5. **Out of scope**: the utility network associations element (`formUtilityNetworkAssociationsElement`), which is
    kept in the document untouched and neither drawn nor authored; `multiple-choice` and `dynamic-choice` inputs and
@@ -211,7 +215,7 @@ are not edited in Studio's form (D-477). The table view of the map viewer edits 
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | INFERRED, listed for confirmation: (a) a failing expression is treated as absent and its error shown; (b) `{name}` in a text element is an expression first, then a field; (c) markdown is a safe subset; (d) fixed required and read-only are written as `expr/system/true` and `expr/system/false`; (e) designer expression names `expr/<n>` and `returnType` from the property or field; (f) dates execute in the browser's time zone; (g) calculated values in form order, at most four passes; (h) `$originalFeature` of a new feature has every field null; (i) JavaScript's operator precedence (ADR-235 §5.8 b); (j) a calculated value for a whole-number field is rounded, and one too long for a text field is not written and is reported; (k) a switch is offered only for a field with exactly two coded values; (l) a field hidden when the form opens keeps its value, since only a shown-then-hidden field is cleared; (m) the step budget of a million steps; (n) the designer, open, takes the Layers panel's room and widens the right panel to at most 1,000 px, as Map Viewer's form builder takes the page (2026-11-23) | Unconfirmed |
+| — | INFERRED, listed for confirmation: (a) a failing expression is treated as absent and its error shown; (b) `{name}` in a text element is an expression first, then a field; (c) markdown is a safe subset; (d) fixed required and read-only are written as `expr/system/true` and `expr/system/false`; (e) designer expression names `expr/<n>` and `returnType` from the property or field; (f) dates execute in the browser's time zone; (g) calculated values in form order, at most four passes; (h) `$originalFeature` of a new feature has every field null; (i) JavaScript's operator precedence (ADR-235 §5.8 b); (j) a calculated value for a whole-number field is rounded, and one too long for a text field is not written and is reported; (k) a switch is offered only for a field with exactly two coded values; (l) a field hidden when the form opens keeps its value, since only a shown-then-hidden field is cleared; (m) the step budget of a million steps; (n) the designer, open, takes the Layers panel's room and widens the right panel to at most 1,000 px, as Map Viewer's form builder takes the page (2026-11-23); (o) in the editing card a single comma in a number is a decimal comma, never a thousands separator, and with both a comma and a point the last is the decimal separator (2026-11-23) | Unconfirmed |
 
 ## 8. Dependencies
 
@@ -269,4 +273,10 @@ None recorded.
    two-column range, 93 Tab presses from the first row to the first property, and nine smaller). All twelve were
    repaired the same day on `b2-fix-forms` and driven in headless Chrome at 1024, 1280, 1366, 1440 and 390 px, a
    map of three layers among them; the Tab count is now 7 with 22 elements (3 on a phone). It stays PARTLY
-   DISCHARGED until the designer is reviewed a third time.
+   DISCHARGED until the designer is reviewed a third time. The third review ran on 2026-11-23: **accepted with
+   fixes** — ten of the twelve held; the wide shape was still chosen by the window's width, so with the Layers panel
+   open a grid overran a 340–520 px panel; the phone's sample summary had lost its disclosure triangle; and N10's
+   `color-scheme: light dark` drew white calendar icons on white in the light theme under a dark system. Those, four
+   smaller items, and a decimal comma the card's number boxes read as a thousands separator, were repaired the same
+   day and driven at 390, 768, 1000, 1024, 1100, 1280, 1366, 1440 and 1920 px with the Layers panel closed and open.
+   It stays PARTLY DISCHARGED until the designer is rendered a fourth time.

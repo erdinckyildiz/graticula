@@ -142,33 +142,42 @@ public sealed class WebMapFormTests : ConsoleTest
         await WaitForAsync("!!document.querySelector('#identify form.wmf-form')", "Edit did not draw the layer's form.");
 
         Assert.Equal("a name", await Browser.EvaluateAsync<string>("document.getElementById('edit-label').placeholder"));
-        Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('edit-reading').getAttribute('aria-required')"));
+        Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('wmf-n-reading').getAttribute('aria-required')"));
+
+        // A number is typed in a text box and read with a decimal comma: "9,5" in a whole-number field is refused as
+        // such, where a number box had made it 95 without a word (third review, 2026-11-23).
+        Assert.Equal("numeric", await Browser.EvaluateAsync<string>("document.getElementById('wmf-n-reading').getAttribute('inputmode')"));
+        await Browser.EvaluateAsync<bool>(Type("#wmf-n-reading", "9,5"));
+        await WaitForAsync("document.getElementById('edit-reading').value === '9.5'"
+            + " && document.getElementById('wmf-n-reading').getAttribute('aria-invalid') === 'true'"
+            + " && document.getElementById('edit-reading-says').textContent === 'reading takes a whole number.'",
+            "A decimal comma was not read as a decimal, or a fraction in a whole-number field was not said.");
 
         // A reading above 5 shows the group; below, it hides it and clears its field, and the live region says so.
-        await Browser.EvaluateAsync<bool>(Type("#edit-reading", "9"));
+        await Browser.EvaluateAsync<bool>(Type("#wmf-n-reading", "9"));
         await WaitForAsync("!document.querySelector('details.wmf-group').hidden && document.querySelector('.wmf-text').textContent === 'Reading is 9'",
             "A reading of 9 did not show the group, or its text did not follow the reading.");
         await Browser.EvaluateAsync<bool>(Type("#edit-label", "to be cleared"));
-        await Browser.EvaluateAsync<bool>(Type("#edit-reading", "1"));
+        await Browser.EvaluateAsync<bool>(Type("#wmf-n-reading", "1"));
         await WaitForAsync(
             "document.querySelector('details.wmf-group').hidden && document.getElementById('edit-label').value === ''"
             + " && document.getElementById('wmfLive').textContent === '1 question was hidden.'",
             "A reading of 1 did not hide the group, clear its field and say so.");
-        Assert.True(await Browser.EvaluateAsync<bool>("document.activeElement === document.getElementById('edit-reading')"),
+        Assert.True(await Browser.EvaluateAsync<bool>("document.activeElement === document.getElementById('wmf-n-reading')"),
             "Evaluating the form took the focus out of the field being typed in.");
 
         // An empty required field is refused, named under itself, and nothing is sent.
         await Browser.EvaluateAsync<bool>("(window.__writes = [], true)");
-        await Browser.EvaluateAsync<bool>(Type("#edit-reading", ""));
+        await Browser.EvaluateAsync<bool>(Type("#wmf-n-reading", ""));
         await ClickAsync("#identify form.wmf-form button[type=submit]");
         await WaitForAsync("document.getElementById('edit-reading-says').textContent === 'Reading is required.'"
-            + " && document.activeElement === document.getElementById('edit-reading')", "An empty required field was not refused on itself.");
+            + " && document.activeElement === document.getElementById('wmf-n-reading')", "An empty required field was not refused on itself.");
         Assert.Empty(await WritesAsync());
-        Assert.Equal("edit-reading-desc edit-reading-says", await Browser.EvaluateAsync<string>("document.getElementById('edit-reading').getAttribute('aria-describedby')"));
+        Assert.Equal("edit-reading-desc edit-reading-says", await Browser.EvaluateAsync<string>("document.getElementById('wmf-n-reading').getAttribute('aria-describedby')"));
 
         // The error goes as soon as the field holds a value, not at the next save (UX review, finding 5).
-        await Browser.EvaluateAsync<bool>(Type("#edit-reading", "3"));
-        await WaitForAsync("!document.getElementById('edit-reading').hasAttribute('aria-invalid') && document.getElementById('edit-reading-says').textContent === ''",
+        await Browser.EvaluateAsync<bool>(Type("#wmf-n-reading", "3"));
+        await WaitForAsync("!document.getElementById('wmf-n-reading').hasAttribute('aria-invalid') && document.getElementById('edit-reading-says').textContent === ''",
             "A required field that was filled in still says it is required.");
 
         // A valid form sends the reading and the cleared label through applyEdits.

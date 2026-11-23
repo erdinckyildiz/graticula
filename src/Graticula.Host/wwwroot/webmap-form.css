@@ -73,7 +73,7 @@
 }
 #pane-layer:has(> #layerTool > .wmf-wide) { container-type: size; overflow: hidden; }
 .wmf-wide { height: 100cqh; display: grid; gap: 0 16px; grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.25fr);
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "top top" "list props" "pv props"; }
+  grid-template-rows: auto fit-content(60%) minmax(0, 1fr); grid-template-areas: "top top" "list props" "pv props"; }
 .wmf-wide > .wmf-top { grid-area: top; padding-bottom: 8px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
 .wmf-wide > .wmf-listcol { grid-area: list; }
 .wmf-wide > .wmf-pvcol { grid-area: pv; }
@@ -92,7 +92,9 @@
   .wmf-wide > .wmf-pvcol > .wmf-h:first-child { margin-top: 0; }
 }
 .wmf button[aria-disabled="true"] { opacity: .6; }
-.wmf-keys { margin: 0 0 6px; }
+/* A property's label stands apart from its box, so a focus ring does not cover it (third review, item 6). */
+.wmf-editor label.lkind { display: block; margin: 8px 0 4px; }
+.wmf-editor .wmf-pair label.lkind { margin: 0; }
 
 #identify .wmf-form .wmf-title { font-size: 14px; margin: 0 0 4px; color: var(--ink); }
 #identify .wmf-form .wmf-group { margin: 0 0 10px; border: 1px solid var(--rule); border-radius: 4px; padding: 4px 8px; }
@@ -117,7 +119,7 @@
 @media (max-width: 600px) {
   .wmf-rowhead .tiny { min-width: 44px; min-height: 44px; }
   .wmf-pick { min-height: 44px; }
-  .wmf-sample summary { min-height: 44px; display: flex; align-items: center; }
+  .wmf-sample summary { display: list-item; min-height: 44px; padding: 12px 0; box-sizing: border-box; }
   .wmf textarea { min-height: 44px; }
   #identify .wmf-form label.check { min-height: 44px; }
 }

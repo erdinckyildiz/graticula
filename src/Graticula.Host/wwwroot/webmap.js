@@ -3594,8 +3594,11 @@ function wmOpenSheet(open) {
   wmFormTookLeft = false;
   document.body.classList.toggle("sheet", open && WM_PHONE.matches);
   document.body.classList.toggle("lclosed", !open);
-  // One sheet at a time on a phone: the left one covers the right one's place.
-  if (open && WM_PHONE.matches && wmSide.tool) wmCloseTool();
+  // One sheet at a time on a phone: the left one covers the right one's place. Below 1,000 px a window cannot hold both
+  // panels, their rails and any map either — Layers opened beside a tool left the map 0 px wide and the page scrolling
+  // sideways, whatever the tool (ADR-313 third review, 2026-11-23) — so the tool gives way, as Layers does when a tool
+  // opens below 1,100 px.
+  if (open && (WM_PHONE.matches || window.innerWidth < 1000) && wmSide.tool) wmCloseTool();
   // <b>No tool is selected while its panel is closed</b> (UX sweep round 2, N6): a selected tab whose panel is not
   // there is what a screen reader announced. The roving tabindex stays on the last one, so Tab still lands on it.
   for (const tab of WM_TABS) {

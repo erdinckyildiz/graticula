@@ -369,3 +369,12 @@ test("removing an element hands focus to the next, else the previous, else its g
   assert.equal(F.neighbourOf(form, "2.0"), group, "the only element of a group hands focus to the group");
   assert.equal(F.neighbourOf({ formElements: [a] }, "0"), null);
 });
+
+test("a typed number is read with a decimal comma, and text that is not a number is refused (third review)", () => {
+  for (const [typed, read] of [["90,5", "90.5"], ["90.5", "90.5"], [" 1 234,5 ", "1234.5"], ["1.234,5", "1234.5"], ["1,234.5", "1234.5"],
+    ["1.234.567", "1234567"], ["-3", "-3"], ["", ""], [",5", "0.5"], ["2e3", "2000"]]) {
+    assert.equal(F.decimalText(typed), read, typed);
+  }
+  for (const typed of ["abc", "9,0,5x", "1-2", "--1"]) assert.equal(F.decimalText(typed), null, typed);
+  assert.equal(F.decimalText(null), "");
+});

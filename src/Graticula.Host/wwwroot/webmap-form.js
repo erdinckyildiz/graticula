@@ -89,9 +89,11 @@ function wmfElementName(element, fields) {
  * window too narrow to give the panel room for two columns, gets the one column (UX review of ADR-313, findings 1, 2
  * and 8). The panel is widened for Forms by webmap-form.css (body.rform), as Map Viewer's form builder takes the page.
  */
-const WMF_WIDE = window.matchMedia("(min-width: 1000px)");
+const WMF_WIDE_PX = 540;
 function wmfWide() {
-  return WMF_WIDE.matches && !WM_PHONE.matches;
+  // The panel's own width (third review, item 1): with the Layers panel open beside Forms, a wide window still gives the
+  // designer as little as 340 px, and a grid drawn for the window overran it.
+  return !WM_PHONE.matches && wm$("side").clientWidth >= WMF_WIDE_PX;
 }
 
 /** The key the form's own settings are chosen with, beside the elements' "2" and "2.0". */
@@ -152,7 +154,7 @@ function wmfPanel(layer, run, key) {
   const formRow = `<li class="wmf-row wmf-formrow${formChosen ? " chosen" : ""}">
       <div class="wmf-rowhead">
         <button type="button" class="wmf-pick" data-wmf-act="choose" data-wmf-key="${WMF_FORM_KEY}" data-focus="wmf-pick-form-${k}"
-          data-wmf-stop="${WMF_FORM_KEY}" tabindex="${stop === WMF_FORM_KEY ? 0 : -1}" aria-describedby="wmf-keys-${k}"
+          data-wmf-stop="${WMF_FORM_KEY}" tabindex="${stop === WMF_FORM_KEY ? 0 : -1}"${stop === WMF_FORM_KEY ? ` aria-describedby="wmf-keys-${k}"` : ""}
           aria-pressed="${formChosen}"><span class="wmf-name">${wmEscape(form.title || layer.title || "Form")}</span><span class="lkind">Form · title and description</span></button>
       </div>
       ${!wide && formChosen ? wmfFormSettingsMarkup(form, layer, k) : ""}
@@ -160,7 +162,7 @@ function wmfPanel(layer, run, key) {
 
   const list = `<section class="wmf-listcol" aria-labelledby="wmf-elh-${k}">
     <h3 class="wmf-h" id="wmf-elh-${k}">Elements</h3>
-    <p class="hint wmf-keys" id="wmf-keys-${k}">Arrow keys move between rows, Alt with an arrow moves the row, Delete removes it.</p>
+    <p class="sr" id="wmf-keys-${k}">Arrow keys move between rows, Alt with an arrow moves the row, Delete removes it.</p>
     <ol class="wmf-list wmf-settings" aria-label="Form settings">${formRow}</ol>
     ${wmfListMarkup(form, fields, k, draft, wide, stop)}
     <div class="wmf-add" role="group" aria-labelledby="wmf-addh-${k}">
@@ -262,7 +264,7 @@ function wmfListMarkup(form, fields, k, draft, wide, stop) {
     return `<li class="wmf-row${chosen ? " chosen" : ""}${inGroup ? " ingroup" : ""}">
       <div class="wmf-rowhead">
         <button type="button" class="wmf-pick" data-wmf-act="choose" data-wmf-key="${key}" data-focus="wmf-pick-${uid}"
-          data-wmf-stop="${uid}" tabindex="${stop === uid ? 0 : -1}" aria-describedby="wmf-keys-${k}" aria-pressed="${chosen}"><span class="wmf-name">${wmEscape(name)}</span><span class="lkind">${wmEscape(wmfKindName[element.type] || element.type)}${
+          data-wmf-stop="${uid}" tabindex="${stop === uid ? 0 : -1}"${stop === uid ? ` aria-describedby="wmf-keys-${k}"` : ""} aria-pressed="${chosen}"><span class="wmf-name">${wmEscape(name)}</span><span class="lkind">${wmEscape(wmfKindName[element.type] || element.type)}${
           element.type === "field" ? ` · ${wmEscape(element.fieldName || "")}` : ""}${wmfBadges(form, element)}</span></button>
         <button type="button" class="tiny" data-wmf-act="up" data-wmf-key="${key}" data-focus="wmf-up-${uid}" data-focus-fallback="wmf-down-${uid}"${tab}
           aria-label="${wmEscape(`Move ${name} up`)}"${index === 0 ? " disabled" : ""}>&uarr;</button>
@@ -698,7 +700,7 @@ function wmfOnClick(event) {
     case "create":
       draft.form = WMF_F.fromFields(wmEditFields(wmfInfo(layer)), layer.title || "");
       draft.chosen = draft.form.formElements.length ? "0" : null;
-      wmfRedraw(layer, `A form of ${draft.form.formElements.length} fields is drafted. Apply it to the map when it is ready.`, false, draft.chosen ? `wmf-pick-${wmfUid(draft.form.formElements[0])}` : `wmf-apply-${layer.id}`);
+      wmfRedraw(layer, `A form of ${draft.form.formElements.length} ${draft.form.formElements.length === 1 ? "field" : "fields"} is drafted. Apply it to the map when it is ready.`, false, draft.chosen ? `wmf-pick-${wmfUid(draft.form.formElements[0])}` : `wmf-apply-${layer.id}`);
       return;
     case "discard":
       draft.form = wmfClone(layer.formInfo) || null;
@@ -884,7 +886,12 @@ function wmfOnListKey(event) {
 /** Makes one row the list's Tab stop, and remembers it for the next redraw. */
 function wmfRove(found, pick) {
   found.draft.rove = pick.dataset.wmfStop;
-  for (const other of found.panel.querySelectorAll("button.wmf-pick")) other.tabIndex = other === pick ? 0 : -1;
+  const keys = found.panel.querySelector('[id^="wmf-keys-"]');
+  for (const other of found.panel.querySelectorAll("button.wmf-pick")) {
+    other.tabIndex = other === pick ? 0 : -1;
+    // Described once, on the stop: on every row it was read again at each arrow press.
+    if (other === pick && keys) other.setAttribute("aria-describedby", keys.id); else other.removeAttribute("aria-describedby");
+  }
 }
 
 /** The roving stop follows the keyboard, so a redraw puts the Tab stop where the author was. */
@@ -986,8 +993,16 @@ wm$("layerTool").addEventListener("toggle", wmfOnToggle, true);
 wm$("layerTool").addEventListener("keydown", wmfOnListKey);
 wm$("layerTool").addEventListener("focusin", wmfOnListFocus);
 // The designer's shape follows the window: one column on a phone or a narrow window, the wide shape otherwise.
-for (const query of [WMF_WIDE, WM_PHONE]) {
-  query.addEventListener("change", () => { if (wmSide.tool === "form") wmDrawSide(); });
+// Redrawn when the panel crosses the width the wide shape needs: a window resized, the Layers panel opened beside it.
+WM_PHONE.addEventListener("change", () => { if (wmSide.tool === "form") wmDrawSide(); });
+if (typeof ResizeObserver === "function") {
+  new ResizeObserver(() => {
+    if (wmSide.tool !== "form") return;
+    const drawn = document.querySelector("#layerTool .wmf[data-wmf-layer]");
+    // Only a panel holding a form has two shapes; the empty one has one.
+    if (!drawn || !(drawn.classList.contains("wmf-wide") || drawn.classList.contains("wmf-narrow"))) return;
+    if (drawn.classList.contains("wmf-wide") !== wmfWide()) wmDrawSide();
+  }).observe(wm$("side"));
 }
 
 // ---------------------------------------------------------------------------------------------------- the editing card
@@ -1039,7 +1054,18 @@ function wmfControlMarkup(element, field, value, input, describedBy = `edit-${fi
     return `<input type="text" id="${wmEscape(id)}" data-field="${name}"${max ? ` maxlength="${max}"` : ""}${placeholder}
       value="${wmEscape(value === null || value === undefined ? "" : String(value))}" aria-describedby="${described}">`;
   }
-  // Every other input — a number, a date with its time, a type the card does not draw — is the card's own control.
+  // A number is typed in a text box and read by WMF_F.decimalText into the field's control: in a number box Chrome made
+  // "90,5" 905 without a word (2026-11-23). The control keeps what wmReadControl reads; the box is what is shown.
+  if (WM_NUMBER_TYPES.has(field.type) && !coded.length) {
+    const whole = /Integer/.test(field.type);
+    const domain = field.domain || {};
+    const range = domain.type === "range" && Array.isArray(domain.range) ? ` min="${wmEscape(String(domain.range[0]))}" max="${wmEscape(String(domain.range[1]))}"` : "";
+    const shown = value === null || value === undefined ? "" : wmEscape(String(value));
+    return `<input type="hidden" id="${wmEscape(id)}" data-field="${name}" value="${shown}"${range}>
+      <input type="text" inputmode="${whole ? "numeric" : "decimal"}" autocomplete="off" id="wmf-n-${name}" data-wmf-proxy="${name}" data-wmf-number="${whole ? "whole" : "decimal"}"
+        value="${shown}"${placeholder} aria-describedby="${described}">`;
+  }
+  // Every other input — a date with its time, a type the card does not draw — is the card's own control.
   return wmFieldControl(field, value).replace(/<(input|select|textarea)\b/, m => (placeholder ? `${m}${placeholder}` : m))
     .replace(`aria-describedby="${wmEscape(id)}-says"`, `aria-describedby="${described}"`);
 }
@@ -1052,10 +1078,14 @@ function wmfElementMarkup(state, values) {
     if (!field) return `<p class="hint wmf-el" data-wmf-uid="${uid}">${wmEscape(element.fieldName)}: the layer has no such field.</p>`;
     const input = element.inputType || WMF_F.defaultInput(field);
     const id = `edit-${field.name}`;
-    const usesProxy = (input.type === "radio-buttons" && (WMF_F.codedValues(field) || []).length)
-      || (input.type === "switch" && (WMF_F.codedValues(field) || []).length === 2)
-      || (field.type === "esriFieldTypeDate" && input.type === "datetime-picker" && !input.includeTime);
-    const forId = usesProxy ? (input.type === "radio-buttons" ? "" : input.type === "switch" ? `wmf-s-${field.name}` : `wmf-d-${field.name}`) : id;
+    const coded = WMF_F.codedValues(field) || [];
+    const number = WM_NUMBER_TYPES.has(field.type) && !coded.length && !["radio-buttons", "switch", "combo-box"].includes(input.type);
+    const usesProxy = (input.type === "radio-buttons" && coded.length)
+      || (input.type === "switch" && coded.length === 2)
+      || (field.type === "esriFieldTypeDate" && input.type === "datetime-picker" && !input.includeTime)
+      || number;
+    const forId = !usesProxy ? id : number ? `wmf-n-${field.name}` : input.type === "radio-buttons" ? ""
+      : input.type === "switch" ? `wmf-s-${field.name}` : `wmf-d-${field.name}`;
     const labelTag = forId ? `<label class="field" id="${wmEscape(id)}-label" for="${wmEscape(forId)}">` : `<span class="field" id="${wmEscape(id)}-label">`;
     return `<div class="editfield wmf-el" data-wmf-uid="${uid}" data-wmf-field="${wmEscape(field.name)}">
       ${labelTag}${wmEscape(element.label || field.alias || field.name)}<span class="wmf-req" aria-hidden="true" hidden> *</span><span class="wmf-ro lkind" hidden> read-only</span><span class="wmf-calc lkind" hidden> calculated</span>${forId ? "</label>" : "</span>"}
@@ -1119,6 +1149,7 @@ function wmfWriteValue(form, field, value) {
   for (const proxy of form.querySelectorAll(`[data-wmf-proxy="${CSS.escape(field.name)}"]`)) {
     if (proxy.type === "radio") proxy.checked = proxy.value === control.value;
     else if (proxy.type === "checkbox") proxy.checked = control.value === proxy.dataset.on;
+    else if (proxy.dataset.wmfNumber) proxy.value = control.value;
     else if (proxy.type === "date") proxy.value = control.value.slice(0, 10);
   }
 }
@@ -1258,6 +1289,7 @@ function wmfOnCardInput(event) {
     if (control) {
       if (target.type === "radio") control.value = target.value;
       else if (target.type === "checkbox") control.value = target.checked ? target.dataset.on : target.dataset.off;
+      else if (target.dataset.wmfNumber) wmfReadNumber(form, target, control);
       else if (target.type === "date") {
         // The time of day the feature had is kept when only its day changes.
         const time = (control.value || "T00:00:00").slice(10) || "T00:00:00";
@@ -1268,6 +1300,29 @@ function wmfOnCardInput(event) {
   }
   const result = wmfApplyResult(form, held, true);
   wmfClearAnswered(form, result);
+}
+
+/**
+ * A number box's text into its field's control: "90,5" and "90.5" are 90.5, a space or a second separator groups
+ * thousands (WMF_F.decimalText). Text that is not a number is kept as typed, so the save refuses it naming the field,
+ * and the box says so while it is typed.
+ */
+function wmfReadNumber(form, box, control) {
+  const read = WMF_F.decimalText(box.value);
+  control.value = read === null ? box.value : read;
+  const says = form.querySelector(`#${CSS.escape(`${control.id}-says`)}`);
+  const field = (wmfEditing.info.fields || []).find(f => f.name === control.dataset.field);
+  const label = (field && field.alias) || control.dataset.field;
+  const problem = read === null ? `${label} takes a number.`
+    : box.dataset.wmfNumber === "whole" && read !== "" && !Number.isInteger(Number(read)) ? `${label} takes a whole number.` : "";
+  if (problem) {
+    box.setAttribute("aria-invalid", "true");
+    if (says) { says.textContent = problem; says.dataset.wmfNumber = "1"; }
+  } else if (says && says.dataset.wmfNumber) {
+    box.removeAttribute("aria-invalid");
+    says.textContent = "";
+    delete says.dataset.wmfNumber;
+  }
 }
 
 /**
