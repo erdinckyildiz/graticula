@@ -395,6 +395,74 @@ and says both numbers. **What has run:** two nodes on the previous release's bui
 health-checking balancer under steady load, with no failed request, and the same with one build (`ARollingUpgradeTests`,
 2026-11-01). Not run: an upgrade behind a real Caddy, and a contract migration in a live site.
 
+### 1.6 A standby database, promoted when the primary is lost (ADR-319)
+
+Every node of a site shares one PostgreSQL, and when it stops every node answers 503 together. A **standby** is a
+second PostgreSQL that streams every change from the first and is **promoted automatically** when the first is lost —
+ArcGIS Data Store's primary/standby pair ([ADR-319](adr/ADR-319-the-platform-store-fails-over-to-a-standby.md)). It is
+off by default; nothing below applies to a server that names one database host.
+
+**With compose:** `docker compose -f compose.yaml -f compose.standby.yaml up -d` adds `datastore-standby`, cloned from
+`datastore` on first start, and points the server at both. *Not yet run on Docker (D-494); the steps below are what it
+automates, and they are what the tests run.*
+
+**By hand:**
+
+```text
+# On the primary: replication, and what pg_rewind needs later. Then restart it.
+wal_level = replica
+wal_log_hints = on            # or initdb --data-checksums
+max_wal_senders = 10
+hot_standby = on
+# pg_hba.conf: host replication all <standby's address>/32 scram-sha-256
+
+# On the standby's machine: clone and start. -R makes it follow the primary.
+pg_basebackup -h <primary> -U <superuser> -D <data> -R -X stream -c fast
+pg_ctl -D <data> start
+```
+
+Then name both hosts, the primary first, and give the server a superuser connection to promote with:
+
+```text
+Graticula__PlatformStore=Host=db-a:5432,db-b:5432;Database=gis;Username=…;Password=…;Search Path=gisserver,public
+Graticula__MaintenanceStore=Host=db-a:5432,db-b:5432;Database=gis;Username=<superuser>;Password=…
+Graticula__StoreFailover=automatic     # the default with two hosts; `manual` to promote only from the console
+```
+
+**What happens when the primary is lost.** Every node probes both hosts each second. The standby is promoted when this
+node has missed the primary three times in a row, the standby's own link to the primary is down too, and **every other
+node of the site** says it cannot reach the primary either. Measured on one machine with a node and a standby: **about
+12 s** from killing the primary to the first write accepted on the promoted standby (condition 1). While it waits,
+`/healthz/ready` answers 503 with `"state": "store-failover"` and the reason. **System › Database** shows each host's
+role, the replication lag, the last failover, and whether a failover is held and why.
+
+**When it is held.** A node that does not answer the others, a standby that still streams from the primary, or a role
+that may not promote: nothing is promoted, because each of those may mean the primary is alive and somebody is still
+writing to it. If you know the primary is gone, run **`graticula store promote`** on a machine of the site, with its
+settings (in compose: `docker compose run --rm --no-deps server store promote`). It refuses while it can still reach
+a primary — stop the primary first, as for a planned switchover. It is a command rather than a button because it is
+needed when the primary is gone, and then the server cannot check anybody's session. `Graticula:StoreFailover=manual`
+makes this the only way.
+
+**When the old primary comes back** it starts read-write on its old timeline. Every node that knows the newer timeline
+refuses it, and the first node to see it sets it read-only (`default_transaction_read_only`, *fenced*). Nothing is
+written to it. Make it the new standby:
+
+```text
+pg_ctl -D <old> stop -m fast
+pg_rewind -D <old> --source-server="host=<new primary> user=<superuser> dbname=postgres" --write-recovery-conf
+pg_ctl -D <old> start          # it now streams from the new primary; the fence went with the rewind
+```
+
+There is no automatic failback: the rejoined host stays the standby until the next failover.
+
+**What this does not protect.** Replication is asynchronous: a transaction the primary committed and had not yet sent
+when it died is lost — the lag on System › Database is how much that can be. Set `synchronous_standby_names` if none
+may be, and accept that the primary then stops committing while the standby is down. And it protects against the
+server's own writes only: someone writing to the old primary with `psql` while it was cut off loses those writes when
+it is rewound. A node set up from scratch while the old primary is back and the new one unreachable is the one case
+the fence may not reach in time (D-496).
+
 ---
 
 ## 2. Backup and restore

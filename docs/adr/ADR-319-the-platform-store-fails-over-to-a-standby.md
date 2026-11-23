@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` for the mechanism, which uses PostgreSQL's own replication, promotion and timelines and is tested against real processes (condition 1–4) · `LOW` for the compose half, which has not been run (condition 6) |
+| **Confidence** | `MEDIUM` for the mechanism, which uses PostgreSQL's own replication, promotion and timelines and is tested against real processes (condition 1–4) · `LOW` for the compose half, which has not been run (condition 7) |
 | **Decided** | 2026-11-23, by owner decision. Asked whether the store's availability should be a standby promoted by hand (the recommendation) or automatically, the owner answered *"Otomatik devralma da"* — automatic failover too, as ArcGIS Data Store's primary/standby pair does. Everything below that public documentation or an earlier ADR does not settle is marked **INFERRED** and listed in §5.12. |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -231,11 +231,19 @@ The fence stays until the host is rejoined (§5.8). Promotion clears it on the h
 ### 5.7 Manual promotion is the floor, and `Graticula:StoreFailover` chooses
 
 `Graticula:StoreFailover` is `automatic` (default when two hosts are named) or `manual`. In both,
-`POST /admin/site/store/promote` (an administrator) promotes the standby — ArcGIS's `makePrimary` — and **refuses
-while this node can reach a read-write primary on the newest timeline**: promoting beside a live primary is the split
-brain this ADR exists to prevent, so a planned switchover stops the primary first, as Esri advises before a planned
-shutdown (§1a). A held automatic failover (a node that did not answer, D-497) is resolved this way, by a human who
-can see why it was held.
+**`graticula store promote`**, run on a machine of the site with its settings, promotes the standby — ArcGIS's
+`makePrimary` — and **refuses while it can reach a read-write primary on the newest timeline**: promoting beside a
+live primary is the split brain this ADR exists to prevent, so a planned switchover stops the primary first, as Esri
+advises before a planned shutdown (§1a). A held automatic failover (a node that did not answer, D-497) is resolved
+this way, by a human who can see why it was held.
+
+*Amended the same day, by a test.* This was first an admin route, `POST /admin/site/store/promote`, with a button on
+System › Database. `A_manual_site_waits_for_an_administrator_to_promote_the_standby` showed it could never succeed:
+it is needed exactly when the primary is gone, and then the server cannot read the session that proves the caller an
+administrator, so it answered 401 — by design (Authentication refuses rather than assume, and changing that is not
+this ADR's). The route and the button were removed rather than left as a call site with nothing behind it; the page
+says the command instead. Whoever can run the binary with the site's settings already holds the store's credentials,
+which is the authority promoting needs. *(INFERRED, §5.12 item 7.)*
 
 ### 5.8 Rejoining the old primary: `pg_rewind`, not a re-clone, and not by the server
 
@@ -261,7 +269,7 @@ replication and `wal_log_hints` on the primary, and points the server at both ho
 host that finds its peer a primary on a newer timeline than its own, it rewinds itself (§5.8) and starts as the
 standby. **An override file, not a profile**: a profile can only add a service, and the primary's own settings and
 entrypoint change too. The baseline `compose.yaml` is not touched, so `graticula → PostgreSQL` is exactly what it
-was. *(INFERRED, §5.12 item 6; not run, condition 6.)*
+was. *(INFERRED, §5.12 item 6; not run, condition 7.)*
 
 ### 5.10 What the console and the Admin API say
 
@@ -269,7 +277,8 @@ was. *(INFERRED, §5.12 item 6; not run, condition 6.)*
 receiver }], primary, epoch, held, lastFailover }`: each host's role (*primary*, *standby*, *fenced*, *unreachable*),
 the replication lag the primary reports for its standby (bytes and time), whether a failover is held and why, and the
 last failover from `store_failover`. **System › Database** in the console shows the same — the store's role per host,
-the lag, the last failover — and offers *Promote standby* to an administrator. On a one-host store it says that no
+the lag, the last failover — and, while no primary is reachable or a failover is held, says to run
+`graticula store promote` (§5.7). On a one-host store it says that no
 standby is configured and links deployment.md §1.6.
 
 ### 5.11 What this does not do
@@ -289,7 +298,8 @@ standby is configured and links deployment.md §1.6.
 5. The old primary is fenced by `default_transaction_read_only` and rejoined by `pg_rewind`, by an operator or the
    compose wrapper, **not by the server** (§5.6, §5.8).
 6. The compose standby is an **override file**, not a profile (§5.9).
-7. Manual promotion **refuses while a primary is reachable** (§5.7).
+7. Manual promotion is **a command, `graticula store promote`**, not an admin route, and it **refuses while a primary
+   is reachable** (§5.7).
 8. Failovers are recorded in a table, `store_failover` (migration 149) (§5.4).
 9. **No automatic failback** (§5.8).
 10. Nodes ask each other over HTTP, authenticated by a keyed hash of the site key (§5.4).
@@ -300,15 +310,53 @@ standby is configured and links deployment.md §1.6.
    `Graticula.Host` processes over them: the primary is killed (`pg_ctl stop -m immediate`), the standby is promoted
    by the server without a human, and a write through the server succeeds on it. **The time from the kill to the first
    accepted write is measured and written here.**
+   **DISCHARGED 2026-11-23** — `TheStoreFailsOverTests.A_killed_primary_is_replaced_by_its_standby_and_never_written_to_again`
+   (a site of one node: the case with no majority) and `Two_nodes_that_both_lose_the_primary_agree_and_promote_the_standby`,
+   each over two clusters made by `initdb` and `pg_basebackup -R` from the portable PostgreSQL 16.10 with PostGIS, and
+   real `Graticula.Host` processes; the primary stopped with `pg_ctl stop -m immediate`, a group created through
+   `POST /admin/groups` every 100 ms until one is accepted. **Killed primary to first accepted write: 12.26, 12.35 and
+   12.36 s on one node; 12.30 and 12.40 s on two** (three runs and two, this PC, 2026-11-23). The parts: three missed
+   one-second probes (~3–4 s, each a refused connection rather than a two-second timeout on one machine), the
+   promotion (`pg_promote` waits for it), and the pools' one-second recheck; the rest is most likely the platform
+   store's breaker (ADR-007 §4.8), which the outage opens for ten seconds at a time and whose message the node logs —
+   *inferred from the log, not measured part by part*; shortening it is not this ADR's to decide (revisit trigger). Within Esri's
+   *"up to a few minutes"* (§1a). Not measured: across machines, where an unreachable host costs the two-second
+   connect timeout per probe rather than an instant refusal.
 2. **Split brain: the returned old primary is never written to.** After condition 1, the old primary is started again
    as it was — read-write, on the old timeline, **first in the connection string** — and writes keep going through the
    server: none lands on it (counted on both hosts), and it is fenced.
+   **DISCHARGED 2026-11-23** — the same test: the old primary restarted as it was (read-write, timeline 1, listed
+   first), twenty writes through the node, **0 new rows on the old primary and 20 on the new one**, the old primary's
+   `default_transaction_read_only` `on` within ten seconds, `/admin/site/store` naming it *fenced*, and the node's log
+   saying it *came back as a primary on timeline 1*.
 3. **The rule holds a failover it must hold.** A node that loses the primary while the standby still streams from it
    promotes nothing; and on a site of two nodes, one that still reaches the primary stops the other from promoting.
+   **DISCHARGED 2026-11-23** — `A_node_cut_from_a_live_primary_holds_while_the_standby_still_streams` (the node's path
+   to the primary cut through a TCP relay, the standby's left: `/healthz/ready` 503 with `"state": "store-failover"`
+   and *still streams*, the standby still in recovery five seconds on, and writes back on the same primary once the
+   path mends and the 30 s hold lapses) and `A_node_that_still_reaches_the_primary_stops_the_other_from_promoting`
+   (node A's path and the standby's both cut, node B direct: A holds, naming B, nothing promoted, B still writes).
+   **The second test failed on the first build**, which named the primary by address: B did not know A's name for it,
+   answered *no*, and A promoted beside a live primary. It passes since the question names the primary by system
+   identifier and timeline (§5.4).
 4. **The old primary rejoins** by §5.8's commands and streams from the new primary; the server keeps writing.
+   **DISCHARGED 2026-11-23** — the end of condition 1's test: the fenced old primary stopped, `pg_rewind
+   --write-recovery-conf` against the new one, started; it is in recovery and *streaming* within 30 s, five more
+   writes through the node arrive on it, and `/admin/site/store` names it *standby*. By hand, as §5.8 says; the
+   compose wrapper that automates it is condition 7.
 5. **The console's System › Database** shows role, lag and last failover from `GET /admin/site/store`, and passes the
    ux-designer review every new screen gets.
-6. **The compose override runs**: `docker compose -f compose.yaml -f compose.standby.yaml up` on a clean machine, the
+   **PARTLY DISCHARGED 2026-11-23** — built (`store-ha.js`, `/system/database`) and rendered against a fixture over two
+   local clusters at 1280 and 390 px with Chrome: both hosts with role pills, timeline, *standby up to date* and replay
+   lag, *No failover has happened*, the mode; no horizontal scroll at 390; the status line is `aria-live`, and the timed
+   redraw leaves an unchanged table alone so focus is not dropped. **Not yet reviewed by the ux-designer agent**, which
+   is what keeps this open.
+6. **Manual promotion works when the primary is gone.** **DISCHARGED 2026-11-23** —
+   `A_manual_site_waits_for_an_administrator_to_promote_the_standby`: with `Graticula:StoreFailover=manual`,
+   `graticula store promote` exits 1 naming the live primary; the primary killed, readiness says the failover waits
+   for an administrator and nothing is promoted; then the command exits 0, writes resume, and `store_failover` says
+   `manual`. *(Added the same day, when the first form of §5.7 failed it.)*
+7. **The compose override runs**: `docker compose -f compose.yaml -f compose.standby.yaml up` on a clean machine, the
    primary container killed, the server writing to the standby, the old container restarted and found a standby.
 
 ## 6. Consequences
@@ -347,6 +395,8 @@ through an outage), ADR-193 (backups dump the primary).
   manager (§2 A).
 - A held failover (D-497) is reported from a real deployment.
 - A writer other than Graticula nodes has to be protected: §2 A's leader key is then the honest answer.
+- The ~12 s to the first write (condition 1) is found to be mostly the store breaker's ten seconds: closing the
+  breaker when a promotion is seen is then the change, decided with ADR-007.
 
 ## 10. Dissent
 
