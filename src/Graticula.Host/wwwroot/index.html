@@ -1120,8 +1120,9 @@
   <!--
     System › Backups — ADR-193 §5.6 and condition 4: take a backup, list, download and delete them, and the daily
     schedule with how many it keeps. The machine's, so System's: a backup is the whole database, every organization in
-    it (`TenantRouting.SystemOnly`). Restore is not here, deliberately (§5.5) — it replaces the database this process
-    serves — so the page says how it is done instead of offering a button that could not be honest.
+    it (`TenantRouting.SystemOnly`). Validate and Restore are here since ADR-317: each runs in the background and the
+    panel under the toolbar follows it; a restore is confirmed by typing the backup's name, and the session it ends is
+    signed in again before its result is shown (backups-restore.js).
   -->
   <section class="view" id="view-backups">
     <div class="pagehead">
@@ -1141,7 +1142,8 @@
 
     <!-- ADR-317: a validation's or a restore's progress, said as each step begins and once when it ends. -->
     <div class="panel pad settingcard" id="bkrOp" hidden>
-      <h4 id="bkrOpHead">Validation</h4>
+      <h4 id="bkrOpHead" tabindex="-1">Validation</h4>
+      <p class="rowmeta" id="bkrOpWhen"></p>
       <p class="hint" id="bkrProgress" role="status" aria-live="polite"></p>
       <ol class="bkrsteps" id="bkrSteps"></ol>
     </div>

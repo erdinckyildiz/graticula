@@ -231,6 +231,9 @@ public sealed class BackupsScreenTests : ConsoleTest
         await ClickAsync("[data-backup-restore]");
         await WaitForAsync("document.getElementById('bkrDialog')?.open === true", "Restore did not ask first.");
         string body = await Browser.EvaluateAsync<string>("document.getElementById('bkrDialogBody').textContent") ?? string.Empty;
+        // What is lost comes first, to the second, and the dialog says everyone is signed out (design review 2026-11-23, F4).
+        Assert.StartsWith("Everything changed after 02:00:00 UTC", body.Trim(), StringComparison.Ordinal);
+        Assert.Contains("Everyone signed in is signed out, you included", body, StringComparison.Ordinal);
         Assert.Contains("gis", body, StringComparison.Ordinal);
         Assert.Contains("_before_restore_", body, StringComparison.Ordinal);
         Assert.Contains("imagery and the serving certificate", body, StringComparison.Ordinal);
@@ -239,6 +242,7 @@ public sealed class BackupsScreenTests : ConsoleTest
         await ClickAsync("#bkrGo");
         await WaitForAsync("(document.getElementById('bkrConfirmSays')?.textContent || '').includes('Type the backup')",
             "Restore without the name typed said nothing.");
+        Assert.Equal("true", await Browser.EvaluateAsync<string?>("document.getElementById('bkrConfirm').getAttribute('aria-invalid')"));
         Assert.Empty(await Browser.EvaluateAsync<string[]>("window.__bkr.filter(w => w.startsWith('restore'))") ?? []);
 
         await Browser.EvaluateAsync<bool>("""
@@ -254,6 +258,88 @@ public sealed class BackupsScreenTests : ConsoleTest
                 && w.Contains("confirm", StringComparison.Ordinal));
         await WaitForAsync("document.activeElement?.hasAttribute('data-backup-restore') === true",
             "Focus did not come back to Restore after the dialog and the list being drawn again.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// Design review 2026-11-23, F1: a restore that succeeds replaces the database the session lived in, so every read of
+    /// the operation after the switch answers 401. The page stops reading, shows the sign-in saying why, and once signed
+    /// in reads the operation again and says how it ended.
+    /// </summary>
+    [Fact]
+    public async Task A_restore_that_ends_the_session_shows_the_sign_in_and_then_its_result()
+    {
+        (string token, _) = await SignInAsync();
+        await OpenAsync("/system/operations", token);
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const real = window.fetch;
+              window.__bkrReads = 0;
+              window.__bkrSignedIn = false;
+              const id = "c".repeat(32);
+              const backup = "graticula-backup-20261027T020000Z";
+              const answer = (body, status = 200) => new Response(JSON.stringify(body),
+                { status, headers: { "Content-Type": "application/json" } });
+              window.fetch = async (input, init) => {
+                const url = typeof input === "string" ? input : input.url;
+                const method = ((init && init.method) || "GET").toUpperCase();
+                const path = new URL(url, location.href).pathname;
+                if (method === "POST" && path === `/admin/backups/${backup}/restore`) {
+                  return answer({ id, kind: "restore", backup, state: "running", step: "checks", started: "2026-11-23T10:00:00Z",
+                    steps: [{ name: "checks", at: "2026-11-23T10:00:00Z" }], result: {} }, 202);
+                }
+                if (method === "GET" && path === `/admin/backups/operations/${id}`) {
+                  window.__bkrReads++;
+                  // The first read finds it running; after the switch the session is gone, until the reader signs in.
+                  if (window.__bkrReads > 1 && !window.__bkrSignedIn) return answer({ error: { code: 401, message: "Not signed in." } }, 401);
+                  const done = window.__bkrSignedIn;
+                  return answer({ id, kind: "restore", backup, state: done ? "succeeded" : "running", step: done ? "done" : "restore",
+                    started: "2026-11-23T10:00:00Z", finished: done ? "2026-11-23T10:00:02.2Z" : null,
+                    steps: [{ name: "checks", at: "2026-11-23T10:00:00Z" }, { name: "restore", at: "2026-11-23T10:00:01Z" }],
+                    result: done ? { keptDatabase: "gis_before_restore_20261123100000" } : {} });
+                }
+                if (method !== "GET" || path !== "/admin/backups") return real(input, init);
+                return answer({ location: "/var/lib/graticula/backups", database: "gis", running: false, last: null,
+                  schedule: { enabled: false, hourUtc: 2, keep: 7 },
+                  backups: [{ name: backup, taken: "2026-10-27T02:00:00Z", version: "1.0.469", schema: 146, bytes: 3080000000 }],
+                  operation: null });
+              };
+              return true;
+            })();
+            """);
+        await Browser.EvaluateAsync<bool>("(navigateTo('#/backups'), true)");
+        await WaitForAsync("!!document.querySelector('[data-backup-restore]')", "A backup's row has no Restore.");
+
+        await ClickAsync("[data-backup-restore]");
+        await WaitForAsync("document.getElementById('bkrDialog')?.open === true", "Restore did not ask first.");
+        // Enter in the name field is Restore (F7).
+        await Browser.EvaluateAsync<bool>("""
+            (() => { const i = document.getElementById('bkrConfirm'); i.value = 'graticula-backup-20261027T020000Z';
+              i.dispatchEvent(new Event('input', { bubbles: true }));
+              i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); return true; })()
+            """);
+
+        await WaitForAsync("!!document.getElementById('signin')?.offsetParent",
+            "A restore whose reads answered 401 never showed the sign-in.");
+        Assert.Contains("signed this session out", await Browser.EvaluateAsync<string>(
+            "document.getElementById('signinFor').textContent") ?? string.Empty, StringComparison.Ordinal);
+        Assert.Equal("polite", await Browser.EvaluateAsync<string>("document.getElementById('signinFor').getAttribute('aria-live')"));
+
+        // The reads stop: a refused session is not asked again every second and a half.
+        int reads = await Browser.EvaluateAsync<int>("window.__bkrReads");
+        await Task.Delay(4000);
+        Assert.Equal(reads, await Browser.EvaluateAsync<int>("window.__bkrReads"));
+
+        // Signed in again — the token planted and the console started, as the sign-in form does — the result is said.
+        await Browser.EvaluateAsync<bool>($$"""
+            (async () => { window.__bkrSignedIn = true; token = "{{token}}"; sessionStorage.setItem("gis-token", token);
+              await start(); return true; })()
+            """);
+        await WaitForAsync("(document.getElementById('bkrProgress')?.textContent || '').includes('gis_before_restore_20261123100000')",
+            "After signing in again, the restore's result was not shown.");
+        Assert.Contains("after 2.2 s", await Browser.EvaluateAsync<string>("document.getElementById('bkrOpWhen').textContent") ?? string.Empty,
+            StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
     }
