@@ -38270,7 +38270,7 @@ function drawBackups() {
             ? " · without the database's roles, which the server's login may not read" : ""}</div></td>
         <td class="val" data-l="Size"><span>${h(fileSize(b.bytes))}</span></td>
         <td class="val" data-l="Server version"><span>${h(b.version || "—")}</span></td>
-        <td class="act" style="text-align:right">
+        <td class="act">
           <button type="button" class="tiny" data-backup-validate="${h(b.name)}"
             aria-label="Validate the backup of ${h(backupWhen(b.taken))}">Validate</button>
           <button type="button" class="tiny" data-backup-download="${h(b.name)}"

@@ -6431,6 +6431,23 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #bkrDialog .dialogbody code { overflow-wrap: anywhere; }
 #bkrDialog #bkrConfirm { width: 100%; box-sizing: border-box; height: 36px; margin-top: var(--gap-1); }
 #bkrDialog #bkrGo[aria-disabled="true"] { opacity: .6; }
+/* Design review 2026-11-23: a dialog of sentences, as wide as Delete's confirm and a little more (F3); the panel as wide
+   as the table it reports on (F12). */
+#bkrDialog { width: min(560px, calc(100vw - 32px)); }
+#bkrDialog .dialogbody p.bad-inline { font-size: inherit; }
+#bkrDialog #bkrConfirm[aria-invalid="true"] { border-color: var(--alert); }
+#view-backups #bkrOp, #view-backups #bkrOp .hint { max-width: none; }
+#view-backups table.rowblocks td.act { text-align: right; }
+#view-backups #bkrOpHead { margin-bottom: 0; }
+#view-backups #bkrOpWhen { margin: 2px 0 0; }
+@media (max-width: 719px) {
+  /* Four buttons do not fit beside the name: they take their own line under the row (F2, as Collaborations does). */
+  #view-backups table.rowblocks td.act, #view-backups .widetable table.rowblocks td.act:last-child {
+    grid-column: 1 / -1; grid-row: auto; text-align: left; white-space: normal;
+  }
+  #view-backups table.rowblocks td.act button { margin: var(--gap-1) var(--gap-2) 0 0; }
+  #view-backups table.rowblocks td.act button + button { margin-left: 0; }
+}
 @media (max-width: 560px) {
   #view-backups .bkschedule { grid-template-columns: minmax(0, 1fr); }
   #view-backups .bkschedule .hint { grid-column: 1; }
