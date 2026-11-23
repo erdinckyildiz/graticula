@@ -26,6 +26,27 @@ public sealed class BackupEndpointsTests : ArcGisClient
         Assert.Equal(JsonValueKind.Array, list.GetProperty("backups").ValueKind);
         Assert.Contains("graticula restore", list.GetProperty("note").GetString(), StringComparison.Ordinal);
         Assert.Contains("secret key", list.GetProperty("note").GetString(), StringComparison.Ordinal);
+
+        // ADR-317: the database a restore would replace, named for the console's confirmation.
+        Assert.False(string.IsNullOrWhiteSpace(list.GetProperty("database").GetString()));
+    }
+
+    /// <summary>ADR-317: validate and restore of a backup that is not there are 404s, and an unknown operation too.</summary>
+    [Fact]
+    public async Task Validate_and_restore_of_no_backup_and_an_unknown_operation_are_not_found()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        foreach (string kind in new[] { "validate", "restore" })
+        {
+            (HttpStatusCode status, _) = await RequestAsync(HttpMethod.Post,
+                $"{root}/admin/backups/graticula-backup-19700101T000000Z/{kind}", token!, "{}");
+            Assert.Equal(HttpStatusCode.NotFound, status);
+        }
+
+        (HttpStatusCode unknown, _) = await RequestAsync(HttpMethod.Get, $"{root}/admin/backups/operations/{new string('0', 32)}", token!, null);
+        Assert.Equal(HttpStatusCode.NotFound, unknown);
     }
 
     [Fact]

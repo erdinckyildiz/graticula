@@ -291,53 +291,78 @@ internal sealed class Backups
         }
     }
 
+    /// <summary>A backup's folder from its name or path.</summary>
+    public string FolderOf(string archive) => Directory.Exists(archive) ? archive : Path.Combine(Location, archive);
+
+    /// <summary>The platform store's database name.</summary>
+    public string DatabaseName => _store.Database ?? throw new InvalidOperationException("The platform store names no database.");
+
+    /// <summary>The connection the database-level steps go through: the maintenance store's, or the serving role's, to <c>postgres</c>.</summary>
+    // Through StoreHosts, so that on a store with a standby (ADR-319) the maintenance connection reaches the primary.
+    private NpgsqlConnectionStringBuilder MaintenanceConnection =>
+        new(StoreHosts.ForConnection(
+            (_maintenance ?? new(_store.ConnectionString) { Database = "postgres", SearchPath = null }).ConnectionString));
+
+    /// <summary>The platform store's connection string, on another database of the same server.</summary>
+    public string StoreOn(string database) => new NpgsqlConnectionStringBuilder(_store.ConnectionString) { Database = database }.ConnectionString;
+
+    /// <summary>
+    /// Why a backup may not be restored here, before anything is written — no manifest, a part missing or changed, another
+    /// key, a newer schema — or null (ADR-193 §5.5's refusals, which validate and the admin API's restore share, ADR-317).
+    /// </summary>
+    public string? Refusal(string folder, out BackupManifest? manifest)
+    {
+        manifest = ReadManifest(folder);
+        if (manifest is null)
+        {
+            return $"'{Path.GetFileName(folder)}' is not a finished backup: it has no {Manifest}.";
+        }
+
+        foreach (BackupPart part in manifest.Parts)
+        {
+            string file = Path.Combine(folder, part.Path);
+            if (!File.Exists(file) || Part(folder, file).Sha256 != part.Sha256)
+            {
+                return $"'{part.Path}' is missing or does not match its checksum.";
+            }
+        }
+
+        if (!string.Equals(manifest.KeyFingerprint, _keyFingerprint, StringComparison.Ordinal))
+        {
+            return $"This backup was taken with another secret key (fingerprint {manifest.KeyFingerprint}; this server's is "
+                + $"{_keyFingerprint}). Restored with this one, every registered data source would fail to open. Start "
+                + "the server with the key the backup was taken with (Graticula__SecretKey).";
+        }
+
+        int readable = PlatformMigrations.ComponentSchemaVersion.Value;
+        if (manifest.Schema > readable)
+        {
+            return $"This backup's platform schema is {manifest.Schema} and this server reads up to {readable}. Restore it with "
+                + $"the version that took it ({manifest.Version}) or a later one.";
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Restores a backup into this deployment — the server stopped. Answers the exit code, and writes what it did and
     /// why it refused to <paramref name="log"/>.
     /// </summary>
     public async Task<int> RestoreAsync(string archive, bool force, TextWriter log, CancellationToken cancellation)
     {
-        string folder = Directory.Exists(archive) ? archive : Path.Combine(Location, archive);
-        if (ReadManifest(folder) is not { } manifest)
-        {
-            log.WriteLine($"'{archive}' is not a finished backup: it has no {Manifest}. Nothing was changed.");
-            return 1;
-        }
+        string folder = FolderOf(archive);
 
         // ---- every refusal before anything is written ----
-        foreach (BackupPart part in manifest.Parts)
+        if (Refusal(folder, out BackupManifest? read) is { } refused)
         {
-            string file = Path.Combine(folder, part.Path);
-            if (!File.Exists(file) || Part(folder, file).Sha256 != part.Sha256)
-            {
-                log.WriteLine($"'{part.Path}' is missing or does not match its checksum. Nothing was changed.");
-                return 1;
-            }
-        }
-
-        if (!string.Equals(manifest.KeyFingerprint, _keyFingerprint, StringComparison.Ordinal))
-        {
-            log.WriteLine(
-                $"This backup was taken with another secret key (fingerprint {manifest.KeyFingerprint}; this server's is "
-                + $"{_keyFingerprint}). Restored with this one, every registered data source would fail to open. Start "
-                + "the server with the key the backup was taken with (Graticula__SecretKey). Nothing was changed.");
+            log.WriteLine(refused + " Nothing was changed.");
             return 1;
         }
 
-        int readable = PlatformMigrations.ComponentSchemaVersion.Value;
-        if (manifest.Schema > readable)
-        {
-            log.WriteLine(
-                $"This backup's platform schema is {manifest.Schema} and this server reads up to {readable}. Restore it with "
-                + $"the version that took it ({manifest.Version}) or a later one. Nothing was changed.");
-            return 1;
-        }
+        BackupManifest manifest = read!;
+        string current = DatabaseName;
 
-        string current = _store.Database ?? throw new InvalidOperationException("The platform store names no database.");
-        NpgsqlConnectionStringBuilder maintenance =
-            _maintenance ?? new(_store.ConnectionString) { Database = "postgres", SearchPath = null };
-
-        await using (NpgsqlConnection admin = new(StoreHosts.ForConnection(maintenance.ConnectionString)))
+        await using (NpgsqlConnection admin = new(MaintenanceConnection.ConnectionString))
         {
             await admin.OpenAsync(cancellation).ConfigureAwait(false);
             await using NpgsqlCommand others = new(
@@ -355,13 +380,45 @@ internal sealed class Backups
         }
 
         // ---- into a new database, checked, then renamed into place ----
-        string stamp = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+        string stamp = Stamp();
         string restored = $"{current}_restore_{stamp}";
         string kept = $"{current}_before_restore_{stamp}";
 
+        if (await RestoreIntoAsync(folder, manifest, restored, log, cancellation).ConfigureAwait(false) is { } wrong)
+        {
+            log.WriteLine($"The restored database does not hold what the backup said: {wrong}. The current database is untouched.");
+            return 1;
+        }
+
+        await SwitchAsync(current, restored, kept, null, cancellation).ConfigureAwait(false);
+        log.WriteLine($"The database is restored. The one it replaced is kept as '{kept}'; drop it once you are satisfied.");
+
+        // ---- the state files, the same way ----
+        PutStateFiles(folder, stamp);
+
+        log.WriteLine("The state files are restored; the ones they replaced are kept beside them, named before_restore.");
+        NpgsqlConnection.ClearAllPools();
+        return 0;
+    }
+
+    /// <summary>The time a restore or a validation names its databases and kept files with.</summary>
+    public static string Stamp() => DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Restores a backup's dump into a new database of the same server and checks it against the manifest — the first
+    /// half of every restore, and the whole of a validation (ADR-317). Answers null when it holds what the backup said;
+    /// otherwise why not, with the database dropped. Any exception drops it too.
+    /// </summary>
+    public async Task<string?> RestoreIntoAsync(
+        string folder, BackupManifest manifest, string database, TextWriter log, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(log);
+        NpgsqlConnectionStringBuilder maintenance = MaintenanceConnection;
+
         if (_maintenance is null)
         {
-            await ExecuteAsync(maintenance.ConnectionString, $"create database {Quote(restored)} template template0", cancellation)
+            await ExecuteAsync(maintenance.ConnectionString, $"create database {Quote(database)} template template0", cancellation)
                 .ConfigureAwait(false);
         }
         else
@@ -372,13 +429,13 @@ internal sealed class Backups
             string owner = _store.Username ?? throw new InvalidOperationException("The platform store names no user.");
             await ExecuteAsync(
                     maintenance.ConnectionString,
-                    $"create database {Quote(restored)} owner {Quote(owner)} template template0",
+                    $"create database {Quote(database)} owner {Quote(owner)} template template0",
                     cancellation)
                 .ConfigureAwait(false);
 
             if (manifest.PostGis is not null)
             {
-                NpgsqlConnectionStringBuilder inside = new(maintenance.ConnectionString) { Database = restored };
+                NpgsqlConnectionStringBuilder inside = new(maintenance.ConnectionString) { Database = database };
                 await ExecuteAsync(inside.ConnectionString, "create extension if not exists postgis", cancellation)
                     .ConfigureAwait(false);
             }
@@ -386,7 +443,7 @@ internal sealed class Backups
 
         try
         {
-            log.WriteLine($"Restoring into '{restored}'…");
+            log.WriteLine($"Restoring into '{database}'…");
             string dump = Path.Combine(folder, Database);
 
             // <b>The tables and their rows in parallel, then the constraints, policies and triggers one at a time.</b>
@@ -396,50 +453,151 @@ internal sealed class Backups
             // bound role: 54 of 70 foreign keys missing, the restore reported done, and the check below, which looked
             // at the hosted tables only, passed it. Restored in one pass the post-data section runs in the dump's
             // order, foreign keys before policies, and all 70 came back.
-            await RunAsync("pg_restore", ["--no-owner", "--jobs=4", "--section=pre-data", "--section=data", "--dbname", restored, dump],
-                restored, cancellation, tolerateWarnings: true).ConfigureAwait(false);
-            await RunAsync("pg_restore", ["--no-owner", "--section=post-data", "--dbname", restored, dump],
-                restored, cancellation, tolerateWarnings: true).ConfigureAwait(false);
+            await RunAsync("pg_restore", ["--no-owner", "--jobs=4", "--section=pre-data", "--section=data", "--dbname", database, dump],
+                database, cancellation, tolerateWarnings: true).ConfigureAwait(false);
+            await RunAsync("pg_restore", ["--no-owner", "--section=post-data", "--dbname", database, dump],
+                database, cancellation, tolerateWarnings: true).ConfigureAwait(false);
 
-            NpgsqlConnectionStringBuilder check = new(_store.ConnectionString) { Database = restored };
+            string check = StoreOn(database);
             string contents = await RunAsync("pg_restore", ["--list", dump], null, cancellation).ConfigureAwait(false);
 
-            string? wrong = await CheckAsync(check.ConnectionString, manifest.Schema, cancellation).ConfigureAwait(false)
-                ?? await MissingAsync(check.ConnectionString, contents, cancellation).ConfigureAwait(false);
+            string? wrong = await CheckAsync(check, manifest.Schema, cancellation).ConfigureAwait(false)
+                ?? await MissingAsync(check, contents, cancellation).ConfigureAwait(false);
 
             if (wrong is not null)
             {
-                log.WriteLine($"The restored database does not hold what the backup said: {wrong}. The current database is untouched.");
-                await ExecuteAsync(maintenance.ConnectionString, $"drop database {Quote(restored)}", cancellation).ConfigureAwait(false);
-                return 1;
+                await DropAsync(database, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            return wrong;
+        }
+        catch
+        {
+            await DropAsync(database, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>Drops a database this service made — a scratch or restored one — if it is there.</summary>
+    public async Task DropAsync(string database, CancellationToken cancellation)
+    {
+        // `with (force)`: a check's data source is disposed, but a connection it opened may not have left yet.
+        await ExecuteAsync(MaintenanceConnection.ConnectionString, $"drop database if exists {Quote(database)} with (force)", cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>What a restored database holds, counted: services, layers and portal items — validate's report.</summary>
+    public async Task<IReadOnlyDictionary<string, long>> CountAsync(string database, CancellationToken cancellation)
+    {
+        await using NpgsqlDataSource source = StoreHosts.Build(new NpgsqlDataSourceBuilder(StoreOn(database)));
+        Dictionary<string, long> counted = new(StringComparer.Ordinal);
+
+        foreach (string table in new[] { "service", "layer", "item" })
+        {
+            await using NpgsqlCommand count = source.CreateCommand(
+                $"select case when to_regclass('{table}') is null then -1 else (select count(*) from {table}) end");
+            counted[table] = Convert.ToInt64(await count.ExecuteScalarAsync(cancellation).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        }
+
+        return counted;
+    }
+
+    /// <summary>
+    /// The switch, at the database level (ADR-317 §5.4.6): connections to <paramref name="current"/> refused, the remaining
+    /// ones ended, it renamed <paramref name="kept"/>, <paramref name="restored"/> renamed into its place. The connection
+    /// string never changes. When the second rename fails the first is undone, and the current database is open again
+    /// either way; <paramref name="between"/>, when given, runs between the two renames — a test's failure.
+    /// </summary>
+    public async Task SwitchAsync(string current, string restored, string kept, Func<Task>? between, CancellationToken cancellation)
+    {
+        string maintenance = MaintenanceConnection.ConnectionString;
+        string literal = current.Replace("'", "''", StringComparison.Ordinal);
+
+        NpgsqlConnection.ClearAllPools();
+        await ExecuteAsync(maintenance, $"alter database {Quote(current)} allow_connections false", cancellation).ConfigureAwait(false);
+
+        try
+        {
+            // A terminated backend takes a moment to leave, and the rename refuses until it has.
+            for (int tries = 0; ; tries++)
+            {
+                await ExecuteAsync(maintenance,
+                    $"select pg_terminate_backend(pid) from pg_stat_activity where datname = '{literal}' and pid <> pg_backend_pid()",
+                    cancellation).ConfigureAwait(false);
+
+                try
+                {
+                    await ExecuteAsync(maintenance, $"alter database {Quote(current)} rename to {Quote(kept)}", cancellation)
+                        .ConfigureAwait(false);
+                    break;
+                }
+                catch (PostgresException busy) when (busy.SqlState == "55006" && tries < 50)
+                {
+                    await Task.Delay(100, cancellation).ConfigureAwait(false);
+                }
             }
         }
         catch
         {
-            await ExecuteAsync(maintenance.ConnectionString, $"drop database if exists {Quote(restored)}", cancellation).ConfigureAwait(false);
+            await ExecuteAsync(maintenance, $"alter database {Quote(current)} allow_connections true", CancellationToken.None).ConfigureAwait(false);
             throw;
         }
 
-        NpgsqlConnection.ClearAllPools();
-        await ExecuteAsync(maintenance.ConnectionString,
-            $"select pg_terminate_backend(pid) from pg_stat_activity where datname = '{current.Replace("'", "''", StringComparison.Ordinal)}' and pid <> pg_backend_pid()",
-            cancellation).ConfigureAwait(false);
-        await ExecuteAsync(maintenance.ConnectionString, $"alter database {Quote(current)} rename to {Quote(kept)}", cancellation)
-            .ConfigureAwait(false);
-        await ExecuteAsync(maintenance.ConnectionString, $"alter database {Quote(restored)} rename to {Quote(current)}", cancellation)
-            .ConfigureAwait(false);
-        log.WriteLine($"The database is restored. The one it replaced is kept as '{kept}'; drop it once you are satisfied.");
-
-        // ---- the state files, the same way ----
-        string imagery = _imageryDirectory;
-        if (Directory.Exists(imagery))
+        try
         {
-            Directory.Move(imagery, Path.Combine(Path.GetDirectoryName(imagery)!, $"imagery_before_restore_{stamp}"));
+            if (between is not null)
+            {
+                await between().ConfigureAwait(false);
+            }
+
+            await ExecuteAsync(maintenance, $"alter database {Quote(restored)} rename to {Quote(current)}", cancellation)
+                .ConfigureAwait(false);
         }
+        catch
+        {
+            await ExecuteAsync(maintenance, $"alter database {Quote(kept)} rename to {Quote(current)}", CancellationToken.None).ConfigureAwait(false);
+            await ExecuteAsync(maintenance, $"alter database {Quote(current)} allow_connections true", CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+
+        // The way back stays usable; it is renamed, so nothing connects to it by accident.
+        await ExecuteAsync(maintenance, $"alter database {Quote(kept)} allow_connections true", cancellation).ConfigureAwait(false);
+        NpgsqlConnection.ClearAllPools();
+    }
+
+    /// <summary>
+    /// Puts a backup's state files in place — imagery moved aside and replaced, package files added, the certificate
+    /// replaced with the old one kept — and answers what undoes it: the replaced ones moved back.
+    /// </summary>
+    public Action PutStateFiles(string folder, string stamp)
+    {
+        List<Action> undo = [];
+        string imagery = _imageryDirectory;
+        string keptImagery = Path.Combine(Path.GetDirectoryName(imagery)!, $"imagery_before_restore_{stamp}");
+        bool hadImagery = Directory.Exists(imagery);
+
+        if (hadImagery)
+        {
+            Directory.Move(imagery, keptImagery);
+        }
+
+        undo.Add(() =>
+        {
+            if (Directory.Exists(imagery))
+            {
+                Directory.Delete(imagery, recursive: true);
+            }
+
+            if (hadImagery)
+            {
+                Directory.Move(keptImagery, imagery);
+            }
+        });
 
         CopyNew(Path.Combine(folder, "state", "imagery"), imagery);
 
-        // ADR-274: package files are named by their hash, so one already here is the same file; only the missing are copied.
+        // ADR-274: package files are named by their hash, so one already here is the same file; only the missing are
+        // copied. Not undone: an extra file no row names is harmless (ADR-193 §5.3).
         CopyNew(Path.Combine(folder, "state", ScenePackageFiles.Folder), PackageFilesDirectory);
 
         // D-407: a package file is named by a fresh id, so one already here is the same file; only the missing are copied.
@@ -449,17 +607,32 @@ internal sealed class Backups
         string savedCertificate = Path.Combine(folder, "state", Certificate);
         if (File.Exists(savedCertificate))
         {
-            if (File.Exists(certificate))
+            string keptCertificate = Path.Combine(_stateDirectory, $"{Certificate}.before_restore_{stamp}");
+            bool had = File.Exists(certificate);
+
+            if (had)
             {
-                File.Move(certificate, Path.Combine(_stateDirectory, $"{Certificate}.before_restore_{stamp}"));
+                File.Move(certificate, keptCertificate);
             }
 
             File.Copy(savedCertificate, certificate);
+            undo.Add(() =>
+            {
+                File.Delete(certificate);
+                if (had)
+                {
+                    File.Move(keptCertificate, certificate);
+                }
+            });
         }
 
-        log.WriteLine("The state files are restored; the ones they replaced are kept beside them, named before_restore.");
-        NpgsqlConnection.ClearAllPools();
-        return 0;
+        return () =>
+        {
+            for (int i = undo.Count - 1; i >= 0; i--)
+            {
+                undo[i]();
+            }
+        };
     }
 
     /// <summary>Whether a backup's schema is older than this server's, so restore is followed by migrate.</summary>

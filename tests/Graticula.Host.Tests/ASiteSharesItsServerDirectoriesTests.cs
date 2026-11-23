@@ -191,9 +191,9 @@ public sealed class ASiteSharesItsServerDirectoriesTests(TwoSharingNodes nodes) 
     [Fact]
     public async Task A_node_keeping_its_own_directories_is_refused()
     {
-        (int? exit, string said) = await nodes.Site.StartRefusedAsync("share-own", new Dictionary<string, string> { ["Graticula__Nodes"] = "2" });
+        (string? refused, string said) = await nodes.Site.StartRefusedAsync("share-own", new Dictionary<string, string> { ["Graticula__Nodes"] = "2" });
 
-        Assert.True(exit is not null and not 0, $"a node with its own directories joined:\n{said}");
+        Assert.True(refused == "node-refused", $"a node with its own directories joined:\n{said} (refused as {refused ?? "nothing"})");
         Assert.Contains("shares its server directories", said, StringComparison.Ordinal);
     }
 
@@ -204,13 +204,13 @@ public sealed class ASiteSharesItsServerDirectoriesTests(TwoSharingNodes nodes) 
         string elsewhere = Path.Combine(Path.GetTempPath(), "graticula-elsewhere-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(elsewhere);
 
-        (int? exit, string said) = await nodes.Site.StartRefusedAsync("share-elsewhere", new Dictionary<string, string>
+        (string? refused, string said) = await nodes.Site.StartRefusedAsync("share-elsewhere", new Dictionary<string, string>
         {
             ["Graticula__Nodes"] = "2",
             ["Graticula__ServerDirectories"] = elsewhere,
         });
 
-        Assert.True(exit is not null and not 0, $"a node mounting another path joined:\n{said}");
+        Assert.True(refused == "node-refused", $"a node mounting another path joined:\n{said} (refused as {refused ?? "nothing"})");
         Assert.Contains("are not the ones node", said, StringComparison.Ordinal);
     }
 

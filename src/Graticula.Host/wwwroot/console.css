@@ -6424,6 +6424,13 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-backups #bkTake[aria-disabled="true"] { opacity: .6; cursor: progress; }
 #view-backups .bknote { margin: 0; padding-left: 1.2em; display: grid; gap: var(--gap-2); }
 #view-backups .bknote code { overflow-wrap: anywhere; }
+/* ADR-317: a validation's or a restore's steps, and the restore's confirmation. */
+#view-backups .bkrsteps { margin: var(--gap-2) 0 0; padding-left: 1.4em; display: grid; gap: var(--gap-1); }
+#view-backups .bkrsteps .rowmeta { margin-left: var(--gap-2); }
+#bkrDialog .dialogbody ul { padding-left: 1.2em; }
+#bkrDialog .dialogbody code { overflow-wrap: anywhere; }
+#bkrDialog #bkrConfirm { width: 100%; box-sizing: border-box; height: 36px; margin-top: var(--gap-1); }
+#bkrDialog #bkrGo[aria-disabled="true"] { opacity: .6; }
 @media (max-width: 560px) {
   #view-backups .bkschedule { grid-template-columns: minmax(0, 1fr); }
   #view-backups .bkschedule .hint { grid-column: 1; }

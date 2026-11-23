@@ -147,17 +147,46 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
         return node;
     }
 
-    /// <summary>Starts a node that is expected to refuse to start, and returns what it said and its exit code.</summary>
+    /// <summary>
+    /// Starts a node that is expected to refuse to serve, and returns the state it refuses in and what it said — or null
+    /// when it served, or exited, instead.
+    /// </summary>
+    /// <remarks>
+    /// <b>Refusing is staying up and answering 503 since ADR-318</b> (D-391): before it, a refused node exited, and this
+    /// waited for the exit code. Now it waits for <c>/healthz/ready</c> to name a refusal, then ends the node.
+    /// </remarks>
     /// <param name="name">Its node name.</param>
     /// <param name="extra">Settings beyond the ones every node is given.</param>
-    /// <returns>Its exit code and its log.</returns>
-    public async Task<(int? Exit, string Said)> StartRefusedAsync(string name, IReadOnlyDictionary<string, string>? extra = null)
+    /// <returns>The refusal's state, or null; and its log.</returns>
+    public async Task<(string? Refused, string Said)> StartRefusedAsync(string name, IReadOnlyDictionary<string, string>? extra = null)
     {
         Node node = Launch(name, extra);
         _nodes.Add(node);
 
-        bool exited = await node.WaitExitAsync(TimeSpan.FromSeconds(60));
-        return (exited ? node.ExitCode : null, node.Log);
+        // A store that is briefly out of connections refuses as store-unreachable first; the re-check then finds the
+        // refusal the test is about, so a transient state is waited through.
+        Stopwatch clock = Stopwatch.StartNew();
+        string? state = await node.WaitRefusingAsync(TimeSpan.FromSeconds(90));
+
+        while (state == "store-unreachable" && clock.Elapsed < TimeSpan.FromSeconds(90))
+        {
+            await Task.Delay(1000);
+            state = await node.WaitRefusingAsync(TimeSpan.FromSeconds(10));
+        }
+
+        node.Kill();
+        return (state, node.Log);
+    }
+
+    /// <summary>Starts a node and returns it at once, whether it serves or refuses — for a test that watches which.</summary>
+    /// <param name="name">Its node name.</param>
+    /// <param name="extra">Settings beyond the ones every node is given.</param>
+    /// <returns>The node.</returns>
+    public Node Launched(string name, IReadOnlyDictionary<string, string>? extra = null)
+    {
+        Node node = Launch(name, extra);
+        _nodes.Add(node);
+        return node;
     }
 
     private Node Launch(string name, IReadOnlyDictionary<string, string>? extra, string? build = null, int? fixedPort = null)
@@ -360,6 +389,42 @@ public sealed partial class TwoNodeSite : IAsyncLifetime
             }
 
             Assert.Fail($"Node {Name} did not answer within {within}:\n{Log}");
+        }
+
+        /// <summary>
+        /// Waits until this node answers <c>/healthz/ready</c> as refusing (ADR-318) and returns the state it names; null
+        /// when it exits or serves instead, or says nothing within <paramref name="within"/>.
+        /// </summary>
+        public async Task<string?> WaitRefusingAsync(TimeSpan within)
+        {
+            Stopwatch clock = Stopwatch.StartNew();
+
+            while (clock.Elapsed < within && !_process.HasExited)
+            {
+                try
+                {
+                    using HttpResponseMessage ready = await Http.GetAsync("/healthz/ready");
+                    string body = await ready.Content.ReadAsStringAsync();
+
+                    if ((int)ready.StatusCode == 503 && body.Contains("\"refusing\"", StringComparison.Ordinal))
+                    {
+                        return JsonDocument.Parse(body).RootElement.GetProperty("state").GetString();
+                    }
+
+                    if (ready.IsSuccessStatusCode)
+                    {
+                        return null;
+                    }
+                }
+                catch (HttpRequestException)
+                {
+                    // Not listening yet.
+                }
+
+                await Task.Delay(250);
+            }
+
+            return null;
         }
 
         internal async Task<bool> WaitExitAsync(TimeSpan within)

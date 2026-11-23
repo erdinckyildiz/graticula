@@ -483,8 +483,8 @@ public sealed class ARollingUpgradeTests(Xunit.Abstractions.ITestOutputHelper ou
 
             await site.ExecuteAsync($"update platform_schema set applied_version = {mine + 1}, minimum_reader_version = {mine + 1}");
 
-            (int? exit, string said) = await site.StartRefusedAsync("reader-b", TwoNodes);
-            Assert.True(exit is not null and not 0, $"a node older than the store's minimum reader started:\n{said}");
+            (string? refused, string said) = await site.StartRefusedAsync("reader-b", TwoNodes);
+            Assert.True(refused == "store-newer", $"a node older than the store's minimum reader started:\n{said} (refused as {refused ?? "nothing"})");
             Assert.Contains($"is built for schema {mine}, and the platform store requires at least {mine + 1}", said, StringComparison.Ordinal);
 
             Assert.Equal(200, (await a.SendAsync(HttpMethod.Get, "/rest/info?f=json", null)).Status);

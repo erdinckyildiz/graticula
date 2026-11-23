@@ -227,7 +227,11 @@ public static class Program
             // 78 is `EX_CONFIG` from `sysexits.h`, which is what an init system and a
             // human both read as *this is your configuration, not my crash*. Distinct
             // from 1, which serving already uses for a failed handshake.
-            return 78;
+            //
+            // <b>ADR-318 §5.3: said on the port too, and the process stays up until it is stopped</b>, so compose's
+            // `unless-stopped` has no exit to loop on. 78 is still what it exits with when it is stopped, and when
+            // there is nothing to listen with at all.
+            return await RefuseConfigurationAsync(builder.Configuration, misconfigured.Message).ConfigureAwait(false);
         }
 
         ConfigureKestrel(builder, settings);
@@ -250,6 +254,17 @@ public static class Program
                 new Graticula.Host.Geocoding.PhotonGeocoder(geocoding));
         }
         builder.Services.AddHostedService<BackupScheduler>();
+
+        // ADR-317: validate and restore through the admin API, and the gate a restore closes on every node.
+        builder.Services.AddSingleton<RestoreGate>();
+        builder.Services.AddSingleton(services => new BackupOperations(
+            services.GetRequiredService<Backups>(),
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<RestoreGate>(),
+            services.GetRequiredService<ILogger<BackupOperations>>(),
+            services.GetRequiredService<SiteNode>(),
+            services.GetRequiredService<SiteSingletons>(),
+            services.GetRequiredService<SiteAnnouncements>()));
 
         // ADR-013 condition 2, owner decision 2026-10-13: small attachments are read whole and their connection given
         // back before a slow client is written to, within a bound on what is held at once.
@@ -1131,6 +1146,13 @@ public static class Program
             site.On(SiteAnnouncements.Pins, _ => { pins.Wake(); return Task.CompletedTask; });
             site.On(SiteAnnouncements.Pyramids, _ => { pyramids.Ask(); return Task.CompletedTask; });
 
+            // ADR-317: another node's restore closes this one's gate until the store it reaches holds no restore marker.
+            BackupOperations restores = app.Services.GetRequiredService<BackupOperations>();
+            NpgsqlDataSource datastorePool = app.Services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool);
+            LayerConnections layerPools = app.Services.GetRequiredService<LayerConnections>();
+            restores.ClearOtherPools = () => { datastorePool.Clear(); layerPools.ClearPools(); };
+            site.On(RestoreGate.Announcement, detail => { restores.Heard(detail); return Task.CompletedTask; });
+
             if (app.Services.GetRequiredService<ITileCache>() is FileSystemTileCache tileCache)
             {
                 tileCache.Announcer = site;
@@ -1352,9 +1374,34 @@ public static class Program
             Log.ConfiguredUnderTheFormerName(logger, string.Join(", ", legacy));
         }
 
-        if (!await HandshakeAsync(app.Services, logger).ConfigureAwait(false))
+        // <b>ADR-318: a refusal keeps the process up</b> (owner decision, D-391). It answers every request 503 with the
+        // reason, asks again every ten seconds, and when the answer changes — the store migrated from another container,
+        // the database back — closes its listener and starts as a first start does. The re-check runs quietly; the
+        // handshake that lets it through is run once more aloud, so a served start logs what a served start always has.
+        for (ServingRefusal? refusal = await HandshakeAsync(app.Services, logger).ConfigureAwait(false);
+             refusal is not null;
+             refusal = await HandshakeAsync(app.Services, logger).ConfigureAwait(false))
         {
-            return 1;
+            bool cleared;
+
+            try
+            {
+                cleared = await RefusingServer.HoldAsync(
+                    RefusingListener.From(settings),
+                    refusal,
+                    _ => HandshakeAsync(app.Services, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+                    logger).ConfigureAwait(false);
+            }
+            catch (Exception nothingToListenWith) when (nothingToListenWith is InvalidOperationException or IOException)
+            {
+                Console.Error.WriteLine(nothingToListenWith.Message);
+                return 1;
+            }
+
+            if (!cleared)
+            {
+                return 1;
+            }
         }
 
         await BootstrapAsync(app.Services, logger).ConfigureAwait(false);
@@ -1420,6 +1467,12 @@ public static class Program
           GET: the rewrite offers the request to the route table as a GET and a route that has no
           GET still answers 405, which is the correct answer.
         */
+        // <b>ADR-317: the restore's gate, before everything that reads the store.</b> While a restore runs anywhere on the
+        // site, this node answers every request 503 'restoring' but liveness and the operation's own status; otherwise it
+        // counts the requests inside, so the restore can wait for them to finish.
+        RestoreGate restoreGate = app.Services.GetRequiredService<RestoreGate>();
+        app.Use((context, next) => restoreGate.InvokeAsync(context, () => next(context)));
+
         // ADR-135: a request a service answered counts as its use — after it is answered, and only when it succeeded.
         ServiceUsageCounter usage = app.Services.GetRequiredService<ServiceUsageCounter>();
         app.Use(async (context, next) =>
@@ -2660,7 +2713,38 @@ public static class Program
         }
     }
 
-    private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)
+    /// <summary>
+    /// ADR-318 §5.3: a configuration that could not be read is said on the port as well as on stderr, and the process stays
+    /// up until it is stopped. Not re-checked — a process's environment does not change.
+    /// </summary>
+    /// <returns>78, <c>EX_CONFIG</c>, when stopped or when nothing could be listened with.</returns>
+    private static async Task<int> RefuseConfigurationAsync(IConfiguration configuration, string reason)
+    {
+        using ILoggerFactory loggers = LoggerFactory.Create(logging => logging.AddConsole());
+        ILogger logger = loggers.CreateLogger("startup");
+
+        try
+        {
+            await RefusingServer.HoldAsync(
+                RefusingListener.Lenient(configuration),
+                new ServingRefusal(ServingRefusal.Configuration, reason),
+                recheck: null,
+                logger).ConfigureAwait(false);
+        }
+        catch (Exception nothing) when (nothing is InvalidOperationException or IOException
+            or System.Net.Sockets.SocketException)
+        {
+            Console.Error.WriteLine("Nothing could be listened with to say so: " + nothing.Message);
+        }
+
+        return 78;
+    }
+
+    /// <summary>
+    /// ADR-016 §4b's handshake: whether this server may serve the store it is pointed at, and the site may have it.
+    /// </summary>
+    /// <returns>Null when it may; otherwise why not, as a named state (ADR-318).</returns>
+    private static async Task<ServingRefusal?> HandshakeAsync(IServiceProvider services, ILogger logger)
     {
         // ADR-319 §5.6: one round of the store's watch before anything is read, so an old primary that has come back
         // beside a newer one is fenced before this node could be sent to it.
@@ -2677,7 +2761,13 @@ public static class Program
         catch (NpgsqlException e)
         {
             Log.PlatformStoreUnreachable(logger, e);
-            return false;
+            return new ServingRefusal(ServingRefusal.StoreUnreachable, "The platform store does not answer: " + e.Message);
+        }
+        catch (InvalidOperationException lost)
+        {
+            // A schema table with no row: the store's level is unknown, which is not a store to serve or to migrate.
+            Log.SchemaIncompatible(logger, lost.Message);
+            return new ServingRefusal(ServingRefusal.StoreNotInitialised, lost.Message);
         }
 
         SchemaCompatibilityResult result = SchemaCompatibility.Check(
@@ -2686,7 +2776,14 @@ public static class Program
         if (!result.IsCompatible)
         {
             Log.SchemaIncompatible(logger, result.Explanation);
-            return false;
+            return new ServingRefusal(
+                result.Outcome switch
+                {
+                    SchemaCompatibilityOutcome.NotInitialised => ServingRefusal.StoreNotInitialised,
+                    SchemaCompatibilityOutcome.ComponentTooNew => ServingRefusal.StoreNotMigrated,
+                    _ => ServingRefusal.StoreNewer,
+                },
+                result.Explanation);
         }
 
         Log.SchemaCompatible(logger, result.Explanation);
@@ -2738,7 +2835,10 @@ public static class Program
         if (PlatformStoreRole.RefusesToServe(bound, tenants))
         {
             Log.SeveralOrganisationsOverAnUnboundRole(logger, tenants);
-            return false;
+            return new ServingRefusal(
+                ServingRefusal.UnboundRole,
+                $"The platform store holds {tenants} organisations and this server reads it as a role row-level security does "
+                + "not bind, so every organisation would read every other's rows. Connect as the serving role (ADR-204 condition 9).");
         }
 
         // ADR-012 phase 0 items 6 and 11: join the site -- this node's name, the site's key and settings -- before anything
@@ -2746,10 +2846,10 @@ public static class Program
         if (await services.GetRequiredService<SiteNode>().JoinAsync(CancellationToken.None).ConfigureAwait(false) is { } refused)
         {
             Log.NodeRefused(logger, refused);
-            return false;
+            return new ServingRefusal(ServingRefusal.NodeRefused, refused);
         }
 
-        return true;
+        return null;
     }
 
     /// <summary>

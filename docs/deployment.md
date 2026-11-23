@@ -51,8 +51,9 @@ you skip it, `migrate` says so and exits 1; before 2026-08-15 it threw
 `3F000: no schema has been selected to create in`, which is Postgres's way of
 saying the same thing and nobody's idea of a first impression.
 
-**3. Configuration.** Two settings are required and the server refuses to start
-without either:
+**3. Configuration.** Two settings are required and the server refuses to serve
+without either (since [ADR-318](adr/ADR-318-a-refusing-server-stays-up-and-says-why.md) it stays up
+and answers every request 503 with the setting it is missing, rather than exiting):
 
 | | |
 |---|---|
@@ -390,8 +391,9 @@ the minimum reader, and is refused while any machine older than it is up.
 4. Repeat for the next machine. While builds differ, Machines says a rolling upgrade is in progress, which machines run
    which build, and which is next; `/admin/site/machines` has the same as `rollingUpgrade`.
 
-A node never migrates on its own start (ADR-016 §4b), and a node older than the store's minimum reader refuses to start
-and says both numbers. **What has run:** two nodes on the previous release's build upgraded to the next behind a
+A node never migrates on its own start (ADR-016 §4b), and a node older than the store's minimum reader refuses to serve
+and says both numbers — staying up and answering 503 `store-newer` since ADR-318. A node started before the store is
+migrated answers 503 `store-not-migrated` and starts serving by itself within ten seconds of `migrate --apply`. **What has run:** two nodes on the previous release's build upgraded to the next behind a
 health-checking balancer under steady load, with no failed request, and the same with one build (`ARollingUpgradeTests`,
 2026-11-01). Not run: an upgrade behind a real Caddy, and a contract migration in a live site.
 
@@ -586,6 +588,22 @@ named by `Graticula:PostgresTools`; the page says so before a backup is tried. *
 as §2.5 says — and a backup on the server's own disk is not a disaster recovery
 until it is copied elsewhere. The steps above still describe what the commands do,
 and still work by hand.
+
+**Validate and restore through the API, since 2026-11-23 —
+[ADR-317](adr/ADR-317-validate-and-restore-through-the-admin-api.md).** *Validate* on a
+backup's row (`POST /admin/backups/{name}/validate`) checks its manifest and every
+checksum, restores it into a scratch database `<db>_validate_<time>` beside the live
+one, checks the schema and the catalogue there, counts its services, layers and items,
+and drops it. *Restore* (`POST /admin/backups/{name}/restore` with `{"confirm": name}`)
+puts every machine of the site into maintenance — each answers 503 `restoring` to
+everything but `/healthz/live` and the operation's status — restores into a new
+database, migrates it when the backup is older, puts the state files in place, then
+swaps the databases **by name**: the current one becomes `<db>_before_restore_<time>`
+and the restored one takes its name, so the connection string never changes. A
+failure at any step leaves the old database serving. Each is an operation at
+`/admin/backups/operations/{id}`, recorded under `.operations/` in the backup location.
+The same privileges as the command line: creating and renaming databases, through
+`Graticula:MaintenanceStore` when the serving role may not.
 
 ### 2.5 A dump is not a deployment: what else has to be kept
 
