@@ -521,6 +521,22 @@ as §2.5 says — and a backup on the server's own disk is not a disaster recove
 until it is copied elsewhere. The steps above still describe what the commands do,
 and still work by hand.
 
+**Validate and restore through the API, since 2026-11-23 —
+[ADR-317](adr/ADR-317-validate-and-restore-through-the-admin-api.md).** *Validate* on a
+backup's row (`POST /admin/backups/{name}/validate`) checks its manifest and every
+checksum, restores it into a scratch database `<db>_validate_<time>` beside the live
+one, checks the schema and the catalogue there, counts its services, layers and items,
+and drops it. *Restore* (`POST /admin/backups/{name}/restore` with `{"confirm": name}`)
+puts every machine of the site into maintenance — each answers 503 `restoring` to
+everything but `/healthz/live` and the operation's status — restores into a new
+database, migrates it when the backup is older, puts the state files in place, then
+swaps the databases **by name**: the current one becomes `<db>_before_restore_<time>`
+and the restored one takes its name, so the connection string never changes. A
+failure at any step leaves the old database serving. Each is an operation at
+`/admin/backups/operations/{id}`, recorded under `.operations/` in the backup location.
+The same privileges as the command line: creating and renaming databases, through
+`Graticula:MaintenanceStore` when the serving role may not.
+
 ### 2.5 A dump is not a deployment: what else has to be kept
 
 **The database is the data and it is not the whole of what a deployment needs to

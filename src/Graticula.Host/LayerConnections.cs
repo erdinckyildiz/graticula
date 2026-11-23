@@ -199,6 +199,23 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     private readonly ConcurrentDictionary<string, NpgsqlDataSource> _pools = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// Closes every idle connection of every pool this holds — ADR-317: after a restore swapped the database under them,
+    /// each idle connection is one the server ended, and the first request to take it would fail.
+    /// </summary>
+    public void ClearPools()
+    {
+        foreach (NpgsqlDataSource pool in _pools.Values)
+        {
+            pool.Clear();
+        }
+
+        foreach (NpgsqlDataSource pool in _attachmentPools.Values)
+        {
+            pool.Clear();
+        }
+    }
+
+    /// <summary>
     /// The pool for one source, unless an operator has taken it out of service.
     /// </summary>
     /// <param name="connectionString">The source key.</param>

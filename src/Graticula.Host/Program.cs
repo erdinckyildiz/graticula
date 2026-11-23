@@ -248,6 +248,17 @@ public static class Program
         }
         builder.Services.AddHostedService<BackupScheduler>();
 
+        // ADR-317: validate and restore through the admin API, and the gate a restore closes on every node.
+        builder.Services.AddSingleton<RestoreGate>();
+        builder.Services.AddSingleton(services => new BackupOperations(
+            services.GetRequiredService<Backups>(),
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<RestoreGate>(),
+            services.GetRequiredService<ILogger<BackupOperations>>(),
+            services.GetRequiredService<SiteNode>(),
+            services.GetRequiredService<SiteSingletons>(),
+            services.GetRequiredService<SiteAnnouncements>()));
+
         // ADR-013 condition 2, owner decision 2026-10-13: small attachments are read whole and their connection given
         // back before a slow client is written to, within a bound on what is held at once.
         builder.Services.AddSingleton(new AttachmentBuffer(settings.AttachmentBufferBytes, settings.AttachmentBufferTotalBytes));
@@ -1119,6 +1130,13 @@ public static class Program
             site.On(SiteAnnouncements.Pins, _ => { pins.Wake(); return Task.CompletedTask; });
             site.On(SiteAnnouncements.Pyramids, _ => { pyramids.Ask(); return Task.CompletedTask; });
 
+            // ADR-317: another node's restore closes this one's gate until the store it reaches holds no restore marker.
+            BackupOperations restores = app.Services.GetRequiredService<BackupOperations>();
+            NpgsqlDataSource datastorePool = app.Services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool);
+            LayerConnections layerPools = app.Services.GetRequiredService<LayerConnections>();
+            restores.ClearOtherPools = () => { datastorePool.Clear(); layerPools.ClearPools(); };
+            site.On(RestoreGate.Announcement, detail => { restores.Heard(detail); return Task.CompletedTask; });
+
             if (app.Services.GetRequiredService<ITileCache>() is FileSystemTileCache tileCache)
             {
                 tileCache.Announcer = site;
@@ -1425,6 +1443,12 @@ public static class Program
           GET: the rewrite offers the request to the route table as a GET and a route that has no
           GET still answers 405, which is the correct answer.
         */
+        // <b>ADR-317: the restore's gate, before everything that reads the store.</b> While a restore runs anywhere on the
+        // site, this node answers every request 503 'restoring' but liveness and the operation's own status; otherwise it
+        // counts the requests inside, so the restore can wait for them to finish.
+        RestoreGate restoreGate = app.Services.GetRequiredService<RestoreGate>();
+        app.Use((context, next) => restoreGate.InvokeAsync(context, () => next(context)));
+
         // ADR-135: a request a service answered counts as its use — after it is answered, and only when it succeeded.
         ServiceUsageCounter usage = app.Services.GetRequiredService<ServiceUsageCounter>();
         app.Use(async (context, next) =>

@@ -50,8 +50,9 @@ internal sealed record ServingRefusal(string State, string Reason)
     /// </summary>
     /// <param name="context">The request.</param>
     /// <param name="refusal">Why.</param>
+    /// <param name="status">What the health routes' <c>status</c> says: <c>refusing</c>, or a restore's <c>restoring</c> (ADR-317).</param>
     /// <returns>When written.</returns>
-    public static Task WriteAsync(HttpContext context, ServingRefusal refusal)
+    public static Task WriteAsync(HttpContext context, ServingRefusal refusal, string status = "refusing")
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(refusal);
@@ -64,10 +65,10 @@ internal sealed record ServingRefusal(string State, string Reason)
 
         object body = path.Equals("/healthz/live", StringComparison.OrdinalIgnoreCase)
             || path.Equals("/healthz/ready", StringComparison.OrdinalIgnoreCase)
-            ? new { status = "refusing", state = refusal.State, reason = refusal.Reason }
+            ? new { status, state = refusal.State, reason = refusal.Reason }
             : path.Equals("/rest/info/healthcheck", StringComparison.OrdinalIgnoreCase)
                 ? new { success = false, error = new { code = 503, message = refusal.Reason, details = new[] { refusal.State } } }
-                : new { error = new { code = 503, message = refusal.Reason, details = new[] { "refusing: " + refusal.State } } };
+                : new { error = new { code = 503, message = refusal.Reason, details = new[] { status + ": " + refusal.State } } };
 
         return context.Response.WriteAsJsonAsync(body, context.RequestAborted);
     }
