@@ -38176,6 +38176,15 @@ const backupWhen = value => {
   return Number.isNaN(at.getTime()) ? "—" : at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 };
 
+/**
+ * A moment to the second, for what names one backup to a screen reader or a dialog: two backups taken in the same minute
+ * read the same to the minute (design review 2026-11-23, F4).
+ */
+const backupWhenExact = value => {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? "—" : at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+};
+
 /** A moment in the schedule's terms, so a row can be matched to it: `02:00 UTC`. */
 const backupUtc = value => {
   const at = new Date(value);
@@ -38270,15 +38279,15 @@ function drawBackups() {
             ? " · without the database's roles, which the server's login may not read" : ""}</div></td>
         <td class="val" data-l="Size"><span>${h(fileSize(b.bytes))}</span></td>
         <td class="val" data-l="Server version"><span>${h(b.version || "—")}</span></td>
-        <td class="act" style="text-align:right">
+        <td class="act">
           <button type="button" class="tiny" data-backup-validate="${h(b.name)}"
-            aria-label="Validate the backup of ${h(backupWhen(b.taken))}">Validate</button>
+            aria-label="Validate the backup of ${h(backupWhenExact(b.taken))}">Validate</button>
           <button type="button" class="tiny" data-backup-download="${h(b.name)}"
-            aria-label="Download the backup of ${h(backupWhen(b.taken))}">Download</button>
+            aria-label="Download the backup of ${h(backupWhenExact(b.taken))}">Download</button>
           <button type="button" class="tiny danger" data-backup-restore="${h(b.name)}"
-            aria-label="Restore the backup of ${h(backupWhen(b.taken))}">Restore…</button>
+            aria-label="Restore the backup of ${h(backupWhenExact(b.taken))}">Restore…</button>
           <button type="button" class="tiny danger" data-backup-delete="${h(b.name)}"
-            aria-label="Delete the backup of ${h(backupWhen(b.taken))}">Delete</button></td>
+            aria-label="Delete the backup of ${h(backupWhenExact(b.taken))}">Delete</button></td>
       </tr>`).join("");
 
   if (refocus) {
@@ -38366,7 +38375,7 @@ document.addEventListener("click", async event => {
   const name = t.dataset.backupDownload || t.dataset.backupDelete;
   const backup = (backupsNow?.backups || []).find(b => b.name === name);
   if (!backup) return;
-  const when = backupWhen(backup.taken);
+  const when = backupWhenExact(backup.taken);
 
   if (t.dataset.backupDownload) {
     t.setAttribute("aria-busy", "true");
