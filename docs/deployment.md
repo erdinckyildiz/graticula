@@ -800,10 +800,16 @@ Then, in **Server › Sign-in**, *Add a provider*, *Their certificate*. Choose w
 card carries. An account made at a first sign-in is named by its part before an `@`, with spaces as dots. The provider
 appears on every sign-in page — the console's and Studio's, `/rest/login`, and the OAuth page ArcGIS Pro and the API for
 Python open — only while the server is set up to receive certificates. A script asks `/rest/generateToken` with its
-certificate and no name or password, and gets a token.
+certificate and no name or password, and gets a token. A request that sends the certificate and no token at all is the
+member's too, which is how the ArcGIS API for Python signs in: `GIS(url, cert_file="me.pem", key_file="me.key")`. That
+does not hold for a request from another site's page, nor for the native administration API.
 
 **Through the server's own TLS.** `Mode=Allow` and `Authorities`. Browsers that hold a certificate show their picker on
-the first page they open; that is what asking at the handshake costs, and it keeps TLS 1.3 and HTTP/2.
+the first page they open; that is what asking at the handshake costs, and it keeps TLS 1.3 and HTTP/2. **A headless
+browser stalls at that picker**: Chrome driven by a test or a screenshot job on a machine whose user holds client
+certificates never finished loading a page from a server in `Allow` mode (measured 2026-11-23, the console suite against
+the local fixture; with `Mode=Off` and the header the same suite passed). Point such jobs at a node or an address
+without `Mode`, or run them as a user with no certificates.
 
 **Behind Caddy.** Caddy checks the certificate and forwards it; the server checks it again against the same
 authorities. Caddy's `header_up` **replaces** a header the client sent, which is what makes this safe: a certificate is
@@ -831,6 +837,12 @@ Graticula__ClientCertificates__Header=X-Client-Cert
 Graticula__ClientCertificates__Authorities=/etc/graticula/client-authorities.pem
 ```
 
+Name the site by its DNS name, as above: with `client_auth` on, Caddy answers `421 Misdirected Request` to a request
+whose `Host` is not the TLS server name, and a client that reaches it by IP address sends none. When a client presents
+no certificate, Caddy sends the placeholder itself, `{http.request.tls.client.certificate_der_base64}`; the server reads
+that as no certificate. The nodes' own port must be reachable from Caddy only, since they believe the header from
+Caddy's address.
+
 The header may hold the certificate as base64 DER (Caddy, IIS ARR), PEM, or URL-encoded PEM (nginx's
 `$ssl_client_escaped_cert`). A header from any address not in `TrustedProxies` is ignored, and the log says so.
 
@@ -839,4 +851,58 @@ The header may hold the certificate as base64 DER (Caddy, IIS ARR), PEM, or URL-
 header; the same header from an untrusted address refused; another authority's, an expired and a server-only
 certificate refused; each of the three fields; a revoked certificate refused, an unreachable CRL accepted under
 `SoftFail` and refused under `HardFail`; `Require` refusing a handshake without a vouched certificate; and
-`generateToken` with a certificate, and with a password on a server that asks for certificates.
+`generateToken` with a certificate, and with a password on a server that asks for certificates. The Caddyfile above, in
+Caddy 2.10.2 in front of a server, and the ArcGIS API for Python 2.4.3 with `cert_file`, were run on 2026-11-23
+(ADR-315 conditions 2 and 4).
+
+## 7. Signing in with Windows (IWA)
+
+**Optional, and off unless you turn it on** ([ADR-316](adr/ADR-316-a-member-signs-in-with-windows.md)). With it,
+people on computers signed in to an Active Directory domain open Studio, press *Sign in with Windows*, and are signed in
+with no password, as with ArcGIS Enterprise's Integrated Windows Authentication. It is Kerberos: the browser sends a
+ticket for this server's name.
+
+| Setting | Default | |
+|---|---|---|
+| `Graticula__Iwa__Enabled` | `false` | `true` turns Windows sign-in on |
+| `Graticula__Iwa__Keytab` | unset | Linux only: the keytab holding the service principal's keys, such as `/run/secrets/http.keytab`. Sets `KRB5_KTNAME` when the process does not already have it |
+
+**On Linux (the image)**, three things come from the domain's administrators:
+
+1. **A service principal for the name people use**, `HTTP/gis.contoso.com`, on a service account — Active Directory:
+   `setspn -S HTTP/gis.contoso.com CONTOSO\svc-graticula`; Samba: `samba-tool spn add HTTP/gis.contoso.com svc-graticula`.
+2. **A keytab for it** — Active Directory: `ktpass -princ HTTP/gis.contoso.com@CONTOSO.COM -mapuser CONTOSO\svc-graticula
+   -crypto AES256-SHA1 -ptype KRB5_NT_PRINCIPAL -pass * -out http.keytab`; Samba: `samba-tool domain exportkeytab
+   http.keytab --principal=HTTP/gis.contoso.com`. Mount it read-only, readable by the server's user, and keep it as you
+   keep a password.
+3. **`/etc/krb5.conf`** naming the realm, mounted into the container:
+
+```ini
+[libdefaults]
+	default_realm = CONTOSO.COM
+	dns_lookup_kdc = true
+	rdns = false
+```
+
+The image has the GSSAPI library this needs (`libgssapi-krb5-2`). It does not have NTLM for Linux, so a browser that
+cannot get a Kerberos ticket — a computer outside the domain, or a name with no service principal — is not signed in.
+
+**On Windows**, the server uses the machine's own Windows sign-in and needs no keytab; register the service principal on
+the account the server runs as.
+
+Then, in **Server › Sign-in**, *Add a provider*, *Their Windows sign-in*, named *Windows* so the button reads *Sign in
+with Windows*. An account made at a first sign-in is named by the Windows account alone: `CONTOSO\jane` and
+`jane@CONTOSO.COM` both become `jane`. The button appears on the sign-in pages only while `Graticula__Iwa__Enabled` is
+true.
+
+**Browsers** send a ticket only to a name they consider intranet: Edge and Chrome on Windows to the *Local intranet*
+zone (Group Policy *Site to Zone Assignment List*), Firefox to the names in `network.negotiate-auth.trusted-uris`.
+
+**Behind Caddy**, Kerberos passes through as one request and works. NTLM does not, because it authenticates a
+connection and Caddy pools them.
+
+**What was measured.** A Samba 4 Active Directory domain, a service principal and its keytab, and this server in the
+released image with `Graticula__Iwa__Enabled` and `Graticula__Iwa__Keytab`: `kinit` and `curl --negotiate` signed a
+domain user in and made their account (ADR-316 condition 2, [tools/iwa-probe/setup.sh](../tools/iwa-probe/setup.sh)). On
+Windows, the signed-in user's own credentials sign in through SSPI (`AMemberSignsInWithWindowsTests`). Not measured: a
+browser on a domain computer, and ArcGIS Pro (condition 4).

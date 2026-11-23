@@ -367,7 +367,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 # command-line tool (BSD-3), run as a process of its own per file — nothing of it is linked into the server.
 #
 # libsqlite3-0, for ADR-283: IfcConvert's glb writer links it.
-RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16 assimp-utils libsqlite3-0  && rm -rf /var/lib/apt/lists/*
+#
+# libgssapi-krb5-2, for ADR-316: .NET's Negotiate handler loads libgssapi_krb5.so.2 for Windows sign-in on Linux. The
+# 1.0.529 image already had it (1.20.1, measured 2026-11-23), but only because libcurl4t64 and libpq5 depend on it;
+# named here so a change to either does not take Windows sign-in away silently. No gss-ntlmssp: Kerberos only.
+RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16 assimp-utils libsqlite3-0 libgssapi-krb5-2  && rm -rf /var/lib/apt/lists/*
 
 # ADR-223 §5.6: users' Python toolboxes run on this interpreter and this wheel set, fixed when the image is built —
 # nothing is installed at runtime. grapy itself is copied beside the server by the build (src/grapy/grapy).

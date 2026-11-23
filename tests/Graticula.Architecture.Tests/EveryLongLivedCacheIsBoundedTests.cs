@@ -121,6 +121,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["FileSystemTileCache._quotaEvicted"] = "one per service whose quota has evicted a tile since the process started, so the catalogue bounds it",
 
         // ADR-010 §5.1a, 2026-09-29.
+        ["CertificatePrincipals._answers"] = "one per organisation host and client certificate seen in the last minute, cleared whole past 10,000 (ADR-315 §5.5a); a certificate holder is a member the store already counts",
         ["StaleTileNotices._served"] = "one per service answered with a stale tile since the process started, so the catalogue bounds it",
         ["FeatureServerQueryWriter._fields"] = "one per column of the layer being queried; the writer is built per request and does not outlive it",
         // ADR-309, 2026-11-21: tables of constants, written once.

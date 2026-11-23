@@ -2379,6 +2379,8 @@ async function loadSignin() {
     acsUrl: answer.acsUrl || "", samlEntityId: answer.samlEntityId || "",
     // ADR-315: whether this server receives client certificates, and from which authorities.
     clientCertificates: answer.clientCertificates || { enabled: false, authorities: [] },
+    // ADR-316: whether this server signs people in with Windows.
+    windows: answer.windows || { enabled: false },
   };
 
   const opening = idpGroupsOpenName && idpList.find(x => x.name === idpGroupsOpenName);
@@ -2399,7 +2401,8 @@ function drawSignin() {
       <tr>
         <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}${samlExpiring(p)}</td>
         <td class="val idpissuer" data-l="Address"><span><span class="hint">${idpKindName(p.kind)}</span>
-          ${p.kind === "pki" ? `<span>${h(pkiNamedBy(p.usernameClaim))}</span>` : `<code>${h(p.issuer)}</code>`}</span></td>
+          ${p.kind === "pki" ? `<span>${h(pkiNamedBy(p.usernameClaim))}</span>`
+            : p.kind === "iwa" ? `<span>Named by the Windows account</span>` : `<code>${h(p.issuer)}</code>`}</span></td>
         <td data-l="First sign-in"><span>${p.autoCreate
           ? `Anyone it signs in gets an account: ${h(p.defaultRole)}`
           : "Only people added on Members"}</span></td>
@@ -2407,7 +2410,7 @@ function drawSignin() {
         <td class="actions act idpacts">
           <button class="ghost tiny" data-idp-check="${i}" aria-describedby="idpSays">Check</button>
           <button class="ghost tiny" data-idp-edit="${i}" aria-expanded="${idpEditing === p.id}" aria-controls="idpForm">Edit</button>
-          ${p.kind === "pki" ? "" : `<button class="ghost tiny" data-idp-groups="${i}" aria-expanded="${idpGroupsOf === p.id}" aria-controls="idpGroups">Groups</button>`}
+          ${p.kind === "pki" || p.kind === "iwa" ? "" : `<button class="ghost tiny" data-idp-groups="${i}" aria-expanded="${idpGroupsOf === p.id}" aria-controls="idpGroups">Groups</button>`}
           ${p.accounts
             ? `<button class="ghost tiny" aria-disabled="true" data-idp-remove-refused="${i}"
                 title="Accounts sign in with it. Turn it off instead.">Remove</button>`
@@ -2450,7 +2453,8 @@ function drawIdpForm() {
   // client ID and secret only after this server is registered there with its redirect URI, so that comes first.
   form.innerHTML = `<div class="picker idpform" role="group" aria-labelledby="idpFormTitle">
     <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : kind === "ldap" ? "A new directory"
-      : kind === "saml" ? "A new SAML provider" : kind === "pki" ? "A new certificate sign-in" : "A new sign-in provider"}</h4>
+      : kind === "saml" ? "A new SAML provider" : kind === "pki" ? "A new certificate sign-in"
+      : kind === "iwa" ? "A new Windows sign-in" : "A new sign-in provider"}</h4>
     ${p ? "" : `<fieldset class="valueskind"><legend>What people sign in with</legend>
       <label><input type="radio" name="idpKind" value="oidc" ${kind === "oidc" ? "checked" : ""}> Their organization's
         sign-in page — OpenID Connect: Entra ID, Keycloak, Okta, Google</label>
@@ -2460,17 +2464,19 @@ function drawIdpForm() {
         name and password, typed here — an LDAP directory or Active Directory</label>
       <label><input type="radio" name="idpKind" value="pki" ${kind === "pki" ? "checked" : ""}> Their certificate — a smart
         card, or a certificate installed in their browser (PKI)</label>
+      <label><input type="radio" name="idpKind" value="iwa" ${kind === "iwa" ? "checked" : ""}> Their Windows sign-in —
+        a computer signed in to the domain, with no password typed (Integrated Windows Authentication)</label>
     </fieldset>`}
 
     <label for="idpName">Name</label>
     <input id="idpName" type="text" maxlength="100" required value="${h(p ? p.name : "")}"
-      placeholder="${kind === "ldap" ? "Contoso AD" : kind === "saml" ? "Contoso AD FS" : kind === "pki" ? "your smart card" : "Contoso staff"}"
+      placeholder="${kind === "ldap" ? "Contoso AD" : kind === "saml" ? "Contoso AD FS" : kind === "pki" ? "your smart card" : kind === "iwa" ? "Windows" : "Contoso staff"}"
       aria-describedby="idpNameHint">
     <p class="hint" id="idpNameHint">${kind === "ldap"
       ? "What the members list says they sign in with. A directory has no button: its people use the name and password form."
       : "The sign-in button reads “Sign in with” and this name."}</p>
 
-${kind === "pki" ? pkiFormPart(p) : kind === "saml" ? `    <h5>1. At your provider</h5>
+${kind === "pki" ? pkiFormPart(p) : kind === "iwa" ? iwaFormPart() : kind === "saml" ? `    <h5>1. At your provider</h5>
     <p class="hint" id="idpSamlRegisterHint">Add this server there as a SAML application — AD FS: Relying Party Trusts;
       Entra ID: Enterprise applications, Single sign-on, SAML; Okta: Applications, SAML 2.0 — with this identifier and
       reply URL.${p && p.saml ? ` Or give it <a href="${h(p.saml.spMetadata)}" target="_blank" rel="noopener">this
@@ -2585,6 +2591,8 @@ ${kind === "pki" ? pkiFormPart(p) : kind === "saml" ? `    <h5>1. At your provid
           ? "<b>Anyone the provider signs in to this application gets in</b> — in Entra ID, everybody in the tenant unless assignment is required."
           : kind === "pki"
           ? "<b>Anyone holding a valid certificate from an authority this server trusts gets in.</b>"
+          : kind === "iwa"
+          ? "<b>Anyone signed in to the domain gets in.</b>"
           : "<b>Anyone who can sign in at this provider gets in</b> — with Google or a multi-tenant Microsoft app, that is anyone at all."}</label>
     </fieldset>
     <label for="idpRole">Role for a new account, and for anyone none of whose mapped groups gives one</label>
@@ -2619,7 +2627,7 @@ ${kind === "pki" ? pkiFormPart(p) : kind === "saml" ? `    <h5>1. At your provid
       <p class="hint" id="idpSubjectAttrHint">objectGUID in Active Directory, entryUUID in OpenLDAP; a person without it
         is known by their DN, which changes when they move.${p && p.accounts
           ? " Fixed now that people have signed in: changing it would make them new people here." : ""}</p>
-    </details>` : kind === "pki" ? "" : kind === "saml" ? `<details><summary>Advanced: the attributes that name the account, its groups and a name to show</summary>
+    </details>` : kind === "pki" || kind === "iwa" ? "" : kind === "saml" ? `<details><summary>Advanced: the attributes that name the account, its groups and a name to show</summary>
       <label for="idpClaim">Attribute that names the account</label>
       <input id="idpClaim" type="text" spellcheck="false" value="${h(p ? p.usernameClaim : "NameID")}"
         aria-describedby="idpClaimHint">
@@ -2659,7 +2667,8 @@ ${kind === "pki" ? pkiFormPart(p) : kind === "saml" ? `    <h5>1. At your provid
 
 /** What the provider table calls a kind of provider. */
 function idpKindName(kind) {
-  return kind === "ldap" ? "Directory" : kind === "saml" ? "SAML" : kind === "pki" ? "Certificate" : "OpenID Connect";
+  return kind === "ldap" ? "Directory" : kind === "saml" ? "SAML" : kind === "pki" ? "Certificate"
+    : kind === "iwa" ? "Windows" : "OpenID Connect";
 }
 
 /** The certificate field a PKI provider names accounts by, in words — ADR-315 §5.1. */
@@ -2696,6 +2705,23 @@ function pkiFormPart(p) {
     </select>
     <p class="hint" id="idpClaimHint">An account made at a first sign-in is named by its part before an @, with spaces
       as dots: Ada Lovelace becomes Ada.Lovelace. Only one certificate sign-in can be on at a time.</p>
+`;
+}
+
+/**
+ * A Windows sign-in's part of the form — ADR-316: whether this server is set up for it, said first, because the
+ * provider is a button only then; and how the account is named.
+ */
+function iwaFormPart() {
+  const on = (idpMeta.windows || {}).enabled;
+  return `    <h5>1. This server</h5>
+    <p class="hint" id="idpIwaTransport">${on
+      ? "This server signs people in with Windows (Kerberos). Its name, as people's browsers reach it, must have an HTTP service principal in the domain."
+      : `<b>This server is not set up for Windows sign-in</b>, so nobody can sign in with this until it is. Set
+        Graticula:Iwa:Enabled, and on Linux Graticula:Iwa:Keytab, then restart — see the deployment guide. Until then the
+        sign-in page does not show it.`}</p>
+    <p class="hint">An account made at a first sign-in is named by the Windows account alone: CONTOSO\jane and
+      jane@CONTOSO.COM both become jane. Only one Windows sign-in can be on at a time.</p>
 `;
 }
 
@@ -2913,7 +2939,7 @@ async function saveIdp() {
   const body = {
     name: $("idpName").value,
     issuer: $("idpIssuer")?.value || null,
-    clientId: $("idpClient").value,
+    clientId: $("idpClient")?.value || "",   // a certificate or Windows sign-in has no client (ADR-315, ADR-316)
     // A SAML provider has no secret here: design review 2026-09-24 (B1) found this read throwing, so no SAML
     // provider could be added or saved from the console at all.
     clientSecret: $("idpSecret")?.value || null,
@@ -2957,8 +2983,8 @@ async function saveIdp() {
     }
     idpEditing = null;
     await loadSignin();
-    idpSay(editedKind === "pki"
-      ? `${saved && saved.name || body.name} is saved. Press Check to see whether this server receives certificates.`
+    idpSay(editedKind === "pki" || editedKind === "iwa"
+      ? `${saved && saved.name || body.name} is saved. Press Check to see whether this server is set up for it.`
       : `${saved && saved.name || body.name} is saved. Press Check to see that this server can reach it, then `
         + "Groups to let its groups decide roles here.");
     const at = idpList.findIndex(x => x.name === (saved && saved.name || body.name));
@@ -32862,6 +32888,10 @@ async function handleClick(event) {
           days < 30);
         return;
       }
+      if (r.iwa) {
+        idpSay("This server is set up for Windows sign-in. Sign-in can be tried from a computer signed in to the domain.");
+        return;
+      }
       if (r.pki) {
         const n = ((r.clientCertificates || {}).authorities || []).length;
         idpSay(`This server receives certificates and believes ${n} authorit${n === 1 ? "y" : "ies"}. Sign-in can be `
@@ -32881,7 +32911,7 @@ async function handleClick(event) {
         ? "Check the address, the port and the search account. If they are right, a firewall may be in the way."
         : p.kind === "saml"
         ? "Check the metadata URL. If it is right and this server cannot reach it, upload the metadata file in Edit instead."
-        : p.kind === "pki"
+        : p.kind === "pki" || p.kind === "iwa"
         ? "The deployment guide says how to set it up."
         : "Check the issuer for a typing mistake. If it is right, this server cannot reach the provider: a firewall or a proxy may be in the way."), true);
     } finally {

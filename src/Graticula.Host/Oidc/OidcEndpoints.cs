@@ -62,8 +62,8 @@ internal static class OidcEndpoints
         };
 
     /// <summary>
-    /// Whether a provider is a button on a sign-in page — ADR-088, ADR-090, and ADR-315's certificate only when this
-    /// server is configured to receive one, so no button is drawn that cannot work.
+    /// Whether a provider is a button on a sign-in page — ADR-088, ADR-090, and ADR-315's certificate and ADR-316's
+    /// Windows only when this server is configured to receive them, so no button is drawn that cannot work.
     /// </summary>
     /// <param name="context">The request, for what this server is configured with.</param>
     /// <param name="provider">The provider.</param>
@@ -78,6 +78,8 @@ internal static class OidcEndpoints
             { Kind: "oidc" or "saml" } => true,
             { Kind: "pki" } => context.RequestServices.GetService(typeof(Graticula.Host.Pki.ClientCertificates))
                 is Graticula.Host.Pki.ClientCertificates { Settings.Enabled: true },
+            { Kind: "iwa" } => context.RequestServices.GetService(typeof(Graticula.Host.Iwa.WindowsSignIn))
+                is Graticula.Host.Iwa.WindowsSignIn { Enabled: true },
 
             _ => false,
         };

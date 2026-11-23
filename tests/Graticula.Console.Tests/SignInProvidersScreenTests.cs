@@ -540,6 +540,58 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// ADR-316 on screen: a Windows sign-in says first whether this server is set up for it, asks for no address, field
+    /// or secret, sends its kind, and is listed as Windows with no Groups. Added turned off.
+    /// </summary>
+    [Fact]
+    public async Task A_windows_sign_in_says_whether_this_server_is_set_up_for_it()
+    {
+        (string token, _) = await SignInAsync();
+        string name = "zz Windows " + Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            await OpenAsync("/studio/#/signin", token);
+            await SecuritySectionAsync("idp");
+            await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
+            await ClickAsync("#idpNew");
+            await WaitForAsync(Shown("[name=idpKind][value=iwa]"), "Add a provider offers no Windows sign-in.");
+
+            await Browser.EvaluateAsync<bool>(Change("[name=idpKind][value=iwa]", "iwa"));
+            await WaitForAsync(Shown("#idpIwaTransport"), "Choosing Windows said nothing about this server.");
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "!document.getElementById('idpIssuer') && !document.getElementById('idpSecret') && !document.getElementById('idpClaim')"),
+                "A Windows sign-in is asked for an issuer, a secret or a field.");
+
+            await Browser.EvaluateAsync<bool>($"(() => {{ document.getElementById('idpName').value = {JsonSerializer.Serialize(name)}; return true; }})()");
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpEnabled').checked = false; return true; })()");
+            await Browser.EvaluateAsync<bool>(KeepBodies);
+            await Browser.EvaluateAsync<bool>("(() => { window.__letWritesTo = ['/admin/identity-providers']; return true; })()");
+            await ClickAsync("#idpSave");
+            await WaitForAsync("window.__bodies.some(b => b.includes('\\\"kind\\\":\\\"iwa\\\"'))", "Add sent no Windows sign-in.");
+
+            string row = $"[...document.querySelectorAll('#idpRows tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(name)}))";
+            await WaitForAsync($"!!({row})", "Organization › Security does not list the Windows sign-in just added.");
+            string cell = await Browser.EvaluateAsync<string>($"({row}).querySelector('.idpissuer').textContent") ?? string.Empty;
+            Assert.Contains("Windows", cell, StringComparison.Ordinal);
+            Assert.True(await Browser.EvaluateAsync<bool>($"!({row}).querySelector('[data-idp-groups]')"), "A Windows sign-in offers Groups.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            (int _, string list) = await AdminAsync(HttpMethod.Get, "/admin/identity-providers");
+            foreach (JsonElement p in JsonDocument.Parse(list).RootElement.GetProperty("providers").EnumerateArray())
+            {
+                if (p.GetProperty("name").GetString() == name)
+                {
+                    await AdminAsync(HttpMethod.Delete, $"/admin/identity-providers/{p.GetProperty("id").GetString()}");
+                }
+            }
+        }
+    }
+
     [Fact]
     public async Task A_new_domains_kind_redraws_its_editor_with_no_fields_editor_open()
     {

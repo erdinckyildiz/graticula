@@ -191,6 +191,7 @@ public static class Program
         HostSettings settings;
         Graticula.Host.Geocoding.GeocoderSettings? geocoding;
         Graticula.Host.Pki.ClientCertificateSettings clientCertificates;
+        Graticula.Host.Iwa.WindowsSignIn windows;
 
         // <b>The refusal is written carefully and then thrown away — [D-171](../../docs/architecture-debt.md).</b>
         // `HostSettings.Read` says exactly what is missing, where to set it, and that the
@@ -217,6 +218,9 @@ public static class Program
             // ADR-315: client certificates, read once; a setting that cannot work refuses to start, as TrustedProxies does.
             clientCertificates = Graticula.Host.Pki.ClientCertificateSettings.Read(
                 builder.Configuration, settings.RequireHttps, settings.TrustedProxies);
+
+            // ADR-316: Windows sign-in, off unless turned on.
+            windows = Graticula.Host.Iwa.WindowsSignIn.Read(builder.Configuration);
         }
         catch (InvalidOperationException misconfigured)
         {
@@ -229,6 +233,9 @@ public static class Program
         }
 
         ConfigureKestrel(builder, settings, clientCertificates);
+
+        // ADR-316: the Negotiate handler, registered only when Windows sign-in is turned on.
+        windows.Register(builder.Services);
 
         // ADR-315: what reads, checks and maps a client certificate, for the sign-in route and for Kestrel's handshake.
         builder.Services.AddSingleton(clientCertificates);
@@ -1034,7 +1041,16 @@ public static class Program
             services.GetRequiredService<SourceBreaker>(),
             services.GetRequiredService<AnonymousGrants>(),
             services.GetRequiredService<BasicCredentials>(),
-            services.GetRequiredService<IApiKeyStore>()));
+            services.GetRequiredService<IApiKeyStore>(),
+
+            // ADR-315 §5.5a: only where this server receives certificates at all.
+            clientCertificates.Enabled
+                ? new Graticula.Host.Pki.CertificatePrincipals(
+                    services.GetRequiredService<Graticula.Host.Pki.ClientCertificates>(),
+                    services.GetRequiredService<IIdentityProviderStore>(),
+                    services.GetRequiredService<TimeProvider>(),
+                    services.GetRequiredService<ILogger<Graticula.Host.Pki.CertificatePrincipals>>())
+                : null));
 
         // ADR-203: the recycle bin — deleted items kept whole with their ids until they expire.
         builder.Services.AddSingleton<IRecycleBin>(services =>
@@ -3400,6 +3416,7 @@ public static class Program
         Graticula.Host.Oidc.OidcEndpoints.Map(app);
         Graticula.Host.Saml.SamlEndpoints.Map(app);
         Graticula.Host.Pki.PkiEndpoints.Map(app);
+        Graticula.Host.Iwa.WindowsSignIn.Map(app);
 
         app.MapGet("/rest/whoami", async (HttpContext context, TenantDirectory tenants) =>
         {
