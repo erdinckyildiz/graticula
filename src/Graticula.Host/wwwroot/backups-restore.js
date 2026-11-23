@@ -133,8 +133,8 @@ function bkrDraw(op) {
 
   // Each step with the time it began after the operation did, so steps a second apart do not all read the same minute.
   const started = new Date(op.started).getTime();
-  $("bkrSteps").innerHTML = (op.steps || [])
-    .filter((step, i, all) => i === all.length - 1 || step.name !== all[i + 1].name)
+  const steps = (op.steps || []).filter((step, i, all) => i === all.length - 1 || step.name !== all[i + 1].name);
+  $("bkrSteps").innerHTML = steps
     .map(step => {
       const at = new Date(step.at).getTime();
       const after = Number.isNaN(started) || Number.isNaN(at) ? backupWhen(step.at) : `+${bkrSeconds(at - started)}`;
@@ -146,7 +146,8 @@ function bkrDraw(op) {
   const box = $("bkrStepsBox");
   if (box && op.state !== bkrDrawnState) box.open = op.state === "running";
   bkrDrawnState = op.state;
-  const n = (op.steps || []).length;
+  // The steps drawn, not the steps read: a repeated step is drawn once, and the label counts what it opens.
+  const n = steps.length;
   const label = $("bkrStepsLabel");
   if (label) label.textContent = `${op.state === "running" ? "Steps so far" : "Show the steps"} (${num(n)})`;
 

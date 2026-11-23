@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>2bbd5589</code> · 2026-11-23 20:59</p>
+<p class="stamp">Generated from commit <code>2f71ee2d</code> · 2026-11-23 21:19</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">304</div><div class="kpi-l">ADRs</div><div class="kpi-n">96 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">773/824</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">40 live · 11 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">776/824</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">37 live · 11 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">245 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">42</div><div class="kpi-l">open debts</div><div class="kpi-n">359 repaid · 23 waiting on a trigger · 1 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-228</b> — Which portal address owns the services at the root /rest/services?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">86 items</span></div><p><b>40 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>42 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">83 items</span></div><p><b>37 ADR conditions</b> outstanding across 29 decisions — the largest commitment on this page.</p><p><b>42 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -137,10 +137,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-286 · ArcGIS Field Maps tasks are turned</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-301 · A feature report is a Word templat</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-312 · A hosted layer keeps and serves it</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-315 · A member signs in with a client ce</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-316 · A member signs in with Windows (IW</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-317 · A backup is validated and restored</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-319 · The platform store fails over to a</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -159,7 +156,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-287 · A form is an XLSForm, filled in Gr</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-302 · A feature report is also a PDF, la</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-311 · Extract Changes on hosted layers t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-315 · A member signs in with a client ce</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-317 · A backup is validated and restored</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-318 · A server that refuses to serve sta</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-319 · The platform store fails over to a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -477,11 +477,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">312</td><td>A hosted layer keeps and serves its contingent values, Studio writes them, and nothing refuses an edit for them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the resource&#x27;s keys are the public reference&#x27;s, but how a value is encoded in it…</td><td class="num">6/8</td></tr>
 <tr><td class="id">313</td><td>A map&#x27;s layer has a form: Studio designs its `formInfo` and runs it with its own Arcade</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the language core and the form logic are tested headless against the…</td><td class="num">6/6</td></tr>
 <tr><td class="id">314</td><td>Contingent values are served as protobuf in the encoding an ArcGIS server was observed to write, and their JSON takes the shape it was observed to have</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every key and field number below was read off answers ArcGIS Online wrote for…</td><td class="num">3/3</td></tr>
-<tr><td class="id">315</td><td>A member signs in with a client certificate (PKI)</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the mechanism is measured end to end against real server processes with…</td><td class="num">3/5</td></tr>
+<tr><td class="id">315</td><td>A member signs in with a client certificate (PKI)</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the mechanism is measured end to end against real server processes with…</td><td class="num">4/5</td></tr>
 <tr><td class="id">316</td><td>A member signs in with Windows (IWA)</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — Kerberos through .NET&#x27;s Negotiate handler is the platform&#x27;s, and the account…</td><td class="num">3/5</td></tr>
-<tr><td class="id">317</td><td>A backup is validated and restored through the admin API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/6</td></tr>
+<tr><td class="id">317</td><td>A backup is validated and restored through the admin API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
 <tr><td class="id">318</td><td>A server that refuses to serve stays up and says why</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/4</td></tr>
-<tr><td class="id">319</td><td>The platform store fails over to a standby, and the nodes are its witnesses</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the mechanism, which uses PostgreSQL&#x27;s own replication, promotion and…</td><td class="num">5/7</td></tr>
+<tr><td class="id">319</td><td>The platform store fails over to a standby, and the nodes are its witnesses</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the mechanism, which uses PostgreSQL&#x27;s own replication, promotion and…</td><td class="num">6/7</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -722,6 +722,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>2f71ee2d</code><time>2026-11-23</time><span>The second renders&#x27; findings: Database&#x27;s alert is written once, Backups&#x27; finished steps fold, ?tab=sf holds</span></li>
+<li><code>61b16f77</code><time>2026-11-23</time><span>D-498: a long write anywhere in the database widens every sync; the status page catches up</span></li>
 <li><code>2bbd5589</code><time>2026-11-23</time><span>store promote is in the usage text; the attachment test holds GlobalIDs, not the window&#x27;s width; the guide names both spellings</span></li>
 <li><code>a2f1be2e</code><time>2026-11-23</time><span>Merge branch &#x27;g2-uxsi&#x27; into g2-merge</span></li>
 <li><code>15c5e488</code><time>2026-11-23</time><span>Merge branch &#x27;g2-uxbk&#x27; into g2-merge</span></li>
@@ -734,8 +736,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2d35b083</code><time>2026-11-23</time><span>ADR-319 §5.12: the lag System › Database calls lagging is INFERRED</span></li>
 <li><code>6e23f4da</code><time>2026-11-23</time><span>System › Database keeps reading through a failover and says why it cannot (design review 2026-11-23)</span></li>
 <li><code>c45e976f</code><time>2026-11-23</time><span>A misconfigured certificate setting is a refusal that stays up, as ADR-318 made every refusal</span></li>
-<li><code>0d6b1d54</code><time>2026-11-23</time><span>The status page catches up with group 2&#x27;s merge</span></li>
-<li><code>de75f5a7</code><time>2026-11-23</time><span>Merge g2-auth: migrations 147 (sign-in kinds) and 148 (failovers, given 149); deployment.md&#x27;s sections in order</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

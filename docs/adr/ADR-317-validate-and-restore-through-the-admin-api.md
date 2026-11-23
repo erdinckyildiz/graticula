@@ -219,11 +219,18 @@ None recorded.
    operation), and the class then passed 14 of 14 twice with its neighbours.
 4. **The console**: Validate and Restore on System › Backups, the confirmation naming what is replaced, progress in an
    `aria-live` status, focus kept after a re-render — a test of the screen, and a ux-designer review.
-   **PARTLY DISCHARGED 2026-11-23** — `BackupsScreenTests.A_backup_is_validated_and_restored_from_its_row` against an
+   **DISCHARGED 2026-11-23, on the ux-designer's third render** (*ship*). The first render rejected it: a real restore
+   never said it had finished, because the restored database holds no session and every status read answered 401
+   while the page kept polling; the row was crushed at 390 px; the dialog had no width and buried what is lost. Each
+   was repaired and measured — a 401 now ends the polling, shows the sign-in and then the result (two real restores),
+   the dialog leads with what is lost and opens at its top on a 360×640 screen, a finished operation's steps fold
+   under its outcome — and the third render passed both widths and themes with axe and the kit's gates clean.
+   `BackupsScreenTests` 5/5, `A_restore_that_ends_the_session_shows_the_sign_in_and_then_its_result` among them.
+   *Before the review:* ~~**PARTLY DISCHARGED 2026-11-23**~~ — `BackupsScreenTests.A_backup_is_validated_and_restored_from_its_row` against an
    answered API: Validate followed in the polite live region `bkrProgress` to *98 services*; Restore asks in `bkrDialog`,
    naming the database, `_before_restore_` and *the imagery and the serving certificate*, sends nothing until the name is
    typed, and both times focus is back on the pressed button after the list is drawn again (which it was not before:
-   `drawBackups` replaced the rows under the reader). 4 of 4 of the class passed. **The ux-designer review is owed** —
+   `drawBackups` replaced the rows under the reader). 4 of 4 of the class passed. ~~The ux-designer review is owed~~ —
    the screen is `/system/backups`.
 5. **A site of two nodes** restored through one of them: both answer 503 `restoring` during it and both come back.
    **DISCHARGED 2026-11-23** — `A_restore_through_one_node_of_a_site_closes_and_brings_back_both`: two real nodes over a

@@ -348,11 +348,18 @@ standby is configured and links deployment.md §1.6.
    compose wrapper that automates it is condition 7.
 5. **The console's System › Database** shows role, lag and last failover from `GET /admin/site/store`, and passes the
    ux-designer review every new screen gets.
-   **PARTLY DISCHARGED 2026-11-23** — built (`store-ha.js`, `/system/database`) and rendered against a fixture over two
+   **DISCHARGED 2026-11-23, on the ux-designer's third render** (*ship*). The first render sent it back: a failed read
+   stopped the polling for good, so the page froze on the old primary during the failover it is opened to watch, and a
+   first read during an outage drew nothing. The second rejected the repair for faults it made: the alert was rewritten
+   every poll (14 announcements in 70 s, focus lost from its link), an escaped `<time>` showed as markup, and a new
+   primary's announcement was wiped by the failure line. Measured after the last repair with the reviewer's script:
+   0 live events in 70 s, focus kept, the new primary said after a failed read, the lag on the standby's row in hours
+   and megabytes. Every multi-host state was simulated in the page; the fixture has one host.
+   *Before the review:* ~~**PARTLY DISCHARGED 2026-11-23**~~ — built (`store-ha.js`, `/system/database`) and rendered against a fixture over two
    local clusters at 1280 and 390 px with Chrome: both hosts with role pills, timeline, *standby up to date* and replay
    lag, *No failover has happened*, the mode; no horizontal scroll at 390; the status line is `aria-live`, and the timed
-   redraw leaves an unchanged table alone so focus is not dropped. **Not yet reviewed by the ux-designer agent**, which
-   is what keeps this open.
+   redraw leaves an unchanged table alone so focus is not dropped. ~~Not yet reviewed by the ux-designer agent, which
+   is what keeps this open.~~
 6. **Manual promotion works when the primary is gone.** **DISCHARGED 2026-11-23** —
    `A_manual_site_waits_for_an_administrator_to_promote_the_standby`: with `Graticula:StoreFailover=manual`,
    `graticula store promote` exits 1 naming the live primary; the primary killed, readiness says the failover waits

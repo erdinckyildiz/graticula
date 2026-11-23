@@ -195,3 +195,7 @@ None recorded.
 4. **A browser on a domain machine signs in with no prompt**, and ArcGIS Pro through the OAuth page. Needs a Windows
    domain machine; not driven by this work.
 5. **The design review of Studio › Organization › Settings › Security › Sign-in's Windows form and Studio's button**, with its findings repaired.
+   **PARTLY DISCHARGED 2026-11-23** — the form passed the ux-designer's second render (*ship*) with the first render's
+   findings repaired, as ADR-315 condition 5 records, and no button appears on any sign-in page while the server is
+   not set up for Windows. **The button itself was not seen**: the fixture has no IWA, and the reviewer simulated only
+   the provider screen's set-up state, not a sign-in page with the button on it.

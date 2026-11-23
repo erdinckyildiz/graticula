@@ -256,3 +256,8 @@ None recorded.
    `search` with the certificate and no token, and `users.me` was `Ada.Lovelace` (made at that first request, role
    `org_user`). Before §5.5a the same call asked `info` and `portals/self` only and was anonymous.
 5. **The design review of Studio › Organization › Settings › Security › Sign-in's PKI form**, with its findings repaired.
+   **DISCHARGED 2026-11-23, on the ux-designer's second render** (*ship*): the first render's thirteen findings
+   repaired — a refusal said inside the dialog, focus given back on every close path (11 of 11), the settings named as
+   the guide names them with a link to §6, an unconfigured provider's row saying it is on no sign-in page,
+   `?tab=idp` — and no dead button on any sign-in page with a provider saved on a server not set up for it.
+   `SignInProvidersScreenTests` 14/14.
