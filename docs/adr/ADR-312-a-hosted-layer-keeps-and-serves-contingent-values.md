@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM` — the resource's keys are the public reference's, but how a value is encoded in it is read off examples rather than stated, and no ArcGIS client has read a definition from this server yet (§11, conditions 5–7) |
 | **Decided** | 2026-11-22, by owner decision for ArcGIS Enterprise 12.2 band 2, group 1: *"Sakla, sun, Studio'da yaz"* — the layer definition stores contingent values and field groups and serves them to clients, Studio authors them, they come in when Pro publishes, `applyEdits` does not reject a combination that is not valid, and Studio's own editor warns. Every point the public pages do not settle is marked `INFERRED` in §5 and listed in §5.9 |
 | **Supersedes** | — (amends [ADR-235](ADR-235-grapy-holds-attribute-rules-contingent-values-and-replicas.md) §6: the server is no longer without them) |
-| **Superseded by** | — |
+| **Superseded by** | — (§5.4's encoding and options amended 2026-11-23 by [ADR-314](ADR-314-contingent-values-are-served-as-observed.md), from an observed ArcGIS answer) |
 
 ---
 
@@ -156,6 +156,11 @@ rewritten behind the owner's back.
 - **`…/FeatureServer/queryContingentValues`** answers `typeCodes`, `stringDicts` and `contingentValuesDefinitions`, one per
   layer named in `layers` that has a definition, or every such layer when `layers` is empty. `layers` takes ids, ranges and
   `-n` exclusions as the hosted page says.
+- *Amended 2026-11-23 by [ADR-314](ADR-314-contingent-values-are-served-as-observed.md) §5.5, which observed a real ArcGIS
+  server's answer: a range takes one slot, `{"range":[min,max]}`; a field's `id` is its position in the group; a layer
+  without subtypes puts `domains` and `contingentValues` on the group; a retired value is served with `"retired": 1`;
+  dictionaries hold the codes used, in first-use order. `f=pbf`, `compactFormat=false` and `domainDictionaries` are
+  answered (D-474 repaid), and the documents say `"JSON, PBF"`. The paragraphs below are left as they were decided.*
 - **Encoding (each INFERRED from the examples, §5.9):** a field's `id` is its position in the layer document's `fields`;
   `domains` maps each group field that has a domain for that subtype to the domain's name; a `CODED_VALUE` on a number is
   the number; a `CODED_VALUE` on text is the **index of the code in that domain's `stringDicts` entries**, whose `entries`
@@ -250,6 +255,8 @@ test runner both load, and the Map Viewer's glue is its own file (`contingent-ed
   Esri's published XML workspace schema (which predates them) nor GDAL's OpenFileGDB driver reads. **Not read** (D-473).
 
 ### 5.9 INFERRED, for confirmation
+
+*2026-11-23: items 3, 5, 6 and 7 were **refuted** and items 2 and 4 **confirmed** by observation — [ADR-314](ADR-314-contingent-values-are-served-as-observed.md) §5.5 and [contingent-values-pbf.md](../research/contingent-values-pbf.md) §5.*
 
 1. Storage in a layer column of the server's own, in grapy's model (§5.1, §5.2).
 2. A text code's value is its index in the domain's `stringDicts` entries, and the entries are the domain's codes (§5.4).

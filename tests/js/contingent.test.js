@@ -8,34 +8,33 @@ const path = require("node:path");
 
 const cv = require(path.join(__dirname, "..", "..", "src", "Graticula.Host", "wwwroot", "contingent.js"));
 
-// The resource as the conformance test reads it back from a running server (ContingentValuesTests), trimmed.
+// The resource as the conformance test reads it back from a running server (ContingentValuesTests), trimmed: the shape
+// an ArcGIS server was observed to serve (ADR-314 §5.5).
 const resource = {
   typeCodes: ["Unknown", "Any", "Null", "Code", "Range"],
-  stringDicts: [{ domain: "Makes", entries: ["BOE", "AIR"] }],
+  stringDicts: [{ domain: "Makes", entries: ["AIR", "BOE"] }],
   contingentValuesDefinition: {
     layerID: 0, layerName: "planes", geometryType: "esriGeometryPoint", hasSubType: false,
     fieldGroups: [
       {
         name: "make_model", restrictive: true,
         fields: [
-          { name: "make", id: 2, fieldType: "esriFieldTypeString" },
-          { name: "model", id: 3, fieldType: "esriFieldTypeInteger" },
-          { name: "size", id: 4, fieldType: "esriFieldTypeDouble" },
+          { id: 0, name: "make", fieldType: "esriFieldTypeString" },
+          { id: 1, name: "model", fieldType: "esriFieldTypeInteger" },
+          { id: 2, name: "size", fieldType: "esriFieldTypeDouble" },
         ],
-        subTypes: [{
-          code: 0, name: "", domains: { make: "Makes" },
-          contingentValues: [
-            { id: 1, types: [3, 3, 4], values: [1, 320, 1.5, 4] },
-            { id: 2, types: [3, 1, 2], values: [0] },
-          ],
-        }],
+        domains: { make: "Makes" },
+        contingentValues: [
+          { id: 1, types: [3, 3, 4], values: [0, 320, { range: [1.5, 4] }] },
+          { id: 2, types: [3, 1, 2], values: [1] },
+        ],
       },
-      { name: "loose", restrictive: false, fields: [{ name: "rating", id: 5, fieldType: "esriFieldTypeString" }], subTypes: [] },
+      { name: "loose", restrictive: false, fields: [{ id: 0, name: "rating", fieldType: "esriFieldTypeString" }], domains: {}, contingentValues: [] },
     ],
   },
 };
 
-test("the resource is decoded: a text code through its dictionary, a range from two slots, Any and Null from none", () => {
+test("the resource is decoded: a text code through its dictionary, a range from one slot, Any and Null from none", () => {
   const d = cv.cvFromRest(resource);
   assert.deepEqual(d.groups.map(g => g.name), ["make_model", "loose"]);
   assert.equal(d.groups[1].restrictive, false);
@@ -50,6 +49,26 @@ test("the resource is decoded: a text code through its dictionary, a range from 
     { field: "size", kind: "NULL" },
   ]);
   assert.equal(d.values[0].subtype, null);
+  assert.equal(d.values[0].retired, false);
+});
+
+test("a retired value served as retired: 1 is read as retired, and subtypes and ADR-312's two-slot range still read", () => {
+  const d = cv.cvFromRest({
+    stringDicts: [],
+    contingentValuesDefinition: {
+      hasSubType: true,
+      fieldGroups: [{
+        name: "g", restrictive: true,
+        fields: [{ id: 0, name: "model", fieldType: "esriFieldTypeInteger" }, { id: 1, name: "size", fieldType: "esriFieldTypeDouble" }],
+        subTypes: [{ code: 2, name: "Light", domains: {}, contingentValues: [
+          { id: 7, retired: 1, types: [3, 4], values: [707, 1, 2] },
+        ] }],
+      }],
+    },
+  });
+  assert.equal(d.values[0].retired, true);
+  assert.equal(d.values[0].subtype, 2);
+  assert.deepEqual(d.values[0].entries[1], { field: "size", kind: "RANGE", min: 1, max: 2 });
 });
 
 test("an allowed combination says nothing, and a broken one names its values and its group", () => {
@@ -228,7 +247,8 @@ test("on the stored shape, which knows what is retired, a held retired combinati
   assert.equal(said.key, "");
   assert.equal(said.note, "");
   assert.equal(cv.cvFromStored({}).retiredKnown, true);
-  assert.equal(cv.cvFromRest({}).retiredKnown, false);
+  // Since ADR-314 the REST resource serves `retired: 1` too, so a definition read from it knows as well.
+  assert.equal(cv.cvFromRest({}).retiredKnown, true);
 });
 
 test("a narrowed list says why (N11)", () => {

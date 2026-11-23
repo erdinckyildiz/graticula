@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Graticula.Testing;
 using Xunit;
 
 namespace Graticula.Conformance.Tests;
@@ -18,7 +19,8 @@ namespace Graticula.Conformance.Tests;
 /// <remarks>
 /// The keys are the public reference's
 /// (<see href="https://developers.arcgis.com/rest/services-reference/enterprise/fs-contingent-values/"/>); the encoding
-/// of a text code as an index, of a range as two slots and of Any as no slot is ADR-312 §5.9's INFERRED reading.
+/// — a text code as an index, a range as one slot, Any as no slot, a retired value served as retired — and the protobuf
+/// answer are the ones ADR-314 observed an ArcGIS server write.
 /// </remarks>
 [Collection("catalogue walk")]
 public sealed class ContingentValuesTests : ArcGisClient
@@ -103,13 +105,22 @@ public sealed class ContingentValuesTests : ArcGisClient
             Assert.True(set == HttpStatusCode.OK, $"Storing contingent values answered {(int)set}: {stored}");
             Assert.Equal(4, JsonDocument.Parse(stored).RootElement.GetProperty("definition").GetProperty("contingentValues").GetArrayLength());
 
-            // ---- the layer document's flag ----
-            Assert.True((await GetJsonAsync(feature)).GetProperty("hasContingentValuesDefinition").GetBoolean());
+            // ---- the layer document's flags (ADR-314 §5.4) ----
+            JsonElement document = await GetJsonAsync(feature);
+            Assert.True(document.GetProperty("hasContingentValuesDefinition").GetBoolean());
+            Assert.True(document.GetProperty("hasFieldGroups").GetBoolean());
+            Assert.Equal("JSON, PBF", document.GetProperty("supportedContingentValuesFormats").GetString());
 
-            // ---- the service document says the one format contingent values are answered in (ADR-312 §5.4, 2026-11-23) ----
-            Assert.Equal("JSON", (await GetJsonAsync(serviceRoot)).GetProperty("supportedContingentValuesFormats").GetString());
+            // ---- the service document says both formats (ADR-314 §5.4) ----
+            Assert.Equal("JSON, PBF", (await GetJsonAsync(serviceRoot)).GetProperty("supportedContingentValuesFormats").GetString());
 
-            // ---- the resource ----
+            // ---- the fieldGroups resource, which a protobuf reader needs beside the answer ----
+            JsonElement fieldGroups = await GetJsonAsync($"{feature}/fieldGroups");
+            Assert.Equal(
+                "[{\"name\":\"make_model\",\"restrictive\":true,\"fields\":[\"make\",\"model\",\"size\"]},{\"name\":\"loose\",\"restrictive\":false,\"fields\":[\"rating\"]}]",
+                fieldGroups.GetProperty("fieldGroups").GetRawText());
+
+            // ---- the resource, in the shape ADR-314 §5.5 observed ----
             JsonElement resource = await GetJsonAsync($"{feature}/contingentValues");
             Assert.Equal(
                 ["Unknown", "Any", "Null", "Code", "Range"],
@@ -123,53 +134,72 @@ public sealed class ContingentValuesTests : ArcGisClient
             JsonElement group = cvd.GetProperty("fieldGroups").EnumerateArray().Single(g => g.GetProperty("name").GetString() == "make_model");
             Assert.True(group.GetProperty("restrictive").GetBoolean());
 
-            // A field's id is its position in the layer document's fields (INFERRED, §5.9 item 5).
-            string[] documentFields = [.. (await GetJsonAsync(feature)).GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()!)];
-            foreach (JsonElement field in group.GetProperty("fields").EnumerateArray())
-            {
-                Assert.Equal(Array.IndexOf(documentFields, field.GetProperty("name").GetString()), field.GetProperty("id").GetInt32());
-            }
-
+            // A field's id is its position in the group.
+            Assert.Equal([0, 1, 2], group.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("id").GetInt32()).ToArray());
             Assert.Equal("esriFieldTypeInteger", group.GetProperty("fields")[1].GetProperty("fieldType").GetString());
 
-            JsonElement kind = group.GetProperty("subTypes").EnumerateArray().Single();
-            Assert.Equal(0, kind.GetProperty("code").GetInt64());
-            Assert.Equal(makes, kind.GetProperty("domains").GetProperty("make").GetString());
+            // A layer without subtypes puts its domains and values on the group.
+            Assert.False(group.TryGetProperty("subTypes", out _));
+            Assert.Equal(makes, group.GetProperty("domains").GetProperty("make").GetString());
 
-            // The retired value 3 is not served (§5.9 item 7); value 1 is Code, Code, Range; value 2 is Code, Any, Null.
-            JsonElement[] values = [.. kind.GetProperty("contingentValues").EnumerateArray()];
-            Assert.Equal([1, 2], values.Select(v => v.GetProperty("id").GetInt32()).ToArray());
+            // Value 1 is Code, Code, Range; value 2 is Code, Any, Null; the retired value 3 is served as retired.
+            JsonElement[] values = [.. group.GetProperty("contingentValues").EnumerateArray()];
+            Assert.Equal([1, 2, 3], values.Select(v => v.GetProperty("id").GetInt32()).ToArray());
+            Assert.Equal([3, 3, 4], values[0].GetProperty("types").EnumerateArray().Select(t => t.GetInt32()).ToArray());
 
-            JsonElement first = values[0];
-            Assert.Equal([3, 3, 4], first.GetProperty("types").EnumerateArray().Select(t => t.GetInt32()).ToArray());
-
-            JsonElement[] slots = [.. first.GetProperty("values").EnumerateArray()];
-            Assert.Equal(4, slots.Length);
-
-            // "AIR" is index 1 of the Makes dictionary, which lists the domain's codes in its order.
+            // "AIR" is index 0 of the Makes dictionary, which lists the codes used, in first-use order; a range is one slot.
             JsonElement dictionary = resource.GetProperty("stringDicts").EnumerateArray().Single(d => d.GetProperty("domain").GetString() == makes);
-            Assert.Equal(["BOE", "AIR"], dictionary.GetProperty("entries").EnumerateArray().Select(e => e.GetString()!).ToArray());
-            Assert.Equal(1, slots[0].GetInt32());
-            Assert.Equal(320, slots[1].GetInt32());
-            Assert.Equal(1.5m, slots[2].GetDecimal());
-            Assert.Equal(4m, slots[3].GetDecimal());
+            Assert.Equal(["AIR", "BOE"], dictionary.GetProperty("entries").EnumerateArray().Select(e => e.GetString()!).ToArray());
+            Assert.Equal("[0,320,{\"range\":[1.5,4]}]", values[0].GetProperty("values").GetRawText());
 
-            JsonElement second = values[1];
-            Assert.Equal([3, 1, 2], second.GetProperty("types").EnumerateArray().Select(t => t.GetInt32()).ToArray());
-            Assert.Equal([0], second.GetProperty("values").EnumerateArray().Select(t => t.GetInt32()).ToArray());
+            Assert.Equal([3, 1, 2], values[1].GetProperty("types").EnumerateArray().Select(t => t.GetInt32()).ToArray());
+            Assert.Equal([1], values[1].GetProperty("values").EnumerateArray().Select(t => t.GetInt32()).ToArray());
+            Assert.False(values[1].TryGetProperty("retired", out _));
+            Assert.Equal(1, values[2].GetProperty("retired").GetInt32());
 
             // A text field with no coded domain gets a dictionary named for the field.
             JsonElement loose = cvd.GetProperty("fieldGroups").EnumerateArray().Single(g => g.GetProperty("name").GetString() == "loose");
             Assert.False(loose.GetProperty("restrictive").GetBoolean());
             Assert.Contains(resource.GetProperty("stringDicts").EnumerateArray(), d => d.GetProperty("domain").GetString() == "rating");
 
+            // ---- f=pbf: the protobuf answer decodes to the JSON answer's definition (ADR-314 condition 2) ----
+            (HttpStatusCode pbfStatus, string? pbfType, byte[] pbf) = await GetBytesAsync(root, token!, $"{feature}/contingentValues?f=pbf");
+            Assert.Equal(HttpStatusCode.OK, pbfStatus);
+            Assert.Equal("application/x-protobuf", pbfType);
+            ContingentValuesPbfReader.Layer fromPbf = ContingentValuesPbfReader.FromPbf(pbf).Single();
+            ContingentValuesPbfReader.Layer fromJson = ContingentValuesPbfReader.FromJson(resource).Single();
+            Assert.Equal(fromJson.Groups.Select(g => g.Name), fromPbf.Groups.Select(g => g.Name));
+            Assert.Equal(
+                ["1/0/live: Code AIR, Code 320, Range 1.5..4", "2/0/live: Code BOE, Any, Null", "3/0/retired: Code BOE, Code 707, Any", "4/0/live: Code Good"],
+                fromJson.Groups.SelectMany(g => g.Values).Select(v => v.ToString()));
+
+            // The same, except value 1's Double range: its bound 1.5 is fractional, a case no observed answer showed, so a
+            // protobuf reader is sent Any for it (ADR-314 §5.3, D-484).
+            Assert.Equal(
+                ["1/0/live: Code AIR, Code 320, Any", "2/0/live: Code BOE, Any, Null", "3/0/retired: Code BOE, Code 707, Any", "4/0/live: Code Good"],
+                fromPbf.Groups.SelectMany(g => g.Values).Select(v => v.ToString()));
+
+            (HttpStatusCode queryPbfStatus, _, byte[] queryPbf) = await GetBytesAsync(root, token!, $"{serviceRoot}/queryContingentValues?f=pbf&layers=0");
+            Assert.Equal(HttpStatusCode.OK, queryPbfStatus);
+            Assert.Equal(pbf, queryPbf);
+
+            // ---- compactFormat=false and domainDictionaries (ADR-314 §5.5; D-474 repaid) ----
+            JsonElement full = await GetJsonAsync($"{feature}/contingentValues?compactFormat=false&domainDictionaries=trimmed");
+            Assert.False(full.TryGetProperty("typeCodes", out _));
+            JsonElement fullFirst = full.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups")[0].GetProperty("contingentValues")[0];
+            Assert.Equal("[\"Code\",\"Code\",\"Range\"]", fullFirst.GetProperty("types").GetRawText());
+            Assert.Equal("[\"Airbus\",320,{\"range\":[1.5,4]}]", fullFirst.GetProperty("values").GetRawText());
+            Assert.False(fullFirst.GetProperty("retired").GetBoolean());
+            Assert.Equal("{\"BOE\":\"Boeing\",\"AIR\":\"Airbus\"}", full.GetProperty("domainDicts").GetProperty(makes).GetRawText());
+            Assert.Equal(400, await StatusAsync(root, token!, $"{feature}/contingentValues?domainDictionaries=all"));
+
             // ---- 12.2's subsets ----
             JsonElement onlyLoose = await GetJsonAsync($"{feature}/contingentValues?fieldGroupSubset=LOOSE");
             Assert.Equal(["loose"], onlyLoose.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups").EnumerateArray()
                 .Select(g => g.GetProperty("name").GetString()!).ToArray());
 
-            JsonElement onlyTwo = await GetJsonAsync($"{feature}/contingentValues?idSubset=2-3&fieldGroupSubset=make_model");
-            Assert.Equal([2], onlyTwo.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups")[0].GetProperty("subTypes")[0]
+            JsonElement onlyTwo = await GetJsonAsync($"{feature}/contingentValues?idSubset=2-2&fieldGroupSubset=make_model");
+            Assert.Equal([2], onlyTwo.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups")[0]
                 .GetProperty("contingentValues").EnumerateArray().Select(v => v.GetProperty("id").GetInt32()).ToArray());
 
             // ---- the service's operation ----
@@ -177,10 +207,6 @@ public sealed class ContingentValuesTests : ArcGisClient
             Assert.Equal([0], query.GetProperty("contingentValuesDefinitions").EnumerateArray().Select(d => d.GetProperty("layerID").GetInt32()).ToArray());
             JsonElement excluded = await GetJsonAsync($"{serviceRoot}/queryContingentValues?layers=-0");
             Assert.Equal(0, excluded.GetProperty("contingentValuesDefinitions").GetArrayLength());
-
-            // ---- what is refused by name rather than answered wrongly (D-474) ----
-            Assert.Equal(400, await StatusAsync(root, token!, $"{feature}/contingentValues?f=pbf"));
-            Assert.Equal(400, await StatusAsync(root, token!, $"{serviceRoot}/queryContingentValues?f=json&compactFormat=false"));
 
             // ---- applyEdits does not refuse a combination no value allows (ArcGIS parity, §5.7) ----
             JsonElement written = await PostAsync(root, token!, $"{feature}/applyEdits",
@@ -223,7 +249,7 @@ public sealed class ContingentValuesTests : ArcGisClient
 
             JsonElement after = await GetJsonAsync($"{feature}/contingentValues?idSubset=5");
             JsonElement five = after.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups").EnumerateArray()
-                .Single(g => g.GetProperty("name").GetString() == "make_model").GetProperty("subTypes")[0].GetProperty("contingentValues")[0];
+                .Single(g => g.GetProperty("name").GetString() == "make_model").GetProperty("contingentValues")[0];
             Assert.Equal(737, five.GetProperty("values")[1].GetInt32());
             Assert.Contains(after.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups").EnumerateArray(),
                 g => g.GetProperty("name").GetString() == "model_size");
@@ -330,11 +356,29 @@ public sealed class ContingentValuesTests : ArcGisClient
             Assert.Equal([1L, 2L], kinds.Select(k => k.GetProperty("code").GetInt64()).ToArray());
             Assert.Equal(["One", "Two"], kinds.Select(k => k.GetProperty("name").GetString()!).ToArray());
             Assert.Equal(2, kinds[0].GetProperty("contingentValues")[0].GetProperty("id").GetInt32());
+
+            // The protobuf answer carries each value's subtype, zigzag, and agrees with the JSON (ADR-314 §5.2).
+            (HttpStatusCode status, _, byte[] pbf) = await GetBytesAsync(root, token!, $"{feature}/contingentValues?f=pbf");
+            Assert.Equal(HttpStatusCode.OK, status);
+            ContingentValuesPbfReader.Group fromPbf = ContingentValuesPbfReader.FromPbf(pbf).Single().Groups.Single();
+            Assert.Equal([(1, 2L), (2, 1L)], fromPbf.Values.Select(v => (v.Id, v.Subtype)).ToArray());
+            JsonElement answer = await GetJsonAsync($"{feature}/contingentValues");
+            Assert.Equal(
+                ContingentValuesPbfReader.FromJson(answer).Single().Groups.Single().Values.Select(v => v.ToString()),
+                fromPbf.Values.Select(v => v.ToString()));
         }
         finally
         {
             await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token!, json: null);
         }
+    }
+
+    private async Task<(HttpStatusCode Status, string? MediaType, byte[] Body)> GetBytesAsync(string root, string token, string path)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, new Uri($"{root}{path}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        return (response.StatusCode, response.Content.Headers.ContentType?.MediaType, await response.Content.ReadAsByteArrayAsync());
     }
 
     private async Task<int> StatusAsync(string root, string token, string path)

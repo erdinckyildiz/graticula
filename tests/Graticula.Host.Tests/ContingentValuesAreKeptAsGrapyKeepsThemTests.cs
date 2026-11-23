@@ -15,7 +15,7 @@ namespace Graticula.Host.Tests;
 
 /// <summary>
 /// A layer's contingent values — ADR-312: the stored shape is grapy's (§5.1), a write is checked against the layer's
-/// columns (§5.3), the ArcGIS resource encodes values as §5.4 reads the reference, and <c>addToDefinition</c>'s shape is
+/// columns (§5.3), the ArcGIS resource encodes values as ADR-314 §5.5 observed, and <c>addToDefinition</c>'s shape is
 /// read back (§5.5).
 /// </summary>
 public sealed class ContingentValuesAreKeptAsGrapyKeepsThemTests
@@ -158,32 +158,32 @@ public sealed class ContingentValuesAreKeptAsGrapyKeepsThemTests
     }
 
     [Fact]
-    public void The_resource_encodes_a_text_code_as_its_index_a_range_as_two_slots_and_any_and_null_as_none()
+    public void The_resource_encodes_a_text_code_as_its_index_a_range_as_one_slot_and_serves_a_retired_value_as_retired()
     {
+        // ADR-314 §5.5, as observed: the shape ADR-312 §5.4 first read off the examples is amended.
         LayerDescription described = Described();
-        ContingentValuesDocument.Dictionaries dictionaries = new();
-        Dictionary<string, object?> definition = ContingentValuesDocument.Definition(
-            Layer, 0, "planes", "esriGeometryPoint", described, Read(Stored), dictionaries);
+        ContingentValuesDocument.ServedDefinition served = ContingentValuesDocument.Serve(
+            Layer, 0, "planes", "esriGeometryPoint", described, Read(Stored));
 
-        using JsonDocument written = JsonDocument.Parse(JsonSerializer.Serialize(new { stringDicts = dictionaries.Written, definition }));
+        using JsonDocument written = JsonDocument.Parse(JsonSerializer.Serialize(
+            ContingentValuesDocument.Answer([served], ContingentValuesDocument.JsonOptions.Default, oneLayer: true)));
         JsonElement root = written.RootElement;
-        JsonElement group = root.GetProperty("definition").GetProperty("fieldGroups")[0];
+        JsonElement group = root.GetProperty("contingentValuesDefinition").GetProperty("fieldGroups")[0];
 
-        Assert.False(root.GetProperty("definition").GetProperty("hasSubType").GetBoolean());
-        Assert.Equal([1, 2, 3], group.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("id").GetInt32()));
+        Assert.False(root.GetProperty("contingentValuesDefinition").GetProperty("hasSubType").GetBoolean());
+        Assert.Equal([0, 1, 2], group.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("id").GetInt32()));
         Assert.Equal("esriFieldTypeString", group.GetProperty("fields")[0].GetProperty("fieldType").GetString());
+        Assert.False(group.TryGetProperty("subTypes", out _));
+        Assert.Equal("Makes", group.GetProperty("domains").GetProperty("make").GetString());
+        Assert.Equal("Sizes", group.GetProperty("domains").GetProperty("size").GetString());
 
-        JsonElement kind = group.GetProperty("subTypes").EnumerateArray().Single();
-        Assert.Equal(0, kind.GetProperty("code").GetInt32());
-        Assert.Equal(string.Empty, kind.GetProperty("name").GetString());
-        Assert.Equal("Makes", kind.GetProperty("domains").GetProperty("make").GetString());
-        Assert.Equal("Sizes", kind.GetProperty("domains").GetProperty("size").GetString());
-
-        // The retired value 2 is not served; value 1 is AIR (index 1 of Makes), 320, and 1.5 to 4.
-        JsonElement value = kind.GetProperty("contingentValues").EnumerateArray().Single();
-        Assert.Equal([3, 3, 4], value.GetProperty("types").EnumerateArray().Select(t => t.GetInt32()));
-        Assert.Equal([1m, 320m, 1.5m, 4m], value.GetProperty("values").EnumerateArray().Select(v => v.GetDecimal()));
-        Assert.Equal(["BOE", "AIR"], root.GetProperty("stringDicts")[0].GetProperty("entries").EnumerateArray().Select(e => e.GetString()));
+        // Value 1 is AIR (index 0, the first code used), 320, and 1.5 to 4; the retired value 2 is BOE, Any and Null.
+        JsonElement[] values = [.. group.GetProperty("contingentValues").EnumerateArray()];
+        Assert.Equal([3, 3, 4], values[0].GetProperty("types").EnumerateArray().Select(t => t.GetInt32()));
+        Assert.Equal("[0,320,{\"range\":[1.5,4]}]", values[0].GetProperty("values").GetRawText());
+        Assert.Equal(1, values[1].GetProperty("retired").GetInt32());
+        Assert.Equal([3, 1, 2], values[1].GetProperty("types").EnumerateArray().Select(t => t.GetInt32()));
+        Assert.Equal(["AIR", "BOE"], root.GetProperty("stringDicts")[0].GetProperty("entries").EnumerateArray().Select(e => e.GetString()));
     }
 
     [Fact]

@@ -77,6 +77,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ReportLookups._missingQueries"] = "one report request: the queries one fill asked for and the prefetch has not answered yet, emptied every round (ADR-301 §5.11)",
         ["FormEndpoints.relationshipNumbers"] = "one publish: a Publisher is built per form publish, and holds that form's repeats (ADR-287)",
         ["FormDefinition.plain"] = "one sheet: a Columns is built per sheet of one check, and holds that sheet's headers (ADR-287)",
+        ["ContingentValuesDocument._used"] = "one request: a DomainDictionaries is built per contingentValues answer, and holds the domains its served groups name, at most the layers' domains (ADR-314 §5.5)",
         ["AdminEndpoints.WebMapTasks._members"] = "one request: an Access is built per tasks answer, and holds at most the organization's groups (ADR-286)",
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
         ["ModelConverters.Extensions"] = "fixed: the model formats the converters offer (ADR-282, ADR-283)",
