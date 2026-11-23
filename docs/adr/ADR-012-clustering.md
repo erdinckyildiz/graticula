@@ -148,7 +148,9 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
   file port of phase 1 keeps a local adapter, so a one-node deployment never mounts anything.
 - **"PostgreSQL is still a single point of failure."** True, and out of this ADR's reach: replicating the store is the
   database's availability, decided separately. Two Graticula nodes over one PostgreSQL make the server tier available,
-  not the data.
+  not the data. *(Decided separately on 2026-11-23 —
+  [ADR-319](ADR-319-the-platform-store-fails-over-to-a-standby.md): a streaming standby, promoted automatically, with
+  the nodes of this site as its witnesses.)*
 - **"Advisory locks and NOTIFY are distributed coordination by another name."** They are the smallest kind there is —
   no new process, released with the session — and the alternative, every sweep run once per node, is worse.
 
@@ -490,7 +492,8 @@ second node doubles the connections the store must allow (ADR-204 condition 14 a
 **Depends on:** ADR-002, ADR-007, ADR-010, ADR-011, ADR-016 (expand/contract upgrades), ADR-026 (serving through a
 store outage), ADR-029 (affinity not the default), ADR-204 (tenants, the connection budget)
 
-**Depended on by:** Deployment profiles (§53), high availability (§52)
+**Depended on by:** Deployment profiles (§53), high availability (§52) — the store's own:
+[ADR-319](ADR-319-the-platform-store-fails-over-to-a-standby.md)
 
 ## 9. Revisit triggers
 

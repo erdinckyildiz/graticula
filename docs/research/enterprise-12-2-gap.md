@@ -110,7 +110,7 @@ Both are band 1.
 | Dashboards, Experience Builder, StoryMaps, Instant Apps | Stored, not run | ADR-264 |
 | Survey123 field app | Not measured (own XLSForm client, ADR-287) | ADR-287 |
 | Map Viewer: Arcade, form authoring, charts | Partly, 2026-11-22 | Form authoring and a clean-room Arcade core in the browser (ADR-313); charts missing |
-| HA and multi-machine | Phases 0–1 | ADR-012, D-391 |
+| HA and multi-machine | ~~Phases 0–1~~ The server tier is built: ADR-012 phases 0–4 (two nodes, shared directories, Caddy, rolling upgrade), all discharged by 2026-11-01. **The store's own availability is missing** — ADR-012 left it "decided separately" | ADR-012, D-391; ADR-319 (store failover, group 2) |
 | Backup and DR | Partly, restore is CLI-only | ADR-193 |
 | Monitoring | Logs, usage and health. No metrics endpoint found (not verified) | ADR-045, ADR-061, ADR-135 |
 | Pro licensing through the portal | Refused | ADR-285 |
@@ -143,9 +143,10 @@ and after a live 12.2 server has been read (ADR-181 is amended then, not before)
 
 Asked after band 1 started which group comes first, the owner chose **all four** (2026-11-21):
 field work and editing, enterprise operations, apps, and analysis services. They are taken in that order,
-which is the order they were offered in, and ~~**the order itself is `INFERRED`**, for confirmation~~ **group 1 was started by the owner on 2026-11-22** (*"Başla"*, in answer to a summary that named field work and editing first); the order of groups 2 to 4 is still `INFERRED`.
+which is the order they were offered in, and ~~**the order itself is `INFERRED`**, for confirmation~~ **group 1 was started by the owner on 2026-11-22** (*"Başla"*, in answer to a summary that named field work and editing first); ~~the order of groups 2 to 4 is still `INFERRED`~~ **group 2 was started by the owner on 2026-11-23** (*"Devam et"*, in answer to a report that named groups 2–4 as waiting); the order of groups 3 and 4 is still `INFERRED`.
 
 Group 1's open decisions were answered the same day, each with the recommended option: `extractChanges` on hosted layers that keep history, with the webhook's `changesUrl` made real (ADR-311, amending ADR-266); contingent values and field groups stored, served and authored in Studio, not enforced by `applyEdits`, as in ArcGIS (ADR-312); a form designer in Studio that writes `formInfo`, applied by Studio's own editor through a browser Arcade interpreter (ADR-313); and ADR-288 moved out of prototype, with the emulator used to measure D-401.
+Group 2's decisions were answered on 2026-11-23: IWA and PKI both, PKI first (*"İkisi de, önce PKI"*, ADR-315, ADR-316); validate and restore through the admin API, reopening ADR-193 §5.5 (*"Validate + API'den restore"*, ADR-317); the store's availability **with automatic failover** (*"Otomatik devralma da"* — the owner chose this over the recommended standby with manual promotion, ADR-319); and D-391 answered by a server that refuses to serve but stays alive, so the restart policy can be `unless-stopped` (*"Reddederken ayakta kal"*, ADR-318, amending ADR-016 §4b).
 Each item still names the record it is waiting on. Being chosen does not decide an item. Every item that
 reopens an ADR or a scope line gets its own ADR before any code is written.
 
@@ -163,9 +164,9 @@ reopens an ADR or a scope line gets its own ADR before any code is written.
 | `extractChanges` on hosted and sync-enabled layers | M | ~~A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it~~ **Decided and built 2026-11-22 — [ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision *"Hosted + webhook"*; `changesUrl` is real** |
 | Contingent values and field groups on the server | M–L | Decided 2026-11-22 (*"Sakla, sun, Studio'da yaz"*) and built: [ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md) |
 | Map Viewer form authoring and Arcade | L | A decision. This is the work Field Maps Designer does |
-| IWA and PKI sign-in | M | A decision. ADR-015's mTLS is not built |
-| Restore and validate through the API, for DR | M | Reopening ADR-193 §5.5, which chose CLI-only on purpose |
-| HA phase 2 | L | ADR-012, D-391 |
+| IWA and PKI sign-in | M | ~~A decision. ADR-015's mTLS is not built~~ Decided 2026-11-23: both, PKI first (ADR-315, ADR-316) |
+| Restore and validate through the API, for DR | M | ~~Reopening ADR-193 §5.5, which chose CLI-only on purpose~~ Decided 2026-11-23: reopened (ADR-317) |
+| ~~HA phase 2~~ The store's availability, with automatic failover; and D-391 | L | ~~ADR-012, D-391~~ Decided 2026-11-23: ADR-319 (the server tier of ADR-012 was already built, so "phase 2" named the wrong thing); D-391 by ADR-318 |
 | Running Dashboards and Experience Builder, or a path that replaces them | L | Reopening ADR-264 |
 | Own locator from customer address data | L | Reopening Q-84 and v1-scope §3d |
 | Stream service | L | A decision |

@@ -1,0 +1,59 @@
+# ADR-319: the platform store with a standby, promoted automatically when the primary is lost.
+#
+#   docker compose -f compose.yaml -f compose.standby.yaml up -d
+#
+# An override file rather than a profile (§5.9): a profile can only add a service, and the primary's own settings and
+# entrypoint change too. Without this file compose.yaml is exactly the baseline, `graticula -> PostgreSQL`.
+#
+# NOT RUN (D-494): written on a machine without Docker. The mechanism it drives is tested against two real clusters and
+# real server processes (TheStoreFailsOverTests); docs/deployment.md §1.6 is the same steps by hand.
+
+services:
+  datastore:
+    entrypoint: ["/bin/bash", "/standby/datastore-ha.sh"]
+    environment:
+      GIS_STANDBY_PEER: datastore-standby
+      GIS_STANDBY_ROLE: primary
+    volumes:
+      - ./deploy/standby:/standby:ro
+      - ./deploy/standby/20-replication.sh:/docker-entrypoint-initdb.d/20-replication.sh:ro
+    # Always back after a crash; the wrapper decides whether it comes back as the primary or as the new one's standby.
+    restart: unless-stopped
+
+  datastore-standby:
+    image: ghcr.io/erdinckyildiz/graticula-datastore:${GIS_TAG:-latest}
+    build:
+      context: ./deploy
+      dockerfile: datastore.Dockerfile
+    entrypoint: ["/bin/bash", "/standby/datastore-ha.sh"]
+    environment:
+      POSTGRES_DB: gis
+      POSTGRES_USER: gis
+      POSTGRES_PASSWORD: ${GIS_DATASTORE_PASSWORD:-gis}
+      GIS_STANDBY_PEER: datastore
+      GIS_STANDBY_ROLE: standby
+    volumes:
+      - datastore-standby:/var/lib/postgresql/data
+      - ./deploy/standby:/standby:ro
+    shm_size: 1gb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U gis -d gis"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+
+  server:
+    environment:
+      # Both hosts, the primary first. The server writes only to the one that is read-write on the newest timeline
+      # (ADR-319 §5.2–5.3), and promotes the standby when the primary is lost (§5.4).
+      Graticula__PlatformStore: >-
+        Host=datastore,datastore-standby;Port=5432;Database=gis;Username=${GIS_SERVING_ROLE:-gis};
+        Password=${GIS_SERVING_PASSWORD:-${GIS_DATASTORE_PASSWORD:-gis}};Search Path=gisserver,public
+      # Promoting, fencing and reading the standby's receiver need a superuser (ADR-319 §5.4).
+      Graticula__MaintenanceStore: >-
+        Host=datastore,datastore-standby;Port=5432;Database=gis;Username=gis;
+        Password=${GIS_DATASTORE_PASSWORD:-gis}
+
+volumes:
+  datastore-standby:

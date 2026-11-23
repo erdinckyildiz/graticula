@@ -1562,6 +1562,10 @@ def a_serving_assembly_that_reaches_for_the_network():
         # ADR-012 phase 0 item 4: one request a node sends itself, at its own loopback address and port, before it
         # says it is ready -- the warm-up of its first request. It leaves no machine, so an air gap does not see it.
         "src/Graticula.Host/SiteNode.cs",
+        # ADR-319 §5.4: before promoting the store's standby, a node asks each other node of its own site -- the
+        # addresses the site's machines wrote into the store -- whether it still reaches the primary. Only where
+        # Graticula:PlatformStore names two hosts and the primary is lost; it never leaves the site's own network.
+        "src/Graticula.Host/StoreFailover.cs",
         # ADR-258: the GeocodeServer asks the Photon geocoder an operator configured (Graticula:Geocoding:PhotonUrl),
         # and only then; unset, no client is built and no route exists. An air-gapped deployment points it at its own.
         "src/Graticula.Host/Geocoding/PhotonGeocoder.cs",

@@ -195,6 +195,11 @@ it is known.
 
 ### 4b. The original decision, retained
 
+> **Amended 2026-11-23 — [ADR-318](ADR-318-a-refusing-server-stays-up-and-says-why.md), by owner decision.** The
+> refusal stands and the exit does not: a server that refuses **stays up**, answers every request 503 with a named
+> state and the reason, re-checks every ten seconds, and starts serving when the store is migrated. *"Refuses to run"*
+> below now reads *"refuses to serve"*.
+
 **On startup, every component reads the platform schema version and refuses to
 run against an incompatible one.** It does not auto-migrate.
 

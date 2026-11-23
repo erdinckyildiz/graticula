@@ -113,6 +113,8 @@ internal sealed class Authentication
     /// </param>
     /// <param name="basic">HTTP Basic on the OGC faces — ADR-178. Optional: without it only tokens are read.</param>
     /// <param name="keys">Service accounts' API keys — ADR-200. Optional: without it a key is an unknown token.</param>
+    /// <param name="certificates">Client certificates as a request's credential — ADR-315 §5.5a. Optional: without it a
+    /// certificate signs nobody in on its own.</param>
     public Authentication(
         IIdentityStore store,
         TimeProvider time,
@@ -120,7 +122,8 @@ internal sealed class Authentication
         SourceBreaker? breaker = null,
         AnonymousGrants? anonymous = null,
         BasicCredentials? basic = null,
-        IApiKeyStore? keys = null)
+        IApiKeyStore? keys = null,
+        Graticula.Host.Pki.CertificatePrincipals? certificates = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(time);
@@ -132,7 +135,11 @@ internal sealed class Authentication
         _anonymous = anonymous;
         _basic = basic;
         _keys = keys;
+        _certificates = certificates;
     }
+
+    /// <summary>Client certificates as a request's credential — ADR-315; null where none are read.</summary>
+    private readonly Graticula.Host.Pki.CertificatePrincipals? _certificates;
 
     /// <summary>Service accounts' keys — ADR-200; null where the store has none.</summary>
     private readonly IApiKeyStore? _keys;
@@ -256,7 +263,17 @@ internal sealed class Authentication
             // what it served before.
             bool rejected = !outsideScope && session is null && (BearerToken(context) ?? EsriToken(context)) is { Length: > 0 };
 
-            Principal principal = session?.Principal ?? Principal.Anonymous;
+            // <b>A client certificate, for a request that sent no token — ADR-315 §5.5a.</b> The web tier's model, which
+            // the ArcGIS API for Python expects of a PKI portal; held to the cookie's rules about other origins.
+            Principal? byCertificate = null;
+
+            if (session is null && !rejected && !outsideScope && basicRefusal is null && _certificates is { } certificates
+                && (BearerToken(context) ?? EsriToken(context)) is null)
+            {
+                byCertificate = await certificates.ResolveAsync(context, cancellationToken).ConfigureAwait(false);
+            }
+
+            Principal principal = session?.Principal ?? byCertificate ?? Principal.Anonymous;
 
             // <b>An anonymous caller's grants come from memory while the store's announcements
             // are heard — D-249, owner decision 2026-09-11.</b> That lookup was the whole of the
@@ -267,7 +284,7 @@ internal sealed class Authentication
             // breaker it was would close it on a request that never asked.
             AnonymousGrants.Snapshot? held = null;
 
-            if (session is null && _anonymous is { } cache && cache.TryGet(out held))
+            if (session is null && byCertificate is null && _anonymous is { } cache && cache.TryGet(out held))
             {
                 if (_grants is PostgresRoleGrants heldLive)
                 {
@@ -294,7 +311,7 @@ internal sealed class Authentication
              IReadOnlyList<Guid> editableGroups) =
                 await _store.GrantsOfAsync(principal.Id, cancellationToken).ConfigureAwait(false);
 
-            if (session is null)
+            if (session is null && byCertificate is null)
             {
                 _anonymous?.Offer(
                     readUnder, new AnonymousGrants.Snapshot(userType, roles, groups, editableGroups));

@@ -19,8 +19,10 @@ namespace Graticula.Host;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Restore is not here, deliberately</b> (§5.5): it replaces the database this process serves, so it is
-/// <c>graticula restore</c> against a stopped server.
+/// ~~<b>Restore is not here, deliberately</b> (§5.5): it replaces the database this process serves, so it is
+/// <c>graticula restore</c> against a stopped server.~~ <b>Validate and restore are here since 2026-11-23</b>
+/// (ADR-317, owner decision): each an operation of <see cref="BackupOperations"/>, the restore with every node of the site
+/// in maintenance and the database swapped in by name.
 /// </para>
 /// <para>
 /// <b>One backup at a time, in this process.</b> A second request while one runs is refused with a 409 rather than
@@ -61,6 +63,109 @@ internal static partial class BackupEndpoints
         app.MapPut("/admin/backups/schedule", SetScheduleAsync).Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
         app.MapGet("/admin/backups/{name}/download", DownloadAsync).Governed(SharingGovernedExtensions.ByPrivilege);
         app.MapDelete("/admin/backups/{name}", DeleteAsync).Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
+
+        // ADR-317: validate and restore, each an operation whose record every node reads.
+        app.MapPost("/admin/backups/{name}/validate", ValidateAsync).Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
+        app.MapPost("/admin/backups/{name}/restore", RestoreAsync).Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
+        app.MapGet("/admin/backups/operations/{id}", OperationAsync).Governed(SharingGovernedExtensions.ByPrivilege);
+    }
+
+    /// <summary>Whether a backup is being taken in this process.</summary>
+    internal static bool Taking => Volatile.Read(ref _running) == 1;
+
+    /// <summary>What a restore's request carries: the backup's own name, typed, so a stray POST restores nothing.</summary>
+    /// <param name="Confirm">The backup's name.</param>
+    internal sealed record RestoreRequest(string? Confirm);
+
+    private static async Task<IResult> ValidateAsync(
+        HttpContext context, Backups backups, BackupOperations operations, IAuditLog audit, string name, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return Results.Empty;
+        }
+
+        if (Folder(backups, name) is null)
+        {
+            return NotFound(name);
+        }
+
+        return await StartAsync(context, operations, audit, "validate", name, cancellation).ConfigureAwait(false);
+    }
+
+    private static async Task<IResult> RestoreAsync(
+        HttpContext context, Backups backups, BackupOperations operations, IAuditLog audit, string name, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return Results.Empty;
+        }
+
+        if (Folder(backups, name) is null)
+        {
+            return NotFound(name);
+        }
+
+        RestoreRequest? request = null;
+        try
+        {
+            request = context.Request.HasJsonContentType()
+                ? await context.Request.ReadFromJsonAsync<RestoreRequest>(Json, cancellation).ConfigureAwait(false)
+                : context.Request.HasFormContentType
+                    ? new RestoreRequest((await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false))["confirm"].ToString())
+                    : null;
+        }
+        catch (JsonException)
+        {
+        }
+
+        if (!string.Equals(request?.Confirm, name, StringComparison.Ordinal))
+        {
+            return Results.Json(
+                new
+                {
+                    error = new
+                    {
+                        code = 400,
+                        message = "A restore replaces this server's database, its imagery and its serving certificate. Send the "
+                            + "backup's own name as 'confirm' to say that is meant.",
+                        details = Array.Empty<string>(),
+                    },
+                },
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return await StartAsync(context, operations, audit, "restore", name, cancellation).ConfigureAwait(false);
+    }
+
+    private static async Task<IResult> StartAsync(
+        HttpContext context, BackupOperations operations, IAuditLog audit, string kind, string name, CancellationToken cancellation)
+    {
+        if (Taking || operations.Start(kind, name) is not { } started)
+        {
+            return Results.Json(
+                new { error = new { code = 409, message = "A backup, validation or restore is already running; try again when it has finished.", details = Array.Empty<string>() } },
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        // Audited before a restore can replace the audit log's own table: the old database keeps the record.
+        await AdminEndpoints.AuditAsync(context, audit, "backup." + kind, name, AdminEndpoints.Detail(new { name, operation = started.Id }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        return Results.Accepted($"/admin/backups/operations/{started.Id}", BackupOperations.Describe(started));
+    }
+
+    private static async Task<IResult> OperationAsync(HttpContext context, BackupOperations operations, string id)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return Results.Empty;
+        }
+
+        return operations.Read(id) is { } found
+            ? Results.Ok(BackupOperations.Describe(found))
+            : Results.Json(new { error = new { code = 404, message = $"No operation '{id}'.", details = Array.Empty<string>() } },
+                statusCode: StatusCodes.Status404NotFound);
     }
 
     /// <summary>Starts a backup unless one is running; answers whether it started.</summary>
@@ -101,7 +206,8 @@ internal static partial class BackupEndpoints
         return true;
     }
 
-    private static async Task<IResult> ListAsync(HttpContext context, Backups backups, IServerSettingStore settings, CancellationToken cancellation)
+    private static async Task<IResult> ListAsync(
+        HttpContext context, Backups backups, IServerSettingStore settings, BackupOperations operations, CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
         {
@@ -117,6 +223,8 @@ internal static partial class BackupEndpoints
                 ? new { started = last.Started, finished = last.Finished, name = last.Name, error = last.Error }
                 : null,
             schedule = await ReadScheduleAsync(settings, cancellation).ConfigureAwait(false),
+            database = backups.DatabaseName,
+            operation = operations.Latest() is { } latest ? BackupOperations.Describe(latest) : null,
             backups = backups.List().Select(b => new
             {
                 name = b.Name,
@@ -128,7 +236,9 @@ internal static partial class BackupEndpoints
                 roles = Backups.HasRoles(b.Manifest),
             }),
             note = "A backup on the server's own disk is not a disaster recovery until it is copied elsewhere — download it, "
-                + "or point Graticula:BackupPath at storage that is. Restore is `graticula restore <name>` with the server stopped. "
+                + "or point Graticula:BackupPath at storage that is. Validate restores one into a scratch database and checks it; "
+                + "Restore puts every node in maintenance, restores into a new database and swaps it in, keeping the old one; "
+                + "with the server stopped, `graticula restore <name>` does the same. "
                 + "The secret key is not in a backup; keep it apart.",
         });
     }

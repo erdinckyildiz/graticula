@@ -187,13 +187,13 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
     [Fact]
     public async Task A_node_with_another_key_is_refused_at_start()
     {
-        (int? exit, string said) = await Site.StartRefusedAsync("node-wrong-key", new Dictionary<string, string>
+        (string? refused, string said) = await Site.StartRefusedAsync("node-wrong-key", new Dictionary<string, string>
         {
             ["Graticula__SecretKey"] = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)),
             ["Graticula__Nodes"] = "2",
         });
 
-        Assert.True(exit is not null and not 0, $"a node with another key started:\n{said}");
+        Assert.True(refused == "node-refused", $"a node with another key started:\n{said} (refused as {refused ?? "nothing"})");
         Assert.Contains("different Graticula:SecretKey", said, StringComparison.Ordinal);
     }
 
@@ -201,13 +201,13 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
     [Fact]
     public async Task A_node_whose_settings_differ_is_refused_and_told_which()
     {
-        (int? exit, string said) = await Site.StartRefusedAsync("node-other-settings", new Dictionary<string, string>
+        (string? refused, string said) = await Site.StartRefusedAsync("node-other-settings", new Dictionary<string, string>
         {
             ["Graticula__Nodes"] = "2",
             ["Graticula__TileCacheBudgetMB"] = "777",
         });
 
-        Assert.True(exit is not null and not 0, $"a node with other settings started:\n{said}");
+        Assert.True(refused == "node-refused", $"a node with other settings started:\n{said} (refused as {refused ?? "nothing"})");
         Assert.Contains("Graticula:TileCacheBudgetMB is '777' here and unset on node-", said, StringComparison.Ordinal);
     }
 
@@ -215,9 +215,9 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
     [Fact]
     public async Task A_second_process_under_a_running_nodes_name_is_refused()
     {
-        (int? exit, string said) = await Site.StartRefusedAsync("node-a", new Dictionary<string, string> { ["Graticula__Nodes"] = "2" });
+        (string? refused, string said) = await Site.StartRefusedAsync("node-a", new Dictionary<string, string> { ["Graticula__Nodes"] = "2" });
 
-        Assert.True(exit is not null and not 0, $"a second node-a started:\n{said}");
+        Assert.True(refused == "node-refused", $"a second node-a started:\n{said} (refused as {refused ?? "nothing"})");
         Assert.Contains("A node named 'node-a' is already running", said, StringComparison.Ordinal);
     }
 

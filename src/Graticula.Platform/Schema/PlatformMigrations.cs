@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(146);
+    public static SchemaVersion ComponentSchemaVersion => new(148);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -174,6 +174,8 @@ public static class PlatformMigrations
         AFeatureExportKeepsItsFiltersV144,
         AServiceMayTrackItsChangesV145,
         AHostedLayerKeepsItsContingentValuesV146,
+        AMemberSignsInWithACertificateOrWindowsV147,
+        TheStoreRemembersItsFailoversV148,
     ]);
 
     /// <summary>
@@ -536,6 +538,46 @@ public static class PlatformMigrations
         "A hosted layer keeps its field groups and contingent values (ADR-312).",
 
         "alter table layer add column if not exists contingent_values jsonb");
+
+    /// <summary>
+    /// A member signs in with a client certificate (ADR-315) or with Windows (ADR-316): two more kinds of sign-in provider.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the kind check widens</b>: a PKI provider names the certificate field in <c>username_claim</c> and a Windows
+    /// one needs nothing a row does not already hold. <b>Expand</b>: a node older than this lists such a provider and offers
+    /// it nowhere, because every place that offers a provider asks for the kinds it knows.
+    /// </remarks>
+    private static Migration AMemberSignsInWithACertificateOrWindowsV147 => Migration.Expand(
+        new SchemaVersion(147),
+        "A member signs in with a client certificate or with Windows (ADR-315, ADR-316).",
+
+        "alter table identity_provider drop constraint if exists identity_provider_kind_known",
+        "alter table identity_provider add constraint identity_provider_kind_known check (kind in ('oidc', 'ldap', 'saml', 'pki', 'iwa'))");
+
+    /// <summary>
+    /// The platform store remembers each time a standby was promoted in place of its primary — ADR-319 §5.4.
+    /// </summary>
+    /// <remarks>
+    /// <b>148</b>: given 149 beside two others taken the same day, and renumbered when they were merged, since only 147 was
+    /// taken; it depends on neither. <b>Expand</b>: a new table no older node reads. Written by the
+    /// node that promoted, on the new primary, so the row replicates to the standby the old primary becomes.
+    /// </remarks>
+    private static Migration TheStoreRemembersItsFailoversV148 => Migration.Expand(
+        new SchemaVersion(148),
+        "The platform store remembers its failovers (ADR-319).",
+
+        """
+        create table if not exists store_failover (
+            id bigserial primary key,
+            at timestamptz not null default now(),
+            from_host text not null,
+            to_host text not null,
+            timeline integer not null,
+            decided_by text not null,
+            how text not null check (how in ('automatic', 'manual')),
+            unreachable_ms integer
+        )
+        """);
 
     private static Migration AMobileWorkerIsAUserTypeV135 => Migration.Expand(
         new SchemaVersion(135),

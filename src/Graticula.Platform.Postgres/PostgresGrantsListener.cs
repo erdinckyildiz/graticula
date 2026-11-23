@@ -64,10 +64,10 @@ public sealed partial class PostgresGrantsListener
         ArgumentNullException.ThrowIfNull(anonymous);
         ArgumentNullException.ThrowIfNull(log);
 
-        _connectionString = new NpgsqlConnectionStringBuilder(connectionString)
+        _connectionString = StoreHosts.ForConnection(new NpgsqlConnectionStringBuilder(connectionString)
         {
             Pooling = false,
-        }.ConnectionString;
+        }.ConnectionString);
 
         _anonymous = anonymous;
         _log = log;

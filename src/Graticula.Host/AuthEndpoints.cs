@@ -156,6 +156,26 @@ internal static partial class AuthEndpoints
             password = context.Request.Query["password"].ToString();
         }
 
+        // <b>ADR-315 §5.7: no name and no password, and a certificate the organisation's PKI provider maps.</b>
+        if (string.IsNullOrWhiteSpace(name) && string.IsNullOrEmpty(password)
+            && await Graticula.Host.Pki.PkiEndpoints.TokenAsync(context, login, cancellation).ConfigureAwait(false)
+                is { Asked: true } byCertificate)
+        {
+            if (byCertificate.Token is null)
+            {
+                await EsriTokenError(context, byCertificate.Status, byCertificate.Refusal!).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new
+            {
+                token = byCertificate.Token,
+                expires = byCertificate.Expires.ToUnixTimeMilliseconds(),
+                ssl = context.RequestServices.GetRequiredService<HostSettings>().RequireHttps,
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(password))
         {
             await EsriTokenError(

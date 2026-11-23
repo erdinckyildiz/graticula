@@ -38,9 +38,10 @@ services:
     shm_size: 1gb
 
     healthcheck:
-      # The server refuses to start against a store it cannot identify, so
-      # starting it before PostgreSQL accepts connections turns a race into a
-      # crash loop that looks like a bug in the server.
+      # The server refuses to serve a store it cannot identify, so starting it
+      # before PostgreSQL accepts connections turned a race into a crash loop
+      # that looked like a bug in the server. Since ADR-318 it stays up and
+      # re-checks instead of exiting, and this check still saves it the wait.
       #
       # <b>`-h 127.0.0.1`, and without it this check did not test the thing the
       # sentence above names.</b> `pg_isready` with no host connects over the
@@ -98,8 +99,9 @@ services:
       # Passed through empty rather than guarded with compose's `:?` syntax. The
       # guard fires on every command including `run ... keygen`, so the check
       # made the command that produces the value impossible to run. Found by
-      # trying it. The server refuses to start without it and says so clearly,
-      # which is the better place for the error anyway.
+      # trying it. The server refuses to serve without it and says so clearly —
+      # on stderr and, since ADR-318, as a 503 on its port — which is the better
+      # place for the error anyway.
       Graticula__SecretKey: ${GIS_SECRET_KEY:-}
 
       Graticula__HostName: ${GIS_HOSTNAME:-localhost}
@@ -142,13 +144,17 @@ services:
       retries: 3
       start_period: 20s
 
-    # on-failure, bounded, NOT unless-stopped. ADR-016 §4b makes the server
-    # refuse to start against an un-migrated or newer store, and that refusal is
-    # permanent until somebody acts — so an unbounded restart policy turns a
-    # correct, well-explained refusal into a crash loop, and the explanation
-    # scrolls past five times a minute. Observed on the first clean run of this
-    # file.
-    restart: on-failure:5
+    # unless-stopped, since 2026-11-23 (ADR-318, D-391). It was on-failure:5,
+    # bounded, because the server used to EXIT when it refused to serve (an
+    # un-migrated or newer store, a missing setting — ADR-016 §4b), and an
+    # unbounded policy turned that refusal into a crash loop. But Docker brings
+    # back only always/unless-stopped containers when its daemon starts, and a
+    # server stopped by the host's shutdown exits 0, so every reboot left it down
+    # (the showcase, 2026-11-08). Now a refusing server stays up and answers every
+    # request 503 with the reason — `docker ps` shows it unhealthy, `curl
+    # /healthz/ready` says why — and starts serving by itself once the store is
+    # migrated, so there is no exit to loop on.
+    restart: unless-stopped
 
     # An init as PID 1, so a crash ends the container and the restart above can act. Without it the server is PID 1,
     # and the kernel does not deliver a default-action signal to PID 1 from inside its namespace: on 2026-11-07 the

@@ -773,6 +773,10 @@ label.field {
 #idpForm .hint { margin: 2px 0 8px; }
 .idpissuer code { overflow-wrap: anywhere; }
 .idpissuer .hint { display: block; margin: 0; }
+/* Design review 2026-11-23 (13): at 1280 the row's four buttons wrapped onto two lines. A phone stacks them below. */
+#idpRows td.idpacts { white-space: nowrap; }
+/* The dialog's own status (design review 2026-11-23, 1) takes no room until it has something to say. */
+#idpForm #idpFormSays:empty { margin: 0; }
 #idpGroups .valuesgrid input[type=text] { width: 100%; min-width: 14ch; }
 #idpGroups .valuesgrid select { min-width: 16ch; }
 #idpGroups .tablewrap { overflow-x: auto; max-width: 100%; }
@@ -800,7 +804,7 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 #appRows button.danger { border-color: var(--alert-line); }
 @media (max-width: 719px) {
   #view-signin .panel table.rowblocks { min-width: 0; }
-  #idpRows td.idpacts { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  #idpRows td.idpacts { grid-column: 1 / -1; grid-row: auto; text-align: left; white-space: normal; }
   #view-signin table.rowblocks code { overflow-wrap: anywhere; }
 }
 
@@ -6424,6 +6428,36 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-backups #bkTake[aria-disabled="true"] { opacity: .6; cursor: progress; }
 #view-backups .bknote { margin: 0; padding-left: 1.2em; display: grid; gap: var(--gap-2); }
 #view-backups .bknote code { overflow-wrap: anywhere; }
+/* ADR-317: a validation's or a restore's steps, and the restore's confirmation. */
+#view-backups .bkrsteps { margin: var(--gap-2) 0 0; padding-left: 1.4em; display: grid; gap: var(--gap-1); }
+#view-backups .bkrsteps .rowmeta { margin-left: var(--gap-2); font-variant-numeric: tabular-nums; }
+/* The outcome leads, at body size in ink; the steps fold under it once the operation has ended (second render, BK-N1). */
+#view-backups .bkroutcome { margin: var(--gap-1) 0; color: var(--ink); font-size: var(--t-body, 1rem); }
+#view-backups .bkroutcome:empty { display: none; }
+#view-backups .bkroutcome.bad-inline { color: var(--alert); font-size: var(--t-body, 1rem); }
+#view-backups .bkrstepsbox { margin-top: var(--gap-2); }
+#view-backups .bkrstepsbox summary { cursor: pointer; color: var(--muted); font-size: var(--t-small); }
+#bkrDialog .dialogbody ul { padding-left: 1.2em; }
+#bkrDialog .dialogbody code { overflow-wrap: anywhere; }
+#bkrDialog #bkrConfirm { width: 100%; box-sizing: border-box; height: 36px; margin-top: var(--gap-1); }
+#bkrDialog #bkrGo[aria-disabled="true"] { opacity: .6; }
+/* Design review 2026-11-23: a dialog of sentences, as wide as Delete's confirm and a little more (F3); the panel as wide
+   as the table it reports on (F12). */
+#bkrDialog { width: min(560px, calc(100vw - 32px)); }
+#bkrDialog .dialogbody p.bad-inline { font-size: inherit; }
+#bkrDialog #bkrConfirm[aria-invalid="true"] { border-color: var(--alert); }
+#view-backups #bkrOp, #view-backups #bkrOp .hint { max-width: none; }
+#view-backups table.rowblocks td.act { text-align: right; }
+#view-backups #bkrOpHead { margin-bottom: 0; }
+#view-backups #bkrOpWhen { margin: 2px 0 0; }
+@media (max-width: 719px) {
+  /* Four buttons do not fit beside the name: they take their own line under the row (F2, as Collaborations does). */
+  #view-backups table.rowblocks td.act, #view-backups .widetable table.rowblocks td.act:last-child {
+    grid-column: 1 / -1; grid-row: auto; text-align: left; white-space: normal;
+  }
+  #view-backups table.rowblocks td.act button { margin: var(--gap-1) var(--gap-2) 0 0; }
+  #view-backups table.rowblocks td.act button + button { margin-left: 0; }
+}
 @media (max-width: 560px) {
   #view-backups .bkschedule { grid-template-columns: minmax(0, 1fr); }
   #view-backups .bkschedule .hint { grid-column: 1; }
@@ -6504,6 +6538,23 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #view-machines .mcupgrade p + p { margin-top: 6px; }
 #view-machines .mcupgrade .mcname { white-space: nowrap; }
 #mcSays:empty { display: none; }
+/* System › Database (ADR-319 §5.10): the held, no-primary and no-standby callout is the page's one job, so it is drawn
+   as a warning with the command on a line of its own (design review 2026-11-23, finding 3). */
+#view-database .shcallout {
+  margin: 0 0 var(--gap-3, 12px); padding: 10px 12px; font-size: var(--t-small); border-radius: 7px;
+  background: var(--warn-soft); color: var(--ink); border: 1px solid var(--warn-line);
+}
+#view-database .shcallout[hidden] { display: none; }
+#view-database .shcallout b { color: var(--warn); }
+#view-database .shcallout p { margin: 0; }
+#view-database .shcallout p + p, #view-database .shcallout p + .shcmd { margin-top: 6px; }
+#view-database .shcmd { display: inline-block; padding: 2px 6px; user-select: all; overflow-wrap: anywhere; }
+#view-database .shh { font-size: var(--t-body, 1rem); margin: 0 0 6px; }
+#view-database .settingcard p + p { margin-top: 8px; }
+#shSays:empty { display: none; }
+#view-database .shcallout a { text-decoration: underline; }
+#view-database .shrep { display: block; min-width: 0; }
+.pill.p-info { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
 /* Narrow: the machine's name and its address take the whole row, and its buttons go under them, so another machine's
    address -- its first meta item, unbroken -- never runs under the Stop button (design review of phase 4). */
 @media (max-width: 719px) {

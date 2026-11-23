@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
+using Graticula.Platform.Postgres;
 using Graticula.Providers.DuckDb;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
@@ -197,6 +198,23 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     public static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
 
     private readonly ConcurrentDictionary<string, NpgsqlDataSource> _pools = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Closes every idle connection of every pool this holds — ADR-317: after a restore swapped the database under them,
+    /// each idle connection is one the server ended, and the first request to take it would fail.
+    /// </summary>
+    public void ClearPools()
+    {
+        foreach (NpgsqlDataSource pool in _pools.Values)
+        {
+            pool.Clear();
+        }
+
+        foreach (NpgsqlDataSource pool in _attachmentPools.Values)
+        {
+            pool.Clear();
+        }
+    }
 
     /// <summary>
     /// The pool for one source, unless an operator has taken it out of service.
@@ -458,8 +476,9 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     }
 
     private static NpgsqlDataSource BuildPool(string connectionString) =>
-        new NpgsqlDataSourceBuilder(
-            WithApplicationName(WithStatementTimeout(InUtc(ResetOnClose(connectionString))))).Build();
+        // ADR-319 §5.2: the datastore's row names the store's hosts, so a hosted layer is written on its primary.
+        StoreHosts.Build(new NpgsqlDataSourceBuilder(
+            WithApplicationName(WithStatementTimeout(InUtc(ResetOnClose(connectionString))))));
 
     /// <summary>
     /// A layer pool resets a connection returned to it, whatever the connection string says — ADR-300 §5.3.
@@ -1198,7 +1217,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             builder.ApplicationName = PoolNames.Of(PoolNames.Attachments);
         }
 
-        return new NpgsqlDataSourceBuilder(builder.ConnectionString).Build();
+        return StoreHosts.Build(new NpgsqlDataSourceBuilder(builder.ConnectionString));
     }
 
     /// <summary>

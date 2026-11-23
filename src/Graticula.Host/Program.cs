@@ -76,6 +76,11 @@ public static class Program
                                           replaces is kept. Refuses another key's
                                           backup and a newer schema.
 
+          graticula store promote         Promote the platform store's standby when the
+                                          primary is gone for good (ADR-319, ArcGIS's
+                                          makePrimary). Refuses while a primary is
+                                          reachable.
+
           graticula tools symbology-migrate [--apply]
                                          Rewrite every stored MapLibre symbology
                                          document as CIM (ADR-052 §3.9). Reports
@@ -190,6 +195,8 @@ public static class Program
 
         HostSettings settings;
         Graticula.Host.Geocoding.GeocoderSettings? geocoding;
+        Graticula.Host.Pki.ClientCertificateSettings clientCertificates;
+        Graticula.Host.Iwa.WindowsSignIn windows;
 
         // <b>The refusal is written carefully and then thrown away — [D-171](../../docs/architecture-debt.md).</b>
         // `HostSettings.Read` says exactly what is missing, where to set it, and that the
@@ -210,8 +217,22 @@ public static class Program
         {
             settings = HostSettings.Read(builder.Configuration);
 
+            // ADR-319 §5.3: the newest timeline this node has seen of a primary-and-standby store, remembered across a
+            // restart, before any pool opens a connection.
+            if (StoreHosts.IsMultiHost(settings.PlatformStore))
+            {
+                StoreEpoch.Load(Path.Combine(settings.StatePath, "store-epoch.json"));
+            }
+
             // ADR-258: a GeocodeServer over a Photon the operator runs, only when one is configured.
             geocoding = Graticula.Host.Geocoding.GeocoderSettings.Read(builder.Configuration);
+
+            // ADR-315: client certificates, read once; a setting that cannot work refuses to start, as TrustedProxies does.
+            clientCertificates = Graticula.Host.Pki.ClientCertificateSettings.Read(
+                builder.Configuration, settings.RequireHttps, settings.TrustedProxies);
+
+            // ADR-316: Windows sign-in, off unless turned on.
+            windows = Graticula.Host.Iwa.WindowsSignIn.Read(builder.Configuration);
         }
         catch (InvalidOperationException misconfigured)
         {
@@ -220,10 +241,23 @@ public static class Program
             // 78 is `EX_CONFIG` from `sysexits.h`, which is what an init system and a
             // human both read as *this is your configuration, not my crash*. Distinct
             // from 1, which serving already uses for a failed handshake.
-            return 78;
+            //
+            // <b>ADR-318 §5.3: said on the port too, and the process stays up until it is stopped</b>, so compose's
+            // `unless-stopped` has no exit to loop on. 78 is still what it exits with when it is stopped, and when
+            // there is nothing to listen with at all.
+            return await RefuseConfigurationAsync(builder.Configuration, misconfigured.Message).ConfigureAwait(false);
         }
 
-        ConfigureKestrel(builder, settings);
+        ConfigureKestrel(builder, settings, clientCertificates);
+
+        // ADR-316: the Negotiate handler, registered only when Windows sign-in is turned on.
+        windows.Register(builder.Services);
+
+        // ADR-315: what reads, checks and maps a client certificate, for the sign-in route and for Kestrel's handshake.
+        builder.Services.AddSingleton(clientCertificates);
+        builder.Services.AddSingleton(services => new Graticula.Host.Pki.ClientCertificates(
+            clientCertificates, settings.TrustedProxies,
+            services.GetRequiredService<ILogger<Graticula.Host.Pki.ClientCertificates>>()));
 
         // <b>Registered so a handler can be given it rather than reaching for
         // configuration again.</b> Added with Q-113's response ceiling: the query
@@ -243,6 +277,17 @@ public static class Program
                 new Graticula.Host.Geocoding.PhotonGeocoder(geocoding));
         }
         builder.Services.AddHostedService<BackupScheduler>();
+
+        // ADR-317: validate and restore through the admin API, and the gate a restore closes on every node.
+        builder.Services.AddSingleton<RestoreGate>();
+        builder.Services.AddSingleton(services => new BackupOperations(
+            services.GetRequiredService<Backups>(),
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<RestoreGate>(),
+            services.GetRequiredService<ILogger<BackupOperations>>(),
+            services.GetRequiredService<SiteNode>(),
+            services.GetRequiredService<SiteSingletons>(),
+            services.GetRequiredService<SiteAnnouncements>()));
 
         // ADR-013 condition 2, owner decision 2026-10-13: small attachments are read whole and their connection given
         // back before a slow client is written to, within a bound on what is held at once.
@@ -272,7 +317,8 @@ public static class Program
         // split out; the pool every request uses was not, so *is a Graticula server holding
         // this database* was a question nobody could answer from the database.
         builder.Services.AddSingleton(_ =>
-            new NpgsqlDataSourceBuilder(
+            // ADR-319 §5.2: a store that names a primary and a standby is reached through StoreHosts, here and at every pool below.
+            StoreHosts.Build(new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     ApplicationName = PoolNames.Of(PoolNames.Request),
@@ -306,8 +352,7 @@ public static class Program
                       rather than left to find out under load.
                     */
                     MaxPoolSize = PlatformStorePool,
-                }.ConnectionString)
-                .Build()
+                }.ConnectionString))
                 .RoutedByTenant());
 
         builder.Services.AddSingleton(services => new PostgresLayerCatalog(
@@ -717,12 +762,12 @@ public static class Program
         */
         builder.Services.AddKeyedSingleton(
             JobPool,
-            (_, _) => new NpgsqlDataSourceBuilder(
+            (_, _) => StoreHosts.Build(new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     MaxPoolSize = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length,
                     ApplicationName = PoolNames.Of(PoolNames.Jobs),
-                }.ConnectionString).Build());
+                }.ConnectionString)));
 
         builder.Services.AddKeyedSingleton<Graticula.Platform.Jobs.IJobStore>(
             JobPool,
@@ -748,7 +793,7 @@ public static class Program
         // is one place that knows how to reach PostGIS and both callers use it.
         builder.Services.AddKeyedSingleton(
             DatastorePool,
-            (_, _) => new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore)).Build());
+            (_, _) => StoreHosts.Build(new NpgsqlDataSourceBuilder(DatastoreConnection(settings.PlatformStore))));
 
         // <b>The datastore's own pool is gated too, and it was not until 2026-09-09.</b> The
         // quiesce gate went into `LayerConnections.PoolFor`, which every *registered* source is
@@ -889,12 +934,12 @@ public static class Program
         // connections: the claim, and the record of what a send did.
         builder.Services.AddKeyedSingleton(
             WebhookPool,
-            (_, _) => new NpgsqlDataSourceBuilder(
+            (_, _) => StoreHosts.Build(new NpgsqlDataSourceBuilder(
                 new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     MaxPoolSize = 2,
                     ApplicationName = PoolNames.Of(PoolNames.Webhooks),
-                }.ConnectionString).Build());
+                }.ConnectionString)));
         builder.Services.AddHostedService(services => new WebhookDeliverer(
             new PostgresWebhookStore(services.GetRequiredKeyedService<NpgsqlDataSource>(WebhookPool)),
             services.GetRequiredService<WebhookSignal>(),
@@ -1006,12 +1051,21 @@ public static class Program
             services.GetRequiredService<ServerLogBuffer>()));
         builder.Services.AddHostedService(services => services.GetRequiredService<SiteNode>());
 
+        // ADR-319: the platform store's primary and standby, watched; inactive where the store names one host.
+        builder.Services.AddSingleton(services => new StoreFailover(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<SiteNode>(),
+            settings,
+            builder.Configuration,
+            services.GetRequiredService<ILogger<StoreFailover>>()));
+        builder.Services.AddHostedService(services => services.GetRequiredService<StoreFailover>());
+
         builder.Services.AddHostedService(services => new GrantsListening(
             new PostgresGrantsListener(
-                new NpgsqlConnectionStringBuilder(settings.PlatformStore)
+                StoreHosts.ForConnection(new NpgsqlConnectionStringBuilder(settings.PlatformStore)
                 {
                     ApplicationName = PoolNames.Of(PoolNames.Grants),
-                }.ConnectionString,
+                }.ConnectionString),
                 services.GetRequiredService<AnonymousGrants>(),
                 services.GetRequiredService<ILoggerFactory>()
                     .CreateLogger<PostgresGrantsListener>())));
@@ -1023,7 +1077,16 @@ public static class Program
             services.GetRequiredService<SourceBreaker>(),
             services.GetRequiredService<AnonymousGrants>(),
             services.GetRequiredService<BasicCredentials>(),
-            services.GetRequiredService<IApiKeyStore>()));
+            services.GetRequiredService<IApiKeyStore>(),
+
+            // ADR-315 §5.5a: only where this server receives certificates at all.
+            clientCertificates.Enabled
+                ? new Graticula.Host.Pki.CertificatePrincipals(
+                    services.GetRequiredService<Graticula.Host.Pki.ClientCertificates>(),
+                    services.GetRequiredService<IIdentityProviderStore>(),
+                    services.GetRequiredService<TimeProvider>(),
+                    services.GetRequiredService<ILogger<Graticula.Host.Pki.CertificatePrincipals>>())
+                : null));
 
         // ADR-203: the recycle bin — deleted items kept whole with their ids until they expire.
         builder.Services.AddSingleton<IRecycleBin>(services =>
@@ -1114,6 +1177,13 @@ public static class Program
             site.On(SiteAnnouncements.Annotations, _ => itemAnnotations.ReloadAsync(CancellationToken.None));
             site.On(SiteAnnouncements.Pins, _ => { pins.Wake(); return Task.CompletedTask; });
             site.On(SiteAnnouncements.Pyramids, _ => { pyramids.Ask(); return Task.CompletedTask; });
+
+            // ADR-317: another node's restore closes this one's gate until the store it reaches holds no restore marker.
+            BackupOperations restores = app.Services.GetRequiredService<BackupOperations>();
+            NpgsqlDataSource datastorePool = app.Services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool);
+            LayerConnections layerPools = app.Services.GetRequiredService<LayerConnections>();
+            restores.ClearOtherPools = () => { datastorePool.Clear(); layerPools.ClearPools(); };
+            site.On(RestoreGate.Announcement, detail => { restores.Heard(detail); return Task.CompletedTask; });
 
             if (app.Services.GetRequiredService<ITileCache>() is FileSystemTileCache tileCache)
             {
@@ -1254,6 +1324,14 @@ public static class Program
                 BackupBeforeMigration(args, app.Services.GetRequiredService<Backups>)).ConfigureAwait(false);
         }
 
+        // ADR-319 §5.7: ArcGIS Data Store's makePrimary, as this binary's verb -- needed when the primary is gone, and then no
+        // session can be read to authorise an admin route.
+        if (args is ["store", "promote", ..])
+        {
+            return await app.Services.GetRequiredService<StoreFailover>()
+                .PromoteFromCommandLineAsync(Console.Out, CancellationToken.None).ConfigureAwait(false);
+        }
+
         // ADR-193: backup and restore are this binary's own verbs, as migrate is.
         if (args is ["backup", ..])
         {
@@ -1328,9 +1406,34 @@ public static class Program
             Log.ConfiguredUnderTheFormerName(logger, string.Join(", ", legacy));
         }
 
-        if (!await HandshakeAsync(app.Services, logger).ConfigureAwait(false))
+        // <b>ADR-318: a refusal keeps the process up</b> (owner decision, D-391). It answers every request 503 with the
+        // reason, asks again every ten seconds, and when the answer changes — the store migrated from another container,
+        // the database back — closes its listener and starts as a first start does. The re-check runs quietly; the
+        // handshake that lets it through is run once more aloud, so a served start logs what a served start always has.
+        for (ServingRefusal? refusal = await HandshakeAsync(app.Services, logger).ConfigureAwait(false);
+             refusal is not null;
+             refusal = await HandshakeAsync(app.Services, logger).ConfigureAwait(false))
         {
-            return 1;
+            bool cleared;
+
+            try
+            {
+                cleared = await RefusingServer.HoldAsync(
+                    RefusingListener.From(settings),
+                    refusal,
+                    _ => HandshakeAsync(app.Services, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance),
+                    logger).ConfigureAwait(false);
+            }
+            catch (Exception nothingToListenWith) when (nothingToListenWith is InvalidOperationException or IOException)
+            {
+                Console.Error.WriteLine(nothingToListenWith.Message);
+                return 1;
+            }
+
+            if (!cleared)
+            {
+                return 1;
+            }
         }
 
         await BootstrapAsync(app.Services, logger).ConfigureAwait(false);
@@ -1396,6 +1499,12 @@ public static class Program
           GET: the rewrite offers the request to the route table as a GET and a route that has no
           GET still answers 405, which is the correct answer.
         */
+        // <b>ADR-317: the restore's gate, before everything that reads the store.</b> While a restore runs anywhere on the
+        // site, this node answers every request 503 'restoring' but liveness and the operation's own status; otherwise it
+        // counts the requests inside, so the restore can wait for them to finish.
+        RestoreGate restoreGate = app.Services.GetRequiredService<RestoreGate>();
+        app.Use((context, next) => restoreGate.InvokeAsync(context, () => next(context)));
+
         // ADR-135: a request a service answered counts as its use — after it is answered, and only when it succeeded.
         ServiceUsageCounter usage = app.Services.GetRequiredService<ServiceUsageCounter>();
         app.Use(async (context, next) =>
@@ -1897,7 +2006,9 @@ public static class Program
             // The principal set here is the one an unreachable store produces anyway, so
             // the liveness path answers identically in both directions — it just does not
             // wait to find out.
-            if (context.Request.Path == LivenessPath)
+            // ADR-319 §5.4: so is the question the nodes ask each other while the store's primary is gone -- proved by the
+            // site's key in the route itself, and answered in milliseconds rather than after the store times out.
+            if (context.Request.Path == LivenessPath || context.Request.Path == StoreFailover.ViewPath)
             {
                 context.Features.Set(
                     new RequestPrincipal(Principal.Anonymous, null, Authorization.Nothing));
@@ -2634,8 +2745,43 @@ public static class Program
         }
     }
 
-    private static async Task<bool> HandshakeAsync(IServiceProvider services, ILogger logger)
+    /// <summary>
+    /// ADR-318 §5.3: a configuration that could not be read is said on the port as well as on stderr, and the process stays
+    /// up until it is stopped. Not re-checked — a process's environment does not change.
+    /// </summary>
+    /// <returns>78, <c>EX_CONFIG</c>, when stopped or when nothing could be listened with.</returns>
+    private static async Task<int> RefuseConfigurationAsync(IConfiguration configuration, string reason)
     {
+        using ILoggerFactory loggers = LoggerFactory.Create(logging => logging.AddConsole());
+        ILogger logger = loggers.CreateLogger("startup");
+
+        try
+        {
+            await RefusingServer.HoldAsync(
+                RefusingListener.Lenient(configuration),
+                new ServingRefusal(ServingRefusal.Configuration, reason),
+                recheck: null,
+                logger).ConfigureAwait(false);
+        }
+        catch (Exception nothing) when (nothing is InvalidOperationException or IOException
+            or System.Net.Sockets.SocketException)
+        {
+            Console.Error.WriteLine("Nothing could be listened with to say so: " + nothing.Message);
+        }
+
+        return 78;
+    }
+
+    /// <summary>
+    /// ADR-016 §4b's handshake: whether this server may serve the store it is pointed at, and the site may have it.
+    /// </summary>
+    /// <returns>Null when it may; otherwise why not, as a named state (ADR-318).</returns>
+    private static async Task<ServingRefusal?> HandshakeAsync(IServiceProvider services, ILogger logger)
+    {
+        // ADR-319 §5.6: one round of the store's watch before anything is read, so an old primary that has come back
+        // beside a newer one is fenced before this node could be sent to it.
+        await services.GetRequiredService<StoreFailover>().ObserveAsync(CancellationToken.None).ConfigureAwait(false);
+
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
         PostgresPlatformSchemaStore store = new(dataSource);
 
@@ -2647,7 +2793,13 @@ public static class Program
         catch (NpgsqlException e)
         {
             Log.PlatformStoreUnreachable(logger, e);
-            return false;
+            return new ServingRefusal(ServingRefusal.StoreUnreachable, "The platform store does not answer: " + e.Message);
+        }
+        catch (InvalidOperationException lost)
+        {
+            // A schema table with no row: the store's level is unknown, which is not a store to serve or to migrate.
+            Log.SchemaIncompatible(logger, lost.Message);
+            return new ServingRefusal(ServingRefusal.StoreNotInitialised, lost.Message);
         }
 
         SchemaCompatibilityResult result = SchemaCompatibility.Check(
@@ -2656,7 +2808,14 @@ public static class Program
         if (!result.IsCompatible)
         {
             Log.SchemaIncompatible(logger, result.Explanation);
-            return false;
+            return new ServingRefusal(
+                result.Outcome switch
+                {
+                    SchemaCompatibilityOutcome.NotInitialised => ServingRefusal.StoreNotInitialised,
+                    SchemaCompatibilityOutcome.ComponentTooNew => ServingRefusal.StoreNotMigrated,
+                    _ => ServingRefusal.StoreNewer,
+                },
+                result.Explanation);
         }
 
         Log.SchemaCompatible(logger, result.Explanation);
@@ -2708,7 +2867,10 @@ public static class Program
         if (PlatformStoreRole.RefusesToServe(bound, tenants))
         {
             Log.SeveralOrganisationsOverAnUnboundRole(logger, tenants);
-            return false;
+            return new ServingRefusal(
+                ServingRefusal.UnboundRole,
+                $"The platform store holds {tenants} organisations and this server reads it as a role row-level security does "
+                + "not bind, so every organisation would read every other's rows. Connect as the serving role (ADR-204 condition 9).");
         }
 
         // ADR-012 phase 0 items 6 and 11: join the site -- this node's name, the site's key and settings -- before anything
@@ -2716,10 +2878,10 @@ public static class Program
         if (await services.GetRequiredService<SiteNode>().JoinAsync(CancellationToken.None).ConfigureAwait(false) is { } refused)
         {
             Log.NodeRefused(logger, refused);
-            return false;
+            return new ServingRefusal(ServingRefusal.NodeRefused, refused);
         }
 
-        return true;
+        return null;
     }
 
     /// <summary>
@@ -2733,8 +2895,15 @@ public static class Program
     /// that would pay its warm-up while another node could take it.
     /// </remarks>
     private static async Task<string?> NotReadyAsync(
-        IAdminCatalog catalog, NpgsqlDataSource datastore, SiteNode node, CancellationToken cancellation)
+        IAdminCatalog catalog, NpgsqlDataSource datastore, SiteNode node, CancellationToken cancellation,
+        StoreFailover? failover = null)
     {
+        // ADR-319 §5.5: its own named state, before the store is asked — while the primary is gone, asking only waits.
+        if (failover?.NotReadyReason is { } failingOver)
+        {
+            return failingOver;
+        }
+
         if (node.Draining)
         {
             return $"This node is {node.ConfiguredState}: an administrator took it out of the site's rotation (ADR-012).";
@@ -2777,7 +2946,10 @@ public static class Program
         }
     }
 
-    private static void ConfigureKestrel(WebApplicationBuilder builder, HostSettings settings)
+    private static void ConfigureKestrel(
+        WebApplicationBuilder builder,
+        HostSettings settings,
+        Graticula.Host.Pki.ClientCertificateSettings? clientCertificates = null)
     {
         /*
           <b>ADR-014 §2b: a replacement must not need a restart.</b> Only when the operator
@@ -2850,6 +3022,22 @@ public static class Program
                     // is written and wrong two years later, and the platform is
                     // maintained by people who track this full time.
                     https.SslProtocols = System.Security.Authentication.SslProtocols.None;
+
+                    // <b>ADR-315 §5.2 and §5.8: a client certificate asked for at the handshake</b>, never by
+                    // renegotiation, so TLS 1.3 and HTTP/2 stay. `Allow` takes whatever is presented and leaves the
+                    // check to the sign-in route; `Require` checks the chain here, against this deployment's
+                    // authorities alone — the platform's own check would consult the machine's store instead.
+                    if (clientCertificates is { Mode: not Graticula.Host.Pki.ClientCertificateMode.Off } asked)
+                    {
+                        bool require = asked.Mode == Graticula.Host.Pki.ClientCertificateMode.Require;
+                        https.ClientCertificateMode = require
+                            ? Microsoft.AspNetCore.Server.Kestrel.Https.ClientCertificateMode.RequireCertificate
+                            : Microsoft.AspNetCore.Server.Kestrel.Https.ClientCertificateMode.AllowCertificate;
+                        https.ClientCertificateValidation = (certificate, _, _) =>
+                            !require
+                            || kestrel.ApplicationServices.GetRequiredService<Graticula.Host.Pki.ClientCertificates>()
+                                .Refusal(certificate) is null;
+                    }
                 });
 
                 // HTTP/2 is not optional: Q-78 put gRPC in scope, and it
@@ -2867,9 +3055,10 @@ public static class Program
             IAdminCatalog catalog,
             [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
             SiteNode node,
+            StoreFailover failover,
             CancellationToken cancellation) =>
         {
-            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation).ConfigureAwait(false);
+            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation, failover).ConfigureAwait(false);
 
             return reason is null
                 ? Results.Ok(new { success = true })
@@ -2882,9 +3071,19 @@ public static class Program
             IAdminCatalog catalog,
             [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
             SiteNode node,
+            StoreFailover failover,
             CancellationToken cancellation) =>
         {
-            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation).ConfigureAwait(false);
+            // ADR-319 §5.5: a named state of its own, so a balancer or a script tells *the store is failing over* from
+            // every other reason without parsing a sentence.
+            if (failover.NotReadyReason is { } failingOver)
+            {
+                return Results.Json(
+                    new { status = "not-ready", state = StoreFailover.ReadinessState, reason = failingOver },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
+            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation, failover).ConfigureAwait(false);
 
             return reason is null
                 ? Results.Ok(new { status = "ready" })
@@ -3297,6 +3496,7 @@ public static class Program
 
         // ADR-012 phase 0 item 6: the site's machines.
         SiteEndpoints.Map(app);
+        StoreEndpoints.Map(app);
         ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
         KmlEndpoints.Map(app);
@@ -3356,7 +3556,7 @@ public static class Program
 
                     // ADR-088: a way in through each provider an operator configured and left on.
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
-                        .Where(p => p.Settings is { Enabled: true, Kind: "oidc" or "saml" })
+                        .Where(p => Graticula.Host.Oidc.OidcEndpoints.IsButton(context, p))
                         .Select(p => (Graticula.Host.Oidc.OidcEndpoints.StartPath(p), p.Settings.Name))],
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
                         .Where(p => p.Settings is { Enabled: true, Kind: "ldap" })
@@ -3369,6 +3569,8 @@ public static class Program
 
         Graticula.Host.Oidc.OidcEndpoints.Map(app);
         Graticula.Host.Saml.SamlEndpoints.Map(app);
+        Graticula.Host.Pki.PkiEndpoints.Map(app);
+        Graticula.Host.Iwa.WindowsSignIn.Map(app);
 
         app.MapGet("/rest/whoami", async (HttpContext context, TenantDirectory tenants) =>
         {

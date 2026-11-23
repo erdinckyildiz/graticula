@@ -1170,7 +1170,7 @@ public static class CatalogManifest
 
                 try
                 {
-                    await using NpgsqlConnection source = new(connectionString);
+                    await using NpgsqlConnection source = new(StoreHosts.ForConnection(connectionString));
                     await source.OpenAsync(cancellationToken).ConfigureAwait(false);
 
                     foreach ((_, string schema, string table, string layer) in bySource)

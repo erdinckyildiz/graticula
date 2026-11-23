@@ -73,7 +73,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
     /// <summary>The image services' overviews, written beside their files.</summary>
     public const string CoveragePyramids = "coverage-pyramids";
 
-    private readonly string _connectionString;
+    private readonly NpgsqlDataSource _source;
     private readonly ILogger<SiteSingletons> _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly HashSet<string> _held = new(StringComparer.Ordinal);
@@ -89,11 +89,13 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         ArgumentNullException.ThrowIfNull(log);
 
-        _connectionString = new NpgsqlConnectionStringBuilder(connectionString)
+        // ADR-319 §5.2: one unpooled source, so a primary-and-standby store's locks are taken on the primary and on its
+        // newest timeline, as every pool's statements are.
+        _source = Graticula.Platform.Postgres.StoreHosts.Build(new NpgsqlDataSourceBuilder(new NpgsqlConnectionStringBuilder(connectionString)
         {
             Pooling = false,
             ApplicationName = applicationName,
-        }.ConnectionString;
+        }.ConnectionString));
 
         _log = log;
     }
@@ -146,7 +148,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
             return open;
         }
 
-        NpgsqlConnection opened = new(_connectionString);
+        NpgsqlConnection opened = _source.CreateConnection();
 
         try
         {
@@ -328,6 +330,7 @@ internal sealed partial class SiteSingletons : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await ReleaseAllAsync().ConfigureAwait(false);
+        await _source.DisposeAsync().ConfigureAwait(false);
         _gate.Dispose();
     }
 
