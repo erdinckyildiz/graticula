@@ -86,11 +86,12 @@ internal sealed partial class SiteAnnouncements : BackgroundService
         ArgumentNullException.ThrowIfNull(log);
 
         _store = store;
-        _listenConnection = new NpgsqlConnectionStringBuilder(connectionString)
+        // ADR-319 §5.2: on a primary-and-standby store, the primary — a NOTIFY is never heard on a standby (D-495).
+        _listenConnection = Graticula.Platform.Postgres.StoreHosts.ForConnection(new NpgsqlConnectionStringBuilder(connectionString)
         {
             Pooling = false,
             ApplicationName = PoolNames.Of(PoolNames.Site),
-        }.ConnectionString;
+        }.ConnectionString);
         _node = node;
         _log = log;
     }

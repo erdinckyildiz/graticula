@@ -3372,6 +3372,8 @@ const SURFACES = {
       ["utilities", "Utility services"],
       // ADR-012 phase 0 item 6: the machines of this site, as ArcGIS Server Manager's Site › Machines lists them.
       ["machines", "Machines"],
+      // ADR-319 §5.10: the platform store's primary and standby, beside the machines that write to them.
+      ["database", "Database"],
       ["settings", "General"],
       // ADR-193 condition 4: a backup is the whole database, every organization's, so the machine's.
       ["backups", "Backups"],
@@ -4395,6 +4397,8 @@ function openScreen(surface, screen, folder) {
   if (screen === "webhooks") section("webhooks", loadOrgWebhooks);
   if (screen === "backups") section("backups", loadBackups, "bkRows");
   if (screen === "machines") section("machines", loadMachines, "mcRows");
+  // ADR-319: store-ha.js, a script of its own.
+  if (screen === "database") section("the database", shLoad, "shRows");
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") {

@@ -156,6 +156,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["OidcClient._known"] = "one per issuer an operator configured (ADR-088); a removed provider's entry is an hour's worth of a discovery document, replaced when read again",
         ["ServiceContexts._times"] = "one per layer; removed by Forget on unpublish and refresh (D-160)",
         ["SourceBreaker._tripped"] = "one per data source; removed on recovery",
+        ["StoreHosts.Built"] = "one per multi-host connection string a pool was built from: the platform store's pools and its datastore row's, a handful (ADR-319 §5.2)",
+        ["StoreEpoch._newest"] = "one per PostgreSQL system the platform store has been, a system identifier each: one, and one more for each time the cluster is rebuilt from nothing (ADR-319 §5.3)",
+        ["StoreEpoch.Suspects"] = "one per database host this node has voted down, each for thirty seconds: the hosts the platform store names, two (ADR-319 §5.4)",
+        ["StoreFailover._views"] = "one per host the platform store names, two (ADR-319 §5.4)",
 
         // ADR-059's register, and it is the breaker's shape: an operator can only quiesce a
         // source that exists, and every entry is removed as it is read once its window has ended.

@@ -469,12 +469,17 @@ jobs:
           echo "             build to this one (ADR-012 phase 4). CI builds only"
           echo "             this one, so it runs nowhere here: set"
           echo "             GRATICULA_PREVIOUS_HOST to that build's folder."
+          echo "StandbyStore makes two PostgreSQL clusters, one streaming from the other,"
+          echo "             and fails the primary over under real servers (ADR-319)."
+          echo "             CI has PostgreSQL's client and no server binaries with"
+          echo "             PostGIS to make them from: set GRATICULA_TEST_PG_BIN."
           echo
           echo "Run the three that CI cannot, on a machine that can:"
           echo
           echo "  dotnet test <project> --filter 'Needs=RealCorpus'"
           echo "  dotnet test <project> --filter 'Needs=QuietMachine'"
           echo "  dotnet test tests/Graticula.Host.Tests --filter 'Needs=PreviousBuild'"
+          echo "  dotnet test tests/Graticula.Host.Tests --filter 'Needs=StandbyStore'"
           echo
           echo
           echo "ADR-048 §5b and Q-117."
@@ -490,7 +495,7 @@ jobs:
       - name: host and geometry worker
         run: |
           dotnet test tests/Graticula.Host.Tests -c Release --no-build \
-            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild&Needs!=ModelConverter'
+            --filter 'Needs!=RunningHost&Needs!=RealCorpus&Needs!=QuietMachine&Needs!=PreviousBuild&Needs!=ModelConverter&Needs!=StandbyStore'
 
   conformance:
     name: conformance (${{ matrix.part }})
