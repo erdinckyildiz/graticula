@@ -91,6 +91,44 @@ public sealed class WebMapStoreTests : PostgresFixture
             + $"one. Read back:\n{read.Document}");
     }
 
+    /// <summary>
+    /// A layer's form — ADR-313 condition 3. The <c>formInfo</c> Studio's Forms tool writes and ArcGIS Field Maps reads
+    /// is stored in the document, so the store is where it is first kept or lost: created and then updated, every
+    /// element kind and every expression comes back as it was sent.
+    /// </summary>
+    [Fact]
+    public async Task A_layers_form_is_kept_whole_through_a_create_and_an_update()
+    {
+        (PostgresWebMapStore store, Guid owner, _) = await ReadyAsync();
+        const string Form = """
+            {
+              "operationalLayers": [ { "id": "t", "layerType": "ArcGISFeatureLayer", "url": "https://example.test/rest/services/hosted/t/FeatureServer/0",
+                "formInfo": {
+                  "title": "Ağaç", "preserveFieldValuesWhenHidden": true,
+                  "formElements": [
+                    { "type": "field", "fieldName": "height", "inputType": { "type": "text-box", "maxLength": 100 }, "requiredExpression": "expr1", "valueExpression": "expr/0", "editableExpression": "expr/system/false" },
+                    { "type": "group", "label": "G", "initialState": "collapsed", "formElements": [ { "type": "text", "textFormat": "markdown", "text": "### {expr1}\n**b**" } ] },
+                    { "type": "utilityNetworkAssociations", "label": "U" }
+                  ],
+                  "expressionInfos": [
+                    { "name": "expr1", "expression": "$feature.tree_type == 3", "returnType": "boolean" },
+                    { "name": "expr/0", "expression": "var t = `${$feature.a}`;\nreturn IIf(t == '', \"x\", t);", "returnType": "string" },
+                    { "name": "expr/system/false", "expression": "false", "returnType": "boolean" }
+                  ]
+                } } ],
+              "baseMap": { "baseMapLayers": [], "title": "None" }
+            }
+            """;
+
+        WebMap made = await store.CreateAsync("Form", null, owner, SharingScope.Private, Form, CancellationToken.None);
+        await store.UpdateAsync(made.Id, "Form, again", null, SharingScope.Private, Form, CancellationToken.None);
+        WebMap? read = await store.FindAsync(made.Id, CancellationToken.None);
+
+        using JsonDocument expected = JsonDocument.Parse(Form);
+        using JsonDocument actual = JsonDocument.Parse(read!.Document!);
+        Assert.True(JsonElement.DeepEquals(expected.RootElement, actual.RootElement), $"The form did not come back whole:\n{read.Document}");
+    }
+
     [Fact]
     public async Task A_listing_carries_no_document_and_the_newest_change_first()
     {

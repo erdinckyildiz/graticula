@@ -205,6 +205,97 @@ public sealed class WebhooksTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-311 §5.11, amending ADR-266 §5.3: on a service that tracks its changes, an edit's payload carries ArcGIS's
+    /// <c>changesUrl</c>, and following it — a status URL, then its result — returns the change that fired the event. The
+    /// object ids and <c>queryUrl</c> stay beside it.
+    /// </summary>
+    [Fact]
+    public async Task A_tracked_services_webhook_carries_a_changes_url_that_returns_the_change_that_fired_it()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string name = "zz_hookxc_" + Guid.NewGuid().ToString("N")[..8];
+
+        (HttpStatusCode defined, string design) = await RequestAsync(HttpMethod.Post, $"{root}/admin/hosted/define", token,
+            JsonSerializer.Serialize(new
+            {
+                name,
+                geometryType = "Point",
+                fields = new[] { new { name = "label", type = "text", nullable = true } },
+                sharing = "private",
+            }));
+        Assert.True(defined == HttpStatusCode.Created, $"Defining a layer answered {(int)defined}: {design}");
+        string[] parts = JsonDocument.Parse(design).RootElement.GetProperty("services").GetProperty("feature").GetString()!
+            .Split('/', StringSplitOptions.RemoveEmptyEntries);
+        string qualified = $"{parts[2]}/{parts[3]}";
+        using Receiver receiver = new(HttpStatusCode.OK);
+
+        try
+        {
+            (JsonElement tracked, string trackedRaw) = await PortalAsync($"/rest/admin/services/{qualified}/FeatureServer/updateDefinition", new()
+            {
+                ["updateDefinition"] = """{"capabilities":"Query,Create,Update,Delete,ChangeTracking"}""",
+            });
+            Assert.True(tracked.TryGetProperty("success", out _), trackedRaw);
+
+            (JsonElement made, string raw) = await PortalAsync($"/rest/admin/services/{qualified}/FeatureServer/webhooks/create", new()
+            {
+                ["name"] = "zz changes",
+                ["hookUrl"] = receiver.Url,
+                ["changeTypes"] = """["FeaturesCreated","FeaturesUpdated"]""",
+                ["active"] = "true",
+            });
+            Assert.True(made.TryGetProperty("id", out _), raw);
+
+            (int code, string body) = await AdminAsync(HttpMethod.Post,
+                $"/rest/services/{qualified}/FeatureServer/0/addFeatures?f=json&features="
+                + Uri.EscapeDataString("[{\"attributes\":{\"label\":\"fired it\"},\"geometry\":{\"x\":29.03,\"y\":41.03,\"spatialReference\":{\"wkid\":4326}}}]"));
+            Assert.True(code == 200, $"addFeatures answered {code}: {body}");
+            long oid = JsonDocument.Parse(body).RootElement.GetProperty("addResults")[0].GetProperty("objectId").GetInt64();
+
+            Delivery delivery = await receiver.WaitForAsync(
+                d => d.Json.ValueKind == JsonValueKind.Array
+                     && d.Json[0].TryGetProperty("objectIds", out JsonElement ids)
+                     && ids.GetProperty("adds").EnumerateArray().Any(a => a.GetInt64() == oid),
+                Patience);
+
+            JsonElement one = delivery.Json[0];
+            Assert.Contains($"objectIds={oid}", one.GetProperty("queryUrl").GetString(), StringComparison.Ordinal);
+            Assert.False(one.TryGetProperty("serverGens", out _), "The stored window leaked into the payload as itself.");
+            string changesUrl = one.GetProperty("changesUrl").GetString()!;
+            Assert.Contains("/FeatureServer/extractChanges?", changesUrl, StringComparison.Ordinal);
+            Assert.Contains("async=true", changesUrl, StringComparison.Ordinal);
+            Assert.Contains("returnUpdates=false", changesUrl, StringComparison.Ordinal);
+
+            // Followed as a receiver would: the status URL, then the file it names.
+            (JsonElement started, string startedRaw) = await PortalAsync(new Uri(changesUrl).PathAndQuery, null);
+            Assert.True(started.TryGetProperty("statusUrl", out JsonElement statusUrl), startedRaw);
+
+            JsonElement status = default;
+            for (int i = 0; i < 100; i++)
+            {
+                (status, _) = await PortalAsync(new Uri(statusUrl.GetString()!).PathAndQuery + "?f=json", null);
+                if (status.GetProperty("status").GetString() is "Completed" or "Failed")
+                {
+                    break;
+                }
+
+                await Task.Delay(200);
+            }
+
+            Assert.Equal("Completed", status.GetProperty("status").GetString());
+            (JsonElement result, string resultRaw) = await PortalAsync(new Uri(status.GetProperty("resultUrl").GetString()!).PathAndQuery, null);
+            JsonElement adds = result.GetProperty("edits")[0].GetProperty("features").GetProperty("adds");
+            Assert.True(adds.EnumerateArray().Any(f => f.GetProperty("attributes").GetProperty("objectid").GetInt64() == oid
+                && f.GetProperty("attributes").GetProperty("label").GetString() == "fired it"), resultRaw);
+        }
+        finally
+        {
+            await RequestAsync(HttpMethod.Delete, $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true", token, json: null);
+        }
+    }
+
     [Fact]
     public async Task A_webhook_deactivates_after_the_failures_its_policy_allows()
     {

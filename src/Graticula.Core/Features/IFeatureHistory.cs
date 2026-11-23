@@ -26,6 +26,20 @@ public interface IFeatureHistory
     /// <returns>The state, or null.</returns>
     Task<HistoryKept?> KeptAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// When the oldest transaction still open in this layer's database that has written began, or null when none is —
+    /// D-401.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The start of the oldest open writing transaction, or null.</returns>
+    /// <remarks>
+    /// A history row is stamped with its transaction's start, so a transaction that began before a replica's generation
+    /// and commits after it would fall between two windows. A generation taken no later than this moment closes that
+    /// gap (<c>OfflineReplicaEndpoints.ClosedGenerationAsync</c>). <b>Null by default</b>: only PostgreSQL keeps replicas
+    /// (D-420), and an engine that cannot say keeps the generation it had before.
+    /// </remarks>
+    Task<DateTimeOffset?> OldestOpenWriteAsync(CancellationToken cancellationToken) => Task.FromResult<DateTimeOffset?>(null);
+
     /// <summary>Turns history on: makes the table and the trigger, and records every feature as it is now.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>How many features the history begins with.</returns>

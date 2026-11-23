@@ -3205,6 +3205,9 @@ public static class Program
                 .Governed(SharingGovernedExtensions.ByService);
             app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/queryDomains", ["GET", "POST"], QueryDomainsAsync)
                 .Governed(SharingGovernedExtensions.ByService);
+
+            // ADR-312: a layer's contingent values, and every layer's at once — ContingentValueEndpoints.cs.
+            ContingentValueEndpoints.Map(app, prefix);
             app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/calculate", CalculateAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -4579,6 +4582,24 @@ public static class Program
         // ADR-288: a sync-enabled hosted service says so, and offers Sync to a caller who may edit it.
         document = SyncFlags.ApplyToService(context, document, service);
 
+        // ADR-311: a hosted service that tracks its changes says ChangeTracking, and what extractChanges takes. The
+        // shapes were read layers first, then tables, which is the order they are paired in here.
+        IReadOnlyList<(PublishedLayer Layer, LayerDescription Described)> paired =
+            [.. ((IEnumerable<PublishedLayer>)[.. service.Layers, .. service.Tables]).Zip(shapes)];
+        document = ChangeTrackingFlags.ApplyToService(
+            context, document, service,
+            paired,
+            service.ChangeTracking
+                // D-401: the serverGen a client starts extracting from is no later than any transaction still writing.
+                ? await OfflineReplicaEndpoints.ClosedGenerationAsync(
+                    context.RequestServices.GetRequiredService<LayerConnections>(), [.. service.Layers, .. service.Tables],
+                    context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow(), context.RequestAborted).ConfigureAwait(false)
+                : context.RequestServices.GetRequiredService<TimeProvider>().GetUtcNow());
+
+        // ADR-312: a service with a layer that serves contingent values says the one format they are answered in, so
+        // Field Maps does not ask for protobuf (D-474).
+        document = ContingentValueEndpoints.ApplyToService(context, document, paired);
+
         // ADR-310: a service with a hosted layer takes the service-level append, and says so once it does.
         document = AppendFlags.Apply(context, document, service);
 
@@ -5007,6 +5028,11 @@ public static class Program
 
         // ADR-288: a layer of a sync-enabled hosted service says Sync, and that it can return its changes.
         document = SyncFlags.ApplyToLayer(context, document, layer);
+
+        // ADR-311: a layer of a hosted service that tracks its changes says ChangeTracking.
+        document = ChangeTrackingFlags.ApplyToLayer(context, document, layer, description);
+        // ADR-312: a layer that keeps contingent values says so.
+        document = ContingentValueEndpoints.ApplyToLayer(context, document, layer, description);
 
         // The service's item and when the layer last changed, as ArcGIS's layer document says them (2026-11-03).
         if (owning is not null)

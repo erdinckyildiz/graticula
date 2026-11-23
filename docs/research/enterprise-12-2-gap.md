@@ -64,12 +64,12 @@ Both are band 1.
 | Append points from addresses in CSV or Excel | Missing | `PortalEndpoints.ContentAdds.cs:431` refuses any `locationType` other than coordinates. ADR-257's trigger for revisiting this ("when a geocoder is offered") fired with ADR-258 |
 | Append to a reference (registered) layer, including Excel, shapefile and JSONL | Missing | `supportsAppend = layer.IsHosted` (`FeatureServerMetadataWriter.cs:1182`) |
 | `catalogID` of relationships in a replica's mobile geodatabase | Missing (not verified) | Not found in `Graticula.Offline.Sqlite` |
-| Extract Changes with `layerQueries` and `geometry` | Missing | `extractChanges` is served only for 3D meshes (`AdminEndpoints.Meshes.cs:81`) |
+| Extract Changes with `layerQueries` and `geometry` | ~~Missing~~ **Have, since 2026-11-22 ([ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md))** on a hosted service with `ChangeTracking` on; a point or line `geometry` is refused (D-469) | ~~`extractChanges` is served only for 3D meshes (`AdminEndpoints.Meshes.cs:81`)~~ `OfflineReplicaEndpoints.ExtractChanges.cs` |
 | queryAttachments `returnCountOnly` | **Wrong answer** | See the verdict |
 | `queryBins` and `lodBin` | Missing | No match in `src` |
 | Layer query `outDistance` | **Refused (400)** | Refused as an unknown parameter, so a 12.2 client that sends it gets an error |
 | Extract on joined hosted views | Missing | Graticula has no join view (ADR-113 views are single-table) |
-| Contingent values and field groups | Missing on the server | grapy only (ADR-235) |
+| Contingent values and field groups | Have, since 2026-11-22 ([ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md)) | Stored on a hosted layer, served by `contingentValues` and `queryContingentValues`, written from Studio and `addToDefinition`; not enforced by `applyEdits`, as in ArcGIS. Not yet in an offline replica (D-472) or a Pro publish (D-473). grapy has them too (ADR-235). Since 2026-11-23 also `f=pbf`, the format Field Maps asks for, in an encoding observed on ArcGIS Online ([ADR-314](../adr/ADR-314-contingent-values-are-served-as-observed.md)) |
 | OGC API Features from a hosted layer | Have | ADR-042, ADR-162 |
 | Shared templates kept on publish | Partly (not verified) | `templates` in the layer document (ADR-065). Not tried from Pro |
 | `GetServiceDatastoreInfo` | Missing | No match in `src` |
@@ -85,7 +85,7 @@ Both are band 1.
 | Scheduled tasks (`CreateEnterpriseBackup`, filters) | Partly | Scheduled backups and map area refresh. No portal `tasks` API |
 | Collaboration workspaces | Missing | Partnerships are between organisations in one deployment (ADR-219) |
 | Export Group Content | Missing | — |
-| Map Viewer: forms (basic, choice, attachment elements) | Missing | No `formInfo` in `webmap.js`. Graticula's own XLSForm forms are separate (ADR-287) |
+| Map Viewer: forms (basic, choice, attachment elements) | Built 2026-11-22 | The viewer's Forms tool writes `formInfo` and Studio's editor applies it (ADR-313). Graticula's own XLSForm forms are separate (ADR-287) |
 | Map Viewer: symbol layer order and lock, move-along-line animation, oriented imagery, charts | Missing | — |
 | Map Viewer: time series | Partly | Time slider (ADR-132) |
 | Scene Viewer: Gaussian splats with profile and line of sight | Have | `scene.js` (ADR-272, ADR-278) |
@@ -106,10 +106,10 @@ Both are band 1.
 | Network analysis service | Missing (algorithms in grapy, ADR-239) | No decision |
 | Stream services | Missing | No decision. GeoEvent is deprecated (last release 12.3) |
 | Knowledge graph, Notebooks, Workflow Manager, Hub | Missing | No decision (`supportsHostedNotebooks = false`) |
-| Offline sync | Partly | ADR-288 `REQUIRES PROTOTYPE`, D-401, D-394 |
+| Offline sync | Built: on-demand and preplanned areas in Field Maps, Download Map and Sync in Pro | ADR-288 ~~`REQUIRES PROTOTYPE`~~ `ACCEPTED` 2026-11-22; D-401 repaid |
 | Dashboards, Experience Builder, StoryMaps, Instant Apps | Stored, not run | ADR-264 |
 | Survey123 field app | Not measured (own XLSForm client, ADR-287) | ADR-287 |
-| Map Viewer: Arcade, form authoring, charts | Missing | No decision |
+| Map Viewer: Arcade, form authoring, charts | Partly, 2026-11-22 | Form authoring and a clean-room Arcade core in the browser (ADR-313); charts missing |
 | HA and multi-machine | Phases 0–1 | ADR-012, D-391 |
 | Backup and DR | Partly, restore is CLI-only | ADR-193 |
 | Monitoring | Logs, usage and health. No metrics endpoint found (not verified) | ADR-045, ADR-061, ADR-135 |
@@ -143,7 +143,9 @@ and after a live 12.2 server has been read (ADR-181 is amended then, not before)
 
 Asked after band 1 started which group comes first, the owner chose **all four** (2026-11-21):
 field work and editing, enterprise operations, apps, and analysis services. They are taken in that order,
-which is the order they were offered in, and **the order itself is `INFERRED`**, for confirmation.
+which is the order they were offered in, and ~~**the order itself is `INFERRED`**, for confirmation~~ **group 1 was started by the owner on 2026-11-22** (*"Başla"*, in answer to a summary that named field work and editing first); the order of groups 2 to 4 is still `INFERRED`.
+
+Group 1's open decisions were answered the same day, each with the recommended option: `extractChanges` on hosted layers that keep history, with the webhook's `changesUrl` made real (ADR-311, amending ADR-266); contingent values and field groups stored, served and authored in Studio, not enforced by `applyEdits`, as in ArcGIS (ADR-312); a form designer in Studio that writes `formInfo`, applied by Studio's own editor through a browser Arcade interpreter (ADR-313); and ADR-288 moved out of prototype, with the emulator used to measure D-401.
 Each item still names the record it is waiting on. Being chosen does not decide an item. Every item that
 reopens an ADR or a scope line gets its own ADR before any code is written.
 
@@ -157,9 +159,9 @@ reopens an ADR or a scope line gets its own ADR before any code is written.
 
 | Item | Size | Waiting on |
 |---|---|---|
-| Offline sync out of prototype (ADR-288, D-401, D-394) | L | ADR-288's own conditions |
-| `extractChanges` on hosted and sync-enabled layers | M | A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it |
-| Contingent values and field groups on the server | M–L | A decision. grapy has them (ADR-235) |
+| Offline sync out of prototype (ADR-288, D-401, D-394) | L | ~~ADR-288's own conditions~~ **Done 2026-11-22:** all seven discharged, status `ACCEPTED`; D-401's race measured on the emulator and repaid the same day |
+| `extractChanges` on hosted and sync-enabled layers | M | ~~A decision. ADR-288 replaced ADR-082 for replicas and said nothing about extractChanges. ADR-266's `changesUrl` depends on it~~ **Decided and built 2026-11-22 — [ADR-311](../adr/ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision *"Hosted + webhook"*; `changesUrl` is real** |
+| Contingent values and field groups on the server | M–L | Decided 2026-11-22 (*"Sakla, sun, Studio'da yaz"*) and built: [ADR-312](../adr/ADR-312-a-hosted-layer-keeps-and-serves-contingent-values.md) |
 | Map Viewer form authoring and Arcade | L | A decision. This is the work Field Maps Designer does |
 | IWA and PKI sign-in | M | A decision. ADR-015's mTLS is not built |
 | Restore and validate through the API, for DR | M | Reopening ADR-193 §5.5, which chose CLI-only on purpose |

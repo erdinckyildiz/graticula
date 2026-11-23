@@ -99,6 +99,9 @@ internal static partial class OfflineReplicaEndpoints
             .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
         app.MapMethods($"{at}/replicas/{{replicaId}}", ["GET", "POST"], ReplicaAsync)
             .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
+        app.MapMethods($"{at}/extractChanges", ["GET", "POST"], (HttpContext context, string serviceName, CancellationToken cancellation) =>
+                ExtractChangesAsync(context, serviceName, faces, cancellation))
+            .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
         app.MapMethods($"{at}/jobs/{{jobId:guid}}", ["GET", "POST"], JobAsync)
             .Governed(SharingGovernedExtensions.ByService).DisableAntiforgery();
         app.MapGet($"{at}/replicafiles/{{jobId:guid}}", FileAsync)
@@ -371,7 +374,10 @@ internal static partial class OfflineReplicaEndpoints
             await OfflinePackager.PrepareAttachmentsAsync(services, plan!.Layers.Select(l => l.Layer), cancellation).ConfigureAwait(false);
         }
 
-        DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(jobs.Now.ToUnixTimeMilliseconds());
+        // D-401: no later than any transaction still writing, so a late commit lands in the first sync's window.
+        DateTimeOffset generation = await ClosedGenerationAsync(
+            services.GetRequiredService<LayerConnections>(), plan!.Layers.Select(l => l.Layer), jobs.Now, cancellation)
+            .ConfigureAwait(false);
         string serviceUrl = TileFaces.Origin(context) + FeatureServerPath(context);
         ReplicaOwner owner = new(caller.Principal.Id, caller.Principal.Name);
 
@@ -724,13 +730,17 @@ internal static partial class OfflineReplicaEndpoints
         // The new generation is taken after the upload, so the client's own edits are inside this download's window and
         // are left out of it by GlobalID (`uploaded`).
         DateTimeOffset afterUpload = jobs.Now;
-        DateTimeOffset generation = DateTimeOffset.FromUnixTimeMilliseconds(afterUpload.ToUnixTimeMilliseconds());
+        // D-401: and no later than any transaction still writing, whose rows then fall in the next window.
+        DateTimeOffset generation = await ClosedGenerationAsync(connections, planned.Select(p => p.Layer), afterUpload, cancellation)
+            .ConfigureAwait(false);
 
         // D-401: an upload-only sync's GlobalIDs are remembered at the first whole millisecond at or after the upload
         // ended, not at the generation. The generation is floored to a millisecond, so the upload's own writes can sit
         // later in that same millisecond; read back from the floor they looked like the server's change and were sent to
         // the device again. CI's faster runner did that (AnUploadOnlySyncIsNotEchoedTests); this machine never had.
-        DateTimeOffset uploadedBy = afterUpload > generation ? generation.AddMilliseconds(1) : generation;
+        // Taken from the upload's end and not from the generation, which may now be earlier still (ClosedGenerationAsync).
+        DateTimeOffset floored = DateTimeOffset.FromUnixTimeMilliseconds(afterUpload.ToUnixTimeMilliseconds());
+        DateTimeOffset uploadedBy = afterUpload > floored ? floored.AddMilliseconds(1) : floored;
 
         async Task WorkAsync(IServiceProvider scoped, CancellationToken stopping)
         {
@@ -1323,7 +1333,18 @@ internal static partial class OfflineReplicaEndpoints
             return;
         }
 
-        await Results.Json(OfflineReplicaShapes.Status(job, ResultUrl(context, job))).ExecuteAsync(context).ConfigureAwait(false);
+        // The job runs on another thread: read between the result URL and the status, it could say Completed with no
+        // resultUrl, and a client polling for one would stop with nothing (seen 2026-11-22 on an extractChanges job).
+        // A job's file is set before it is Completed, so asking again once it says Completed finds it.
+        string? result = ResultUrl(context, job);
+        System.Text.Json.Nodes.JsonObject status = OfflineReplicaShapes.Status(job, result);
+
+        if (result is null && status["status"]?.GetValue<string>() == "Completed")
+        {
+            status = OfflineReplicaShapes.Status(job, ResultUrl(context, job));
+        }
+
+        await Results.Json(status).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>A replica job's file — to the caller who asked for it, and nobody else.</summary>
@@ -1351,11 +1372,66 @@ internal static partial class OfflineReplicaEndpoints
     // ------------------------------------------------------------------------------------------------ reading rows
 
     /// <summary>A layer of a replica, with what its rows are read through.</summary>
+    /// <summary>
+    /// A generation no later than the start of any transaction still writing to these layers' databases — D-401.
+    /// </summary>
+    /// <param name="connections">Where the layers' histories are.</param>
+    /// <param name="layers">The layers the generation is for.</param>
+    /// <param name="now">The generation as it would otherwise be.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns><paramref name="now"/>, or a millisecond before the oldest open writing transaction began, floored.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why:</b> a history row is stamped with its transaction's start. A transaction that began before a generation
+    /// and committed after the read was in neither window and never reached the replica. A generation taken before it
+    /// began puts its rows in the next window.
+    /// </para>
+    /// <para>
+    /// <b>What that costs, measured:</b> the next window can overlap this one, so a row already sent may be sent again —
+    /// an insert of a GlobalID the client holds, or a delete of one it no longer has. Field Maps 26.2.2 takes both
+    /// quietly and applies a repeated insert's values as an update (2026-11-22, on the emulator against dev; D-401). The
+    /// overlap only happens while a writer was open, which is exactly when the gap it replaces would have happened.
+    /// </para>
+    /// <para>
+    /// <b>A history that cannot say</b> (another engine, a file, a failed read) leaves <paramref name="now"/> as it was,
+    /// which is the generation this server took before.
+    /// </para>
+    /// </remarks>
+    internal static async Task<DateTimeOffset> ClosedGenerationAsync(
+        LayerConnections connections, IEnumerable<PublishedLayer> layers, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        DateTimeOffset closed = now;
+
+        foreach (PublishedLayer layer in layers.DistinctBy(l => l.ConnectionString))
+        {
+            DateTimeOffset? oldest;
+
+            try
+            {
+                oldest = await connections.HistoryFor(layer).OldestOpenWriteAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                oldest = null;
+            }
+
+            if (oldest is { } began && began <= closed)
+            {
+                closed = began.AddMilliseconds(-1);
+            }
+        }
+
+        return DateTimeOffset.FromUnixTimeMilliseconds(closed.ToUnixTimeMilliseconds());
+    }
+
     internal sealed record Planned(
         int Id, PublishedLayer Layer, IFeatureSource Source, LayerDescription Described, string Document, Filter Filter)
     {
-        /// <summary>The reference its document states, which its rows are read in.</summary>
-        public int Wkid => OfflineReplicaShapes.WkidOf(JsonDocument.Parse(Document).RootElement) ?? Layer.PublishedSrid;
+        /// <summary>The reference its rows are read in: the one asked for, or the one its document states.</summary>
+        public int Wkid => OutWkid ?? OfflineReplicaShapes.WkidOf(JsonDocument.Parse(Document).RootElement) ?? Layer.PublishedSrid;
+
+        /// <summary>An <c>outSR</c> its rows are read in instead of its document's reference (ADR-311 §5.4), or null.</summary>
+        public int? OutWkid { get; init; }
     }
 
     /// <summary>What a layer's rows are filtered by in a replica.</summary>
@@ -1558,16 +1634,29 @@ internal static partial class OfflineReplicaEndpoints
     private static async Task<ReplicaChanges> ChangesAsync(
         LayerConnections connections, Planned p, OfflineLayer shape, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellation)
     {
-        (HashSet<long> changed, bool emptied) = await ChangedSinceAsync(connections.HistoryFor(p.Layer), from, cancellation)
-            .ConfigureAwait(false);
+        (Dictionary<long, OfflineRow> then, Dictionary<long, OfflineRow> now) =
+            await WindowAsync(connections.HistoryFor(p.Layer), p, shape, from, to, cancellation).ConfigureAwait(false);
+
+        return OfflineReplicaShapes.Diff(then, now, OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!));
+    }
+
+    /// <summary>
+    /// The two sides of a layer's difference between two moments — ADR-288 §5.4: the features its history names since
+    /// <paramref name="from"/>, read as they were then and as they are at <paramref name="to"/>, keyed by object id. Split
+    /// from <see cref="ChangesAsync"/> so <c>extractChanges</c> (ADR-311) can read a deleted feature as it was and compare
+    /// an update's fields and shape, from the same reads.
+    /// </summary>
+    internal static async Task<(Dictionary<long, OfflineRow> Then, Dictionary<long, OfflineRow> Now)> WindowAsync(
+        IFeatureHistory history, Planned p, OfflineLayer shape, DateTimeOffset from, DateTimeOffset to, CancellationToken cancellation)
+    {
+        (HashSet<long> changed, bool emptied) = await ChangedSinceAsync(history, from, cancellation).ConfigureAwait(false);
 
         if (changed.Count == 0 && !emptied)
         {
-            return new ReplicaChanges([], [], []);
+            return ([], []);
         }
 
         int objectIdAt = OfflineReplicaShapes.IndexOf(shape, shape.ObjectIdField);
-        int globalAt = OfflineReplicaShapes.IndexOf(shape, shape.GlobalIdField!);
 
         // A truncate names no feature, so every feature there was then is a candidate.
         IReadOnlyList<long>? ids = emptied ? null : [.. changed.Order()];
@@ -1590,7 +1679,7 @@ internal static partial class OfflineReplicaEndpoints
         Dictionary<long, OfflineRow> then = await AtAsync(from).ConfigureAwait(false);
         Dictionary<long, OfflineRow> now = await AtAsync(to).ConfigureAwait(false);
 
-        return OfflineReplicaShapes.Diff(then, now, globalAt);
+        return (then, now);
     }
 
     /// <summary>The attachment changes of one layer's download, as the port carries them.</summary>

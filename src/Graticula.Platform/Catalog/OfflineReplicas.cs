@@ -73,6 +73,13 @@ public interface IOfflineSyncStore
     /// <returns>How many replicas were unregistered; zero when turning it on.</returns>
     Task<int> SetEnabledAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken);
 
+    /// <summary>Turns change tracking on or off for a service — ADR-311, migration 145. Its replicas are not touched.</summary>
+    /// <param name="serviceId">The service.</param>
+    /// <param name="enabled">Whether it is on.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>A task.</returns>
+    Task SetChangeTrackingAsync(Guid serviceId, bool enabled, CancellationToken cancellationToken);
+
     /// <summary>Registers a replica.</summary>
     /// <param name="replica">The replica.</param>
     /// <param name="cancellationToken">Cancellation.</param>

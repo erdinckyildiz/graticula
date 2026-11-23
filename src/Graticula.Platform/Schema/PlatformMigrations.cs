@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(144);
+    public static SchemaVersion ComponentSchemaVersion => new(146);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -172,6 +172,8 @@ public static class PlatformMigrations
         APackageSaysWhetherItsFileIsWrittenV142,
         AMapAreaKeepsItsRefreshScheduleAndTileScaleV143,
         AFeatureExportKeepsItsFiltersV144,
+        AServiceMayTrackItsChangesV145,
+        AHostedLayerKeepsItsContingentValuesV146,
     ]);
 
     /// <summary>
@@ -504,6 +506,36 @@ public static class PlatformMigrations
         "A feature export keeps the filters it was asked for (ADR-107 section 8).",
 
         "alter table feature_export add column if not exists wheres jsonb");
+
+    /// <summary>
+    /// A hosted feature service may track its changes, so <c>extractChanges</c> answers on it — ADR-311, owner decision
+    /// 2026-11-22.
+    /// </summary>
+    /// <remarks>
+    /// <b>One switch on the service</b>, beside <c>sync_enabled</c> and for the same reason: the owner's intent has to be kept
+    /// when the service has no layer yet (the portal's <c>createService</c> asks for it before <c>addToDefinition</c> adds
+    /// any), and it is honoured only while every layer keeps ADR-078's history. <b>Expand</b>: a node older than this never
+    /// reads the column and serves no <c>extractChanges</c>, which is what it did before.
+    /// </remarks>
+    private static Migration AServiceMayTrackItsChangesV145 => Migration.Expand(
+        new SchemaVersion(145),
+        "A hosted feature service may track its changes, for extractChanges (ADR-311).",
+
+        "alter table service add column if not exists change_tracking boolean not null default false");
+
+    /// <summary>
+    /// A hosted layer keeps its field groups and contingent values — ADR-312 §5.2.
+    /// </summary>
+    /// <remarks>
+    /// <b>One nullable document per layer</b>, in grapy's model (ADR-235): null for a layer without them, which is every
+    /// layer before this. <b>Expand</b>: a node older than this never reads the column and serves the layer without
+    /// <c>hasContingentValuesDefinition</c>, which is what it served before.
+    /// </remarks>
+    private static Migration AHostedLayerKeepsItsContingentValuesV146 => Migration.Expand(
+        new SchemaVersion(146),
+        "A hosted layer keeps its field groups and contingent values (ADR-312).",
+
+        "alter table layer add column if not exists contingent_values jsonb");
 
     private static Migration AMobileWorkerIsAUserTypeV135 => Migration.Expand(
         new SchemaVersion(135),

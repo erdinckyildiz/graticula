@@ -48,6 +48,7 @@
     <Compile Include="..\shared\OneSuiteAtATime.cs" Link="OneSuiteAtATime.cs" />
     <!-- A client-side pbf decoder, written from the published proto rather than from /src: ADR-073. -->
     <Compile Include="..\shared\PbfReader.cs" Link="PbfReader.cs" />
+    <Compile Include="..\shared\ContingentValuesPbfReader.cs" Link="ContingentValuesPbfReader.cs" />
     <Compile Include="..\shared\TilePackageReaders.cs" Link="TilePackageReaders.cs" />
     <Compile Include="..\shared\TestPictures.cs" Link="TestPictures.cs" />
   </ItemGroup>

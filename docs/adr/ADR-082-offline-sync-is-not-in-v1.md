@@ -93,6 +93,11 @@ is better than advertising a surface that fails on a device in a place with no s
 > Field Maps' offline areas and Pro's *Download Map* still do not work, and every layer still says
 > `supportsDisconnectedEditing: false`. §7's assumption no longer holds for organisations collecting with forms.
 
+> **Amended in part 2026-11-22 by [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision
+> (*"Hosted + webhook"*).** `extractChanges` — the last of the four operations below that was still kept out after
+> [ADR-288](ADR-288-offline-sync-is-in.md) brought the replica protocol in — is served on a hosted feature service with
+> `ChangeTracking` on, from the history its layers keep. The sentence below is history, not the current state.
+
 **Offline sync — `createReplica`, `synchronizeReplica`, `unRegisterReplica`,
 `extractChanges` — is not in v1.** It is added to [v1-scope](../v1-scope.md) §3d beside the
 other deferred protocol surface, and the layer document goes on saying

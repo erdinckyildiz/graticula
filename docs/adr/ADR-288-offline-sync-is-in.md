@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | `REQUIRES PROTOTYPE` |
-| **Confidence** | `MEDIUM` that the format can be written (§4: ArcGIS Pro reads and edits a file written without Esri's library) · `LOW` on what Field Maps uploads, which nobody here has seen yet |
+| **Status** | ~~`REQUIRES PROTOTYPE`~~ `ACCEPTED` — 2026-11-22, when the owner started group 1 of the Enterprise 12.2 plan (*"Başla"*, [enterprise-12-2-gap.md](../research/enterprise-12-2-gap.md) band 2). The prototype this status asked for was run: all seven conditions in §12 are discharged, each on a device or by reading the tree, and the server side has been on main since v1.0.516. What is left is debt rather than prototype, and each item has its own row: ~~the race in [D-401](../architecture-debt.md)~~ (repaid the same day), Pro's basemap export in D-425, and the attachment residue in D-420, D-421 and D-423. |
+| **Confidence** | ~~`MEDIUM` that the format can be written (§4: ArcGIS Pro reads and edits a file written without Esri's library) · `LOW` on what Field Maps uploads, which nobody here has seen yet~~ `HIGH` that the format is written and read correctly for the clients measured — Field Maps 26.2.2 on Android (on-demand and preplanned areas, attachments both ways, conflicts) and ArcGIS Pro 3.7 (Download Map and Sync), §12 · `MEDIUM` beyond them: a format derived by observation can change under a client version nobody has run here |
 | **Decided** | 2026-11-10, **by owner decision**, in four answers the same evening. Asked whether Field Maps support was partial and told the offline gap was ADR-082's, the owner said *"Çevrimdışını açalım"* ("let's open offline"). Asked how the mobile geodatabase — a format Esri does not publish — should be come by, the owner chose *"Gözleyerek türet"* ("derive it by observing") from three options (§2). Asked what the first version covers, the owner chose **on-demand offline areas and preplanned map areas both** — *"Bir de hazır harita alanları"*. Asked nothing, the owner then widened the test ground: *"test verisi açacaksak [Aecon's production portal]'u da kullanabilirsin. sorun yok"*. **Everything in §5 not traced to one of those four sentences is `INFERRED`**, listed in §11 and asked as [Q-233](../open-questions.md). |
 | **Supersedes** | [ADR-082](ADR-082-offline-sync-is-not-in-v1.md) — *offline sync is not in v1* |
 | **Superseded by** | — |
@@ -11,6 +11,12 @@
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
 > Confidence: `HIGH`, `MEDIUM`, `LOW`.
+
+> **Built on 2026-11-22 by [ADR-311](ADR-311-extract-changes-on-hosted-layers-that-keep-history.md), owner decision
+> (*"Hosted + webhook"*).** This decision said nothing about `extractChanges`. ADR-311 serves it on hosted services with
+> `ChangeTracking` on, from this ADR's machinery — the difference of §5.4 (`ChangesAsync`, now split so the two moments'
+> rows can be read), the replica filters, the attachment record of ADR-290 and the replica jobs — and stands on D-401's
+> race exactly as a download does (ADR-311 §5.9). Nothing in this ADR's protocol changes.
 
 ---
 

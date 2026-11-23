@@ -357,7 +357,7 @@ internal static class OfflineJsonReplica
         json.WriteEndArray();
     }
 
-    private static void WriteFeature(Utf8JsonWriter json, OfflineLayer layer, OfflineRow row)
+    internal static void WriteFeature(Utf8JsonWriter json, OfflineLayer layer, OfflineRow row)
     {
         json.WriteStartObject();
 
@@ -379,7 +379,7 @@ internal static class OfflineJsonReplica
         json.WriteEndObject();
     }
 
-    private static void WriteAttachment(Utf8JsonWriter json, int layerId, OfflineAttachment attachment, string? featureServerUrl, bool dataByUrl)
+    internal static void WriteAttachment(Utf8JsonWriter json, int layerId, OfflineAttachment attachment, string? featureServerUrl, bool dataByUrl)
     {
         json.WriteStartObject();
         json.WriteNumber("attachmentId", attachment.AttachmentId);
@@ -401,7 +401,7 @@ internal static class OfflineJsonReplica
         json.WriteEndObject();
     }
 
-    private static string Braced(Guid id) => "{" + id.ToString("D").ToUpperInvariant() + "}";
+    internal static string Braced(Guid id) => "{" + id.ToString("D").ToUpperInvariant() + "}";
 
     private static void WriteValue(Utf8JsonWriter json, object? value)
     {

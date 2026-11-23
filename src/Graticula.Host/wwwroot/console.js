@@ -9596,6 +9596,12 @@ async function loadServiceData() {
       editing = { name: layerName, page: "fields" };
       section("the fields", () => loadFields(layerName), "fieldsRows");
 
+      // ADR-312: the layer's field groups and contingent values, under its fields — contingent-studio.js.
+      if (typeof cvsMount === "function") {
+        box.insertAdjacentHTML("beforeend", `<div id="dataContingentHost"></div>`);
+        cvsMount(layerName, $("dataContingentHost"));
+      }
+
       if (may) {
         $("fldAdd").addEventListener("click", () => addField(root, index));
 

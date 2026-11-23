@@ -891,6 +891,22 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetContingentValuesAsync(
+        Guid layerId,
+        Graticula.Catalog.ContingentValues? values,
+        CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set contingent_values = @values::jsonb, updated_at = now() where id = @id");
+
+        command.Parameters.AddWithValue("id", layerId);
+        command.Parameters.AddWithValue(
+            "values", NpgsqlTypes.NpgsqlDbType.Text, (object?)ContingentValueJson.Serialize(values) ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<Guid?> CreateEmptyServiceAsync(
         string name, string folder, Guid owner, CancellationToken cancellationToken)
     {

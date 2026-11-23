@@ -8091,3 +8091,59 @@ label.check.fdfield { display: flex; gap: 8px; align-items: center; }
 .forminbox label.check { display: flex; gap: var(--gap-2); align-items: center; min-height: 44px; }
 .forminbox .bad-inline:empty { display: none; }
 .forminbox code { overflow-wrap: anywhere; }
+
+/* ADR-312: a hosted layer's field groups and contingent values, under its Fields (contingent-studio.js). */
+.cvs { margin-top: var(--gap-6); container: cvs / inline-size; }
+.cvs table { width: 100%; border-collapse: collapse; margin: 0 0 var(--gap-3); }
+/* The section sits in the Data page's `.widetable` panel, whose tables are 640 px at least and pin a last column of
+   buttons: neither applies here (design review 2026-11-22, finding 2: Remove sat over the value and Retired at 390). */
+#dataContingentHost .cvs table { min-width: 0; }
+#dataContingentHost .cvs table :is(td, th):last-child { position: static; box-shadow: none; }
+#dataContingentHost .cvs table td:last-child { background: transparent; }
+#dataContingentHost .cvs table th:last-child { background: var(--surface-2); }
+.cvs th, .cvs td { padding: 4px 6px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--rule); }
+.cvs th { vertical-align: bottom; }
+.cvs .cvsfields { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.cvs .cvsnum { width: 6em; }
+.cvs .cvsvalues { margin-top: var(--gap-3); }
+.cvs .cvscell { display: inline-flex; flex-direction: column; gap: 2px; max-width: 100%; }
+.cvs .cvsentry, .cvs .cvsrange { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.cvs .cvsmsg { display: block; max-width: 22em; }
+.cvs .cvsmsg:empty { display: none; }
+.cvs .cvsid .cvsmsg { margin-top: 2px; }
+.cvs [aria-invalid="true"] { border-color: var(--alert); box-shadow: 0 0 0 1px var(--alert); }
+.cvs .cvssave { margin-top: 10px; align-items: center; flex-wrap: wrap; gap: var(--gap-2); }
+.cvs .cvssave .bad-inline:empty { display: none; }
+/* The open group's button looks pressed, as its aria-expanded says (re-review N12). */
+.cvs .cvsopen[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.cvs .cvsid { white-space: nowrap; }
+/* What each word of the model means, beside the model (finding 6). */
+.cvs .cvslegend { display: grid; grid-template-columns: repeat(auto-fit, minmax(16em, 1fr)); gap: 2px var(--gap-4);
+  margin: 0 0 var(--gap-3); font-size: var(--t-small); color: var(--muted); }
+.cvs .cvslegend div { display: flex; gap: 6px; }
+.cvs .cvslegend dt { font-weight: 600; color: var(--ink); flex: none; }
+.cvs .cvslegend dt::after { content: ":"; }
+.cvs .cvslegend dd { margin: 0; }
+/* Below 640 px of section, each group and each value is a card: one labelled line per cell, then Retired and Remove,
+   rather than a table scrolled sideways (finding 2). The label is the cell's `data-l`. */
+@container cvs (max-width: 640px) {
+  .cvs table, .cvs tbody, .cvs tr, .cvs td { display: block; width: auto; }
+  .cvs thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .cvs tr { border: 1px solid var(--rule); border-radius: 6px; padding: var(--gap-2) var(--gap-3); margin-bottom: var(--gap-2); }
+  .cvs td { border: 0; padding: 4px 0; display: flex; align-items: center; gap: var(--gap-2); min-width: 0; }
+  .cvs td[data-l]::before { content: attr(data-l); flex: 0 0 7.5em; color: var(--muted); font-size: var(--t-small); }
+  .cvs td > * { min-width: 0; }
+  .cvs td.cvsact { justify-content: flex-end; }
+  .cvs td input[type="text"], .cvs td select { max-width: 100%; }
+  .cvs .cvsfields { gap: 0 12px; }
+  .cvs .cvsfields label, .cvs td input[type="checkbox"] { min-height: 32px; display: inline-flex; align-items: center; gap: 4px; }
+  .cvs button.tiny { min-height: 44px; }
+  /* Retired and Remove share the card's last line, and the Value line sits on one baseline (N12). */
+  .cvs .cvsvalues tbody tr { display: flex; flex-wrap: wrap; column-gap: var(--gap-3); }
+  .cvs .cvsvalues tbody td { flex: 1 1 100%; }
+  .cvs .cvsvalues tbody td.cvsret { flex: 1 1 auto; }
+  .cvs .cvsvalues tbody td.cvsact { flex: 0 0 auto; }
+  /* A group card's Remove keeps the right edge (third review R6). */
+  .cvs .cvsgroups td.cvsact { justify-content: flex-end; }
+  .cvs td.cvsid { align-items: baseline; }
+}

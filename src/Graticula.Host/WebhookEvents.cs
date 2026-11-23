@@ -260,17 +260,24 @@ internal static class WebhookEvents
     internal sealed record ServiceEvent(string Name, IReadOnlyList<string> ChangeTypes, JsonObject Body);
 
     /// <summary>
-    /// The feature-service event an edit is, or null when it kept nothing. <b>Object ids rather than a
-    /// <c>changesUrl</c></b>: ArcGIS's names an <c>extractChanges</c> request, which needs sync this server does not have
-    /// (ADR-082); the ids are what that request would return the keys of, and <c>queryUrl</c> reads the rows (ADR-266 §3).
+    /// The feature-service event an edit is, or null when it kept nothing. <b>Object ids, and a <c>changesUrl</c> where the
+    /// service tracks its changes.</b> Until ADR-311 (2026-11-22) there was no <c>changesUrl</c>, because this server served
+    /// no <c>extractChanges</c>; now a hosted service with change tracking on serves it, and the event keeps the window
+    /// around the edit (<paramref name="serverGens"/>) that <see cref="ChangesUrl"/> names. The ids are what that request
+    /// would return the keys of, and <c>queryUrl</c> reads the rows (ADR-266 §5.3), in every payload either way.
     /// </summary>
     /// <param name="serviceName">The service's name.</param>
     /// <param name="folder">Its folder, or null.</param>
     /// <param name="layerId">The layer's index in it.</param>
     /// <param name="outcome">What the edit did.</param>
     /// <param name="when">When.</param>
+    /// <param name="serverGens">
+    /// The generations before the edit's transaction began and after it committed, where the service tracks its changes;
+    /// null where it does not, and the payload then has no <c>changesUrl</c>.
+    /// </param>
     /// <returns>The event, or null.</returns>
-    internal static ServiceEvent? FromEdit(string serviceName, string? folder, int layerId, EditOutcome outcome, DateTimeOffset when)
+    internal static ServiceEvent? FromEdit(
+        string serviceName, string? folder, int layerId, EditOutcome outcome, DateTimeOffset when, (long From, long To)? serverGens = null)
     {
         if (outcome.RolledBack)
         {
@@ -319,6 +326,11 @@ internal static class WebhookEvents
             ["truncated"] = adds.Length > ObjectIdLimit || updates.Length > ObjectIdLimit || deletes.Length > ObjectIdLimit,
         };
 
+        if (serverGens is { } gens)
+        {
+            body[ServerGensKey] = Gens(gens);
+        }
+
         return new ServiceEvent(string.Join(",", events), ["*", "FeaturesEdited", .. events], body);
     }
 
@@ -351,6 +363,90 @@ internal static class WebhookEvents
         }
 
         return new ServiceEvent(changeType, ["*", changeType], body);
+    }
+
+    /// <summary>The key a stored event keeps its <c>extractChanges</c> window under; never sent as itself.</summary>
+    internal const string ServerGensKey = "serverGens";
+
+    /// <summary>A window as the stored event keeps it.</summary>
+    /// <param name="gens">The window.</param>
+    /// <returns>The JSON.</returns>
+    internal static JsonArray Gens((long From, long To) gens) => [gens.From, gens.To];
+
+    /// <summary>
+    /// The window around a change for its <c>changesUrl</c> — ADR-311 §5.11: the moment before it began, floored to the
+    /// millisecond, and the moment after it committed, rounded up, so the change is inside whatever its history stamped.
+    /// </summary>
+    /// <param name="began">Before the change began.</param>
+    /// <param name="committed">After it committed.</param>
+    /// <returns>The two generations.</returns>
+    internal static (long From, long To) Window(DateTimeOffset began, DateTimeOffset committed)
+    {
+        long from = began.ToUnixTimeMilliseconds();
+        long to = committed.ToUnixTimeMilliseconds();
+
+        if (DateTimeOffset.FromUnixTimeMilliseconds(to) < committed)
+        {
+            to++;
+        }
+
+        return (from, Math.Max(from, to));
+    }
+
+    /// <summary>
+    /// ArcGIS's <c>changesUrl</c> — an <c>extractChanges</c> request for the generations around an event — or null for an
+    /// event that is not a change of features or attachments (ADR-311 §5.11). The <c>return*=false</c> flags are the ones
+    /// ArcGIS's payload examples give each change type (<i>Webhook payloads (Feature Service)</i>); an event that is several
+    /// keeps only the flags all of them give. <c>layers</c> and <c>f=json</c> are this server's additions (<c>INFERRED</c>).
+    /// </summary>
+    /// <param name="serviceUrl">The FeatureServer address.</param>
+    /// <param name="layerId">The layer the event is about.</param>
+    /// <param name="gens">The window.</param>
+    /// <param name="events">The change types.</param>
+    /// <returns>The address, or null.</returns>
+    internal static string? ChangesUrl(string serviceUrl, int layerId, (long From, long To) gens, IEnumerable<string> events)
+    {
+        ArgumentNullException.ThrowIfNull(serviceUrl);
+        ArgumentNullException.ThrowIfNull(events);
+
+        HashSet<string>? flags = null;
+
+        foreach (string type in events)
+        {
+            string[]? said = type switch
+            {
+                "FeaturesCreated" => ["returnUpdates", "returnDeletes", "returnAttachments"],
+                "FeaturesUpdated" => ["returnDeletes", "returnAttachments"],
+                "FeaturesDeleted" => ["returnInserts", "returnUpdates", "returnAttachments"],
+                "AttachmentsCreated" or "AttachmentsUpdated" or "AttachmentsDeleted" => ["returnInserts", "returnUpdates", "returnDeletes"],
+                _ => null,
+            };
+
+            if (said is null)
+            {
+                return null;
+            }
+
+            if (flags is null)
+            {
+                flags = [.. said];
+            }
+            else
+            {
+                flags.IntersectWith(said);
+            }
+        }
+
+        if (flags is null)
+        {
+            return null;
+        }
+
+        string off = string.Concat(((string[])["returnInserts", "returnUpdates", "returnDeletes", "returnAttachments"])
+            .Where(flags.Contains).Select(f => "&" + f + "=false"));
+
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{serviceUrl.TrimEnd('/')}/extractChanges?layers=[{layerId}]&serverGens=[{gens.From},{gens.To}]&async=true{off}&f=json");
     }
 
     private static long[] Kept(IReadOnlyList<EditResult> results) =>

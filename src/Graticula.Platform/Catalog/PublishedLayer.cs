@@ -368,6 +368,12 @@ public sealed class PublishedLayer
     public bool EditOwnOnly { get; init; }
 
     /// <summary>
+    /// Its field groups and contingent values — ADR-312 — or null for none. Kept whole, groups naming a column the table
+    /// no longer has included; <see cref="Graticula.Catalog.ContingentValues.Served"/> narrows what a client is given.
+    /// </summary>
+    public Graticula.Catalog.ContingentValues? ContingentValues { get; init; }
+
+    /// <summary>
     /// Where a registered layer keeps its attachments — ADR-207: <see cref="AttachmentPlaces.Source"/> beside its table
     /// in its own database, <see cref="AttachmentPlaces.Datastore"/> in Graticula's, or null for none. A hosted layer
     /// keeps them beside its table whatever this says.
@@ -404,6 +410,13 @@ public sealed class PublishedLayer
     /// <c>Sync</c> in its capabilities when the service does.
     /// </summary>
     public bool ServiceSyncEnabled { get; init; }
+
+    /// <summary>
+    /// Whether its service's owner turned change tracking on — ADR-311, migration 145. Carried for the same reason as
+    /// <see cref="ServiceSyncEnabled"/>: a layer's document says <c>ChangeTracking</c>, and an edit's webhook event carries a
+    /// <c>changesUrl</c>, when its service does.
+    /// </summary>
+    public bool ServiceChangeTracking { get; init; }
 
     /// <summary>
     /// When its rows last changed through this server — an edit, an append, an overwrite, a truncate, a restore — or null

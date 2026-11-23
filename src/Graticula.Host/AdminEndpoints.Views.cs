@@ -376,6 +376,12 @@ internal static partial class AdminEndpoints
                 {
                     await catalog.SetFieldOverridesAsync(address.Id, layer.FieldOverrides, cancellation).ConfigureAwait(false);
                 }
+
+                // ADR-312 §5.2: and its contingent values, which a view does not write itself.
+                if (layer.ContingentValues is { IsEmpty: false } contingent)
+                {
+                    await catalog.SetContingentValuesAsync(address.Id, contingent, cancellation).ConfigureAwait(false);
+                }
             }
 
             PublishedService view = (await published.FindServiceAsync(source.Folder, viewName, cancellation).ConfigureAwait(false))!;

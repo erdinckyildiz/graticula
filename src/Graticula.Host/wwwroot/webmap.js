@@ -152,6 +152,13 @@ function wmSayIn(id, text, bad = false) {
   if (!line) return;
   line.textContent = text;
   line.classList.toggle("bad", bad);
+  // A layer tool's sentence is written to the Layers panel's status; while that panel is not shown — closed, or given
+  // up for the right panel — a live region there is not read, so the right panel's own region says it (UX review of
+  // ADR-313, 2026-11-22, finding 7: what else carries this). That region is beside #layerTool, never redrawn.
+  if (id === "layersStatus" && !line.getClientRects().length) {
+    const side = wm$("layerToolSays");
+    if (side && !side.closest("[hidden]")) side.textContent = text;
+  }
 }
 
 function wmMarkDirty() {
@@ -2970,6 +2977,28 @@ function wmSystemField(name, info) {
 }
 
 /**
+ * A field's value as a person reads it: a coded value's name from the field's domain — the subtype's own when the
+ * feature's subtype gives the field one — and otherwise the value itself. A feature was named "AIR" in its card, its
+ * pop-up and the table while its list said "Airbus" (ADR-312 design re-review 2026-11-23, N5).
+ */
+function wmCodedName(info, name, value, attributes = null) {
+  if (value === null || value === undefined || !info) return value;
+  const field = (info.fields || []).find(f => f.name && f.name.toLowerCase() === String(name).toLowerCase());
+  if (!field) return value;
+  let domain = field.domain;
+  const typeField = info.subtypeField || info.typeIdField;
+  const typeCode = typeField && attributes ? attributes[typeField] : null;
+  if (typeCode !== null && typeCode !== undefined) {
+    const kind = (info.types || []).find(t => String(t.id) === String(typeCode));
+    const own = kind && kind.domains && kind.domains[field.name];
+    if (own && own.type === "codedValue") domain = own;
+  }
+  if (!domain || domain.type !== "codedValue") return value;
+  const coded = (domain.codedValues || []).find(c => String(c.code) === String(value));
+  return coded ? coded.name : value;
+}
+
+/**
  * One feature's pop-up: the map's own for the layer when it has one — ADR-110, the Web Map's `popupInfo`, a title
  * written with `{field}` and the fields shown, in order, under their labels — otherwise every attribute, as before.
  */
@@ -2986,7 +3015,9 @@ function wmPopupMarkup(layer, attributes, info) {
   const types = new Map(((info && info.fields) || []).map(f => [f.name, f.type]));
   const value = name => {
     const v = (attributes || {})[name];
-    return v === null || v === undefined ? "—" : wmFormatValue(v, formats.get(name), types.get(name));
+    if (v === null || v === undefined) return "—";
+    const named = wmCodedName(info, name, v, attributes);
+    return named !== v ? String(named) : wmFormatValue(v, formats.get(name), types.get(name));
   };
   const title = popup.title ? String(popup.title).replace(/\{([^}]+)\}/g, (_, name) => value(name.trim())) : "";
   const rows = popup.fieldInfos.filter(f => f && f.visible !== false && f.fieldName)
@@ -3010,7 +3041,8 @@ function wmAttributeRows(attributes, info) {
   const aliases = new Map(((info && info.fields) || []).map(f => [f.name, f.alias || f.name]));
   const types = new Map(((info && info.fields) || []).map(f => [f.name, f.type]));
   return Object.keys(attributes || {}).filter(key => !wmSystemField(key, info)).map(key => `<tr><th scope="row">${wmEscape(aliases.get(key) || key)}</th>
-    <td>${wmEscape(attributes[key] === null ? "—" : wmFormatValue(attributes[key], null, types.get(key)))}</td></tr>`).join("");
+    <td>${wmEscape(attributes[key] === null ? "—" : wmCodedName(info, key, attributes[key], attributes) !== attributes[key]
+      ? String(wmCodedName(info, key, attributes[key], attributes)) : wmFormatValue(attributes[key], null, types.get(key)))}</td></tr>`).join("");
 }
 
 let wmIdentifyTurn = 0;
@@ -3578,12 +3610,20 @@ function wmShowTab(name, focus = false) {
 const WM_PHONE = window.matchMedia("(max-width: 760px)");
 let wmLeftOpen = !WM_PHONE.matches;
 
+/** Whether opening Forms closed the Layers panel, so closing Forms opens it again (ADR-313 re-review N8). */
+let wmFormTookLeft = false;
+
 function wmOpenSheet(open) {
   wmLeftOpen = open;
+  // Opened or closed by the reader, the Layers panel is theirs again: Forms does not reopen it later.
+  wmFormTookLeft = false;
   document.body.classList.toggle("sheet", open && WM_PHONE.matches);
   document.body.classList.toggle("lclosed", !open);
-  // One sheet at a time on a phone: the left one covers the right one's place.
-  if (open && WM_PHONE.matches && wmSide.tool) wmCloseTool();
+  // One sheet at a time on a phone: the left one covers the right one's place. Below 1,000 px a window cannot hold both
+  // panels, their rails and any map either — Layers opened beside a tool left the map 0 px wide and the page scrolling
+  // sideways, whatever the tool (ADR-313 third review, 2026-11-23) — so the tool gives way, as Layers does when a tool
+  // opens below 1,100 px.
+  if (open && (WM_PHONE.matches || window.innerWidth < 1000) && wmSide.tool) wmCloseTool();
   // <b>No tool is selected while its panel is closed</b> (UX sweep round 2, N6): a selected tab whose panel is not
   // there is what a screen reader announced. The roving tabindex stays on the last one, so Tab still lands on it.
   for (const tab of WM_TABS) {
@@ -3658,10 +3698,11 @@ document.addEventListener("keydown", event => {
 // ----------------------------------------------------------------------------- the right toolbar (ADR-259)
 
 /** The tools that act on the selected layer, and the map tools under the divider. */
-const WM_LAYER_TOOLS = ["properties", "style", "filter", "popup", "labels"];
+// ADR-313: Forms writes the layer's formInfo; its panel and actions are webmap-form.js's.
+const WM_LAYER_TOOLS = ["properties", "style", "filter", "popup", "form", "labels"];
 const WM_MAP_TOOLS = ["search", "measure", "analysis"];
 const WM_TOOL_NAMES = {
-  properties: "Properties", style: "Styles", filter: "Filter", popup: "Pop-ups", labels: "Labels",
+  properties: "Properties", style: "Styles", filter: "Filter", popup: "Pop-ups", form: "Forms", labels: "Labels",
   search: "Search", measure: "Measure", analysis: "Analysis",
 };
 
@@ -3697,10 +3738,19 @@ function wmOpenTool(tool, focus = false) {
   }
   wmSide.tool = tool;
   document.body.classList.add("ropen");
+  // ADR-313: Forms is drawn wide, and full height on a phone (webmap-form.css), as Map Viewer's form builder takes the page.
+  document.body.classList.toggle("rform", tool === "form");
   wm$("side").hidden = false;
   // One sheet at a time on a phone; a wide window that cannot hold both panels and a map gives up the left one.
-  if (WM_PHONE.matches || window.innerWidth < 1100) {
-    if (wmLeftOpen) wmOpenSheet(false);
+  if (WM_PHONE.matches || window.innerWidth < 1100 || tool === "form") {
+    if (wmLeftOpen) {
+      wmOpenSheet(false);
+      // Forms gave up the Layers panel only for itself: leaving Forms gives it back (ADR-313 re-review N8).
+      wmFormTookLeft = tool === "form" && !WM_PHONE.matches;
+    }
+  } else if (wmFormTookLeft) {
+    wmFormTookLeft = false;
+    wmOpenSheet(true);
   }
 
   const layerTool = WM_LAYER_TOOLS.includes(tool);
@@ -3719,8 +3769,12 @@ function wmOpenTool(tool, focus = false) {
 
 function wmCloseTool() {
   if (wmSide.tool === "measure") wmStopMeasuring();
+  if (wmFormTookLeft) {
+    wmFormTookLeft = false;
+    if (!WM_PHONE.matches) wmOpenSheet(true);
+  }
   wmSide.tool = null;
-  document.body.classList.remove("ropen");
+  document.body.classList.remove("ropen", "rform");
   wm$("side").hidden = true;
   wmDrawSide();
   wmResized();
@@ -3828,6 +3882,7 @@ function wmLayerToolMarkup(tool, layer) {
   }
   if (tool === "style") return wmStyleMarkup(layer, run, key, title);
   if (tool === "popup") return wmPopupPanel(layer, run, key, title);
+  if (tool === "form") return typeof wmfPanel === "function" ? wmfPanel(layer, run, key) : "";
   if (tool === "labels") return wmLabelPanel(layer, run, key);
   if (tool === "filter") return wmFilterMarkup(layer, run, key, title, (layer.layerDefinition && layer.layerDefinition.definitionExpression) || "");
   return "";
@@ -4896,7 +4951,7 @@ function wmLabelPanel(layer, run, key) {
     </fieldset>
     ${raw ? `<div class="row"><button class="tiny" data-act="labelsReset" data-layer="${k}" data-focus="labelsReset:${k}"
       data-focus-fallback="labOn:${k}">Remove labels</button></div>` : ""}
-    <p class="lsnote" id="labSays-${k}" role="status" aria-live="polite">${wmEscape(run.labelSaid
+    <p class="lsnote" id="labSays-${k}">${wmEscape(run.labelSaid
       || (label ? `Labels: ${label.field}, ${label.size} pt.` : unread
         ? "This map labels the layer with an expression this viewer does not draw; a change here replaces it."
         : "Choose a field to label with."))} Labels that would overlap are hidden.</p>
@@ -4975,6 +5030,7 @@ function wmApplyLabels(layer, reset = false) {
   wmMarkDirty();
   wmRestyle(layer);
   wmDrawLayerList();
+  wmSayIn("layersStatus", said);
 }
 
 
@@ -5199,7 +5255,7 @@ function wmFeatureTitle(held) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const attributes = held.feature.attributes || {};
   const shown = info.displayField && attributes[info.displayField];
-  if (shown !== null && shown !== undefined && shown !== "") return String(shown);
+  if (shown !== null && shown !== undefined && shown !== "") return String(wmCodedName(info, info.displayField, shown, attributes));
   const texts = new Set((info.fields || []).filter(f => f.type === "esriFieldTypeString").map(f => f.name));
   const first = Object.keys(attributes).find(k => texts.has(k) && !wmSystemField(k, info)
     && attributes[k] !== null && String(attributes[k]).trim() !== "");
@@ -5210,7 +5266,8 @@ function wmFeatureTitle(held) {
 function wmFeatureName(held) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const shown = info.displayField && (held.feature.attributes || {})[info.displayField];
-  return shown !== null && shown !== undefined && shown !== "" ? String(shown) : `feature ${held.oid}`;
+  return shown !== null && shown !== undefined && shown !== ""
+    ? String(wmCodedName(info, info.displayField, shown, held.feature.attributes)) : `feature ${held.oid}`;
 }
 
 /**
@@ -5238,6 +5295,17 @@ function wmLocalInput(ms) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/**
+ * A typed number, by the one rule every Studio screen reads numbers with (number-text.js, ADR-312 §5.6): "90,5" and
+ * "90.5" are ninety and a half — the form's `<input type="number">` once read "90,5" as 905 (re-review N4) — and
+ * "1,500" or "1.500" is refused with a sentence. `{value}` (NaN when it is not a number) or `{ambiguous}`.
+ */
+function wmParseNumber(raw, whole = false) {
+  const read = ntParseNumber(raw, whole);
+  if (read.ambiguous) return { ambiguous: read.ambiguous };
+  return { value: "value" in read ? read.value : NaN };
+}
+
 /** The whole-number limits ArcGIS's integer types hold. */
 const WM_INT_RANGE = { esriFieldTypeSmallInteger: [-32768, 32767], esriFieldTypeInteger: [-2147483648, 2147483647] };
 
@@ -5258,12 +5326,10 @@ function wmFieldControl(field, value, cell = null) {
   if (WM_NUMBER_TYPES.has(field.type)) {
     const whole = /Integer/.test(field.type);
     const range = domain.type === "range" && Array.isArray(domain.range) ? ` min="${domain.range[0]}" max="${domain.range[1]}"` : "";
-    // In a table cell a number is typed, as text: arrows move between rows and the wheel scrolls (design review).
-    return cell
-      ? `<input type="text" inputmode="${whole ? "numeric" : "decimal"}" ${common}${range}
-          value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`
-      : `<input type="number" ${common} step="${whole ? 1 : "any"}"${range}
-          value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
+    // A number is typed as text, in a cell and in the form: arrows move between rows and the wheel scrolls (design
+    // review), and a decimal comma reaches wmParseNumber instead of being dropped by the browser (N4).
+    return `<input type="text" inputmode="${whole ? "numeric" : "decimal"}" ${common}${range}
+        value="${value === null || value === undefined ? "" : wmEscape(String(value))}">`;
   }
   if (field.type === "esriFieldTypeDate") {
     return `<input type="datetime-local" step="1" ${common} value="${wmEscape(wmLocalInput(value))}">`;
@@ -5279,6 +5345,8 @@ function wmFieldControl(field, value, cell = null) {
 function wmOpenEdit(key) {
   const held = wmIdentified.get(key);
   if (!held) return;
+  // ADR-313: a layer whose map holds a form is edited through it (webmap-form.js); otherwise, as before.
+  if (typeof wmfOpenEdit === "function" && wmfOpenEdit(key)) return;
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   const fields = wmEditFields(info);
   const card = wm$("identify");
@@ -5298,6 +5366,7 @@ function wmOpenEdit(key) {
         ${wmFieldControl(f, (held.feature.attributes || {})[f.name])}
         <p class="fieldsays" id="${wmEscape(`edit-${f.name}-says`)}"></p></div>`).join("")
         : `<p class="hint">This layer has no attribute that can be changed.</p>`}
+      <p class="said cvwarn" id="editCv" aria-live="polite" hidden></p>
       <p class="said" id="editSays" role="status" aria-live="polite" tabindex="-1"></p>
       <div class="row editacts">
         ${fields.length || held.isNew ? `<button type="submit" class="primary">${held.isNew ? "Create" : "Save"}</button>` : ""}
@@ -5307,6 +5376,8 @@ function wmOpenEdit(key) {
   card.hidden = false;
   card.scrollTop = 0;
   card.querySelector("[data-field]")?.focus();
+  // ADR-312: a combination the layer's contingent values do not allow is said as it is typed (contingent-editor.js).
+  if (typeof cveCheckForm === "function") cveCheckForm(card.querySelector("form.editform"));
 }
 
 /**
@@ -5324,9 +5395,11 @@ function wmReadControl(control, field, was) {
   }
   if (WM_NUMBER_TYPES.has(field.type) || ((field.domain || {}).type === "codedValue"
     && typeof ((field.domain.codedValues || [])[0] || {}).code === "number")) {
-    const value = Number(raw);
+    const parsed = wmParseNumber(raw, /Integer/.test(field.type));
+    if (parsed.ambiguous) return { problem: `${label} — ${parsed.ambiguous}` };
+    const value = parsed.value;
     const limits = WM_INT_RANGE[field.type];
-    if (!Number.isFinite(value)) return { problem: `${label} takes a number.` };
+    if (!Number.isFinite(value)) return { problem: `${label} takes a number, such as 10 or 10,5.` };
     if (/Integer/.test(field.type) && !Number.isInteger(value)) return { problem: `${label} takes a whole number.` };
     if (limits && (value < limits[0] || value > limits[1])) {
       return { problem: `${label} takes a whole number from ${limits[0].toLocaleString()} to ${limits[1].toLocaleString()}.` };
@@ -5377,6 +5450,11 @@ async function wmSaveEdit(form) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
   wmEditing.saving = true;
   says.textContent = "Saving…";
+  // ADR-312: said again with the save, which goes ahead — the server does not refuse it, and neither does this form.
+  const warned = typeof cveWarnFor === "function"
+    ? await cveWarnFor(held.layer, { ...(held.feature.attributes || {}), ...(held.preset || {}), ...changed },
+      held.isNew ? null : (held.feature.attributes || {}), true).catch(() => "")
+    : "";
   try {
     const edit = held.isNew
       ? { adds: JSON.stringify([{ geometry: held.geometry, attributes: { ...(held.preset || {}), ...changed } }]) }
@@ -5402,9 +5480,9 @@ async function wmSaveEdit(form) {
     if (wmLastClick) await wmIdentify(wmLastClick);
     // After the card is asked again, so its own "… here" does not speak over it.
     const shownNow = !!document.querySelector(`#identify [data-edit="${CSS.escape(focusKey)}"]`);
-    wmSay(held.isNew
+    wmSay((held.isNew
       ? (shownNow ? `${name} created.` : `${name} created, but the layer's filter or the time window hides it here.`)
-      : `${name} saved.`);
+      : `${name} saved.`) + (warned ? ` ${warned}` : ""));
     (document.querySelector(`#identify [data-edit="${CSS.escape(focusKey)}"]`) || wm$("identify").querySelector("button"))?.focus();
   } catch (e) {
     says.textContent = `Not saved: ${e.message || e}`;
@@ -5625,7 +5703,51 @@ wm$("identify").addEventListener("click", event => {
   if (t.dataset.delete !== undefined) { wmDeleteFeature(t.dataset.delete); return; }
   if (t.dataset.editCancel !== undefined && wmMayLeaveEdit()) wmCancelEdit();
 });
+/**
+ * A field's own problem — text that is not a number, "1,500" — is said under it as it is typed and cleared as soon as
+ * what is typed is right again, rather than only when Save is pressed (ADR-312 third review R4; the forms reviewer's
+ * fourth render, item 4).
+ */
+function wmCheckField(control, settle) {
+  const form = control.closest("form.editform");
+  const held = form && wmIdentified.get(form.dataset.editing);
+  const says = control.id && document.getElementById(`${control.id}-says`);
+  if (!held || !says || control.dataset.cell !== undefined) return;
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  const field = (info.fields || []).find(f => f.name === control.dataset.field);
+  if (!field) return;
+  const was = (held.feature.attributes || {})[field.name];
+  const read = wmReadControl(control, field, was === undefined ? null : was);
+  // A required field left empty is the save's to say, not the keyboard's. While typing only an ambiguous number is said
+  // ("1,500"), since "a" or a lone "-" is a number not yet finished; anything else wrong is said when the field is left
+  // (fourth render, m2). A problem is cleared as soon as it is gone, either way.
+  const problem = read.problem && control.value.trim() !== "" ? read.problem : "";
+  if (problem && (settle || ntAmbiguous(control.value))) {
+    control.setAttribute("aria-invalid", "true");
+    if (says.textContent !== problem) says.textContent = problem;
+  } else if (!problem && control.getAttribute("aria-invalid") === "true") {
+    control.setAttribute("aria-invalid", "false");
+    says.textContent = "";
+  }
+  wmClearNotSaved(form);
+}
+
+/**
+ * Takes "Not saved: correct the field marked below it." away once no field of the form is marked any more, in the
+ * plain card and the form's card alike (the forms reviewer's fourth render, item 4: it stayed after the field was right).
+ */
+function wmClearNotSaved(form) {
+  const says = form && form.querySelector("#editSays");
+  if (says && /^Not saved: correct the field/.test(says.textContent) && !form.querySelector('[aria-invalid="true"]')) {
+    says.textContent = "";
+  }
+}
+wm$("identify").addEventListener("change", event => {
+  if (event.target instanceof Element && event.target.matches("form.editform [data-field]")) wmCheckField(event.target, true);
+});
+
 wm$("identify").addEventListener("input", event => {
+  if (event.target instanceof Element && event.target.matches("form.editform [data-field]")) wmCheckField(event.target, false);
   if (event.target instanceof Element && event.target.closest("form.editform")) wmEditing.dirty = true;
 });
 wm$("identify").addEventListener("submit", event => {
@@ -5844,7 +5966,8 @@ async function wmLoadTable() {
     const editable = new Set(wmTable.editing ? wmEditFields(info).map(f => f.name) : []);
     const named = feature => {
       const shown = info.displayField && (feature.attributes || {})[info.displayField];
-      return shown !== null && shown !== undefined && shown !== "" ? String(shown) : `feature ${(feature.attributes || {})[oid]}`;
+      return shown !== null && shown !== undefined && shown !== ""
+        ? String(wmCodedName(info, info.displayField, shown, feature.attributes)) : `feature ${(feature.attributes || {})[oid]}`;
     };
     wmTable.keepSaid = false;
     wm$("tableGrid").innerHTML = `<thead><tr>${shownFields.map(f =>
@@ -5857,7 +5980,8 @@ async function wmLoadTable() {
         if (editable.has(f.name)) {
           return `<td class="celledit${number ? " num" : ""}">${wmFieldControl(f, value, { row: i, label: `${f.alias || f.name} of ${named(feature)}` })}</td>`;
         }
-        const text = value === null || value === undefined ? "" : wmFormatValue(value, null, f.type);
+        const coded = wmCodedName(info, f.name, value, feature.attributes);
+        const text = value === null || value === undefined ? "" : coded !== value ? String(coded) : wmFormatValue(value, null, f.type);
         return `<td title="${wmEscape(text)}"${number ? ' class="num"' : ""}>${wmEscape(text)}</td>`;
       }).join("")}</tr>`).join("")}</tbody>`;
     wm$("tableEdit").hidden = !wmEditable(layer);
@@ -5915,7 +6039,8 @@ function wmTableCount() {
   const n = changes.length;
   wm$("tableSave").hidden = !wmTable.editing;
   wm$("tableDiscard").hidden = !wmTable.editing;
-  wm$("tableSave").disabled = n === 0;
+  // A cell whose value is wrong keeps Save unavailable until it is right (fourth render, m1).
+  wm$("tableSave").disabled = n === 0 || changes.some(c => c.problems.length);
   wm$("tableDiscard").disabled = n === 0;
   wm$("tableSave").textContent = n ? `Save ${n} ${n === 1 ? "row" : "rows"}` : "Save changes";
 }
@@ -5987,6 +6112,8 @@ async function wmSaveTable() {
   if (!changes.length) return;
   wm$("tableSave").disabled = true;
   wmSayIn("tableStatus", "Saving…");
+  // ADR-312: rows whose values break a restrictive field group are named with the save, which goes ahead.
+  const warned = typeof cveTableWarning === "function" ? await cveTableWarning(layer, changes).catch(() => "") : "";
   try {
     const updates = changes.map(c => ({ attributes: { [oid]: (wmTable.rows[c.index].attributes || {})[oid], ...c.changed } }));
     const answer = await wmFetch(`${layer.url}/applyEdits`, {
@@ -6018,13 +6145,13 @@ async function wmSaveTable() {
       wmSayIn("tableStatus", `${updates.length - refused.length} of ${updates.length} saved. Not saved: ${refused.map(r => {
         const c = changes.find(x => String((wmTable.rows[x.index].attributes || {})[oid]) === String(r.objectId));
         return `${c ? wmTable.named(wmTable.rows[c.index]) : `feature ${r.objectId}`} (${((r.error || {}).description) || "refused"})`;
-      }).join(", ")}.`, true);
+      }).join(", ")}.${warned ? ` ${warned}` : ""}`, true);
       document.querySelector('#tableGrid [aria-invalid="true"]')?.focus();
       return;
     }
     wmRefreshLayer(layer, true);
     await wmLoadTable();
-    wmSayIn("tableStatus", `${updates.length} ${updates.length === 1 ? "row" : "rows"} saved.`);
+    wmSayIn("tableStatus", `${updates.length} ${updates.length === 1 ? "row" : "rows"} saved.${warned ? ` ${warned}` : ""}`);
     document.querySelector("#tableGrid [data-cell]")?.focus();
   } catch (e) {
     wmSayIn("tableStatus", `Not saved: ${e.message || e}`, true);
@@ -6036,13 +6163,35 @@ wm$("tablePanel").addEventListener("input", event => {
   if (!(event.target instanceof Element && event.target.matches("[data-cell]"))) return;
   delete event.target.dataset.refused;
   wmTableCount();
+  // The cell's own problem is said in the table's status as it is typed (the forms reviewer's fourth render, item 4);
+  // the lines below put the row count back once no cell has one.
+  const feature = wmTable.rows[Number(event.target.dataset.cell)];
+  const mine = event.target.getAttribute("aria-invalid") === "true" && event.target.value.trim() !== "" ? event.target.title : "";
+  // Nothing has been saved or refused yet, so no "Not saved:" while typing (fourth render, m1); and only an ambiguous
+  // number is said as it is typed — the rest when the cell is left (m2, the change listener below).
+  if (mine && ntAmbiguous(event.target.value)) {
+    wmSayIn("tableStatus", `${mine}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
+    wm$("tableStatus").dataset.cellSaid = "1";
+  } else if (wm$("tableStatus").dataset.cellSaid && !wmTableChanges().some(c => c.problems.length)) {
+    // A cell's sentence goes as soon as no cell is wrong, and the line says the rows again.
+    delete wm$("tableStatus").dataset.cellSaid;
+    wmSayIn("tableStatus", wmTable.countSaid || "");
+  }
   // A problem said for a cell goes once the cells have none, and the line says the rows again.
   if (/^Not saved: /.test(wm$("tableStatus").textContent) && !wmTableChanges().some(c => c.problems.length)) {
     wmSayIn("tableStatus", wmTable.countSaid || "");
   }
 });
 wm$("tablePanel").addEventListener("change", event => {
-  if (event.target instanceof Element && event.target.matches("[data-cell]")) wmTableCount();
+  if (!(event.target instanceof Element && event.target.matches("[data-cell]"))) return;
+  wmTableCount();
+  // A cell left with a value that is wrong says so in the status, by its row (m2); nothing is "Not saved" until Save.
+  const t = event.target;
+  const feature = wmTable.rows[Number(t.dataset.cell)];
+  if (t.getAttribute("aria-invalid") === "true" && t.value.trim() !== "" && t.title && !t.dataset.refused) {
+    wmSayIn("tableStatus", `${t.title}${feature && wmTable.named ? ` (${wmTable.named(feature)})` : ""}`, true);
+    wm$("tableStatus").dataset.cellSaid = "1";
+  }
 });
 
 /**
