@@ -776,3 +776,25 @@ answer 503 with the reason and the service document keeps answering; in a batch,
 address's unmatched row, and only a Photon that answers none of the first ones fails the batch. The service names its data's source
 in `copyrightText` — *© OpenStreetMap contributors*, which OpenStreetMap's licence asks for wherever its data is shown.
 House numbers are only as complete as OpenStreetMap's; places, streets and districts are good.
+
+## 6. Telling ArcGIS clients that the portal signs in with OAuth
+
+**Off unless you turn it on** (`Graticula:AdvertiseOAuth`, or `Graticula__AdvertiseOAuth=true` in a container's
+environment; [ADR-076](adr/ADR-076-oauth-for-registered-apps.md) §6 and condition 3).
+
+The OAuth 2.0 sign-in is always served: the authorization page, the code and the token exchange, with ArcGIS Pro's,
+Field Maps' and the ArcGIS API for Python's client ids registered as built-in apps. What the setting changes is one
+field of the portal's own document, `supportsOAuth` in `/sharing/rest/portals/self`. With it off, the field says
+`false` and a client that reads it signs in by name and password through `generateToken`, which works for every
+member who is not an enterprise login. With it on, the field says `true`, and a client that reads it may open the
+portal's sign-in page in its own window instead.
+
+| | Off (default) | On |
+|---|---|---|
+| ArcGIS Pro, sign-in through its own window | Not offered by the portal | **Not yet seen to work** (ADR-076 condition 3 is open) |
+| arcpy and the ArcGIS API for Python by name and password | Works | Works (measured 2026-11-20 on dev) |
+| Field Maps | Works | Works |
+
+**Leave it off** until Pro's own sign-in has been tried on a non-production server with it on; dev.graticula.com
+carries it on for that trial. Pro is the client this project has lost three times to a capability it advertised
+before it was proved.
