@@ -292,6 +292,10 @@ than here — this ADR only establishes that the transport can carry and validat
 client certificate, and that the identity it yields is handed to the
 authentication layer rather than interpreted here.
 
+*(Built 2026-11-23 — [ADR-315](ADR-315-a-member-signs-in-with-a-client-certificate.md): `Graticula:ClientCertificates`
+asks for or requires a certificate at the handshake and checks its chain against configured authorities, or reads it
+from a trusted proxy's header; the identity in it is a sign-in provider's to interpret.)*
+
 ---
 
 ## 7. Air-gapped (Q-15)
