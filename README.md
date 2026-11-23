@@ -132,6 +132,11 @@ that works.
   There is no SCIM: an account is made at its first sign-in or by hand, and a change of groups
   reaches this server at the person's next sign-in. Nested Active Directory groups are not
   followed, a SAML assertion must not be encrypted, and signing out ends this server's session only.
+  **A certificate or a smart card (PKI)** signs people in through the server's own TLS or a trusted proxy such as
+  Caddy, and `generateToken` and the ArcGIS API for Python's `cert_file` take it
+  ([ADR-315](docs/adr/ADR-315-a-member-signs-in-with-a-client-certificate.md)); **Windows sign-in (IWA)** is
+  Kerberos, tried against Samba's Active Directory domain and not yet from a browser on a domain computer or from
+  ArcGIS Pro ([ADR-316](docs/adr/ADR-316-a-member-signs-in-with-windows.md)).
 - **Several organisations in one deployment are new.** Each — a joint venture, say — has its own members,
   groups, content and administrator at its own host name, and PostgreSQL's row-level security keeps their rows apart;
   a group may admit another organisation's members, which is the only route between them, and one system
@@ -182,12 +187,14 @@ that works.
   ([ADR-285](docs/adr/ADR-285-graticula-does-not-license-arcgis-pro.md)).
 - **No *New ArcGIS Server* connection.** That handshake is SOAP; it is not built and not
   planned. A portal connection reaches the same content.
-- **Backup is the server's own command, restore needs it stopped.** `graticula backup` and
+- **Backup is the server's own command, and so is restore.** `graticula backup` and
   `graticula restore` take the database, the imagery and the certificate, and refuse a
   backup of another key or a newer schema; the secret key is never in a backup
   ([ADR-193](docs/adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md)). System › Backups takes,
-  downloads and deletes one from the console, and keeps the newest few on a daily schedule; restoring is the
-  command's alone.
+  downloads and deletes one from the console, keeps the newest few on a daily schedule, **validates** one into a
+  scratch database, and **restores** one through the admin API: the site answers nothing until it ends, everyone is
+  signed out, and the database it replaces is kept
+  ([ADR-317](docs/adr/ADR-317-validate-and-restore-through-the-admin-api.md)).
 - **Publishing from Pro is hosted feature layers, and map image layers by reference.** *Share As
   Web Layer* with *Copy all data → Feature* and *Overwrite Web Layer* work
   ([ADR-191](docs/adr/ADR-191-arcgis-pro-publishes-hosted-feature-layers.md)). A map image layer
@@ -210,7 +217,14 @@ that works.
   and Korean are not in the published image**: build it with `--build-arg GLYPHS_CJK=1`, which
   adds about 53 MB. Scripts outside these — Gurmukhi, Telugu, Sinhala, Ethiopic and others — are
   not carried ([ADR-100](docs/adr/ADR-100-labels-in-more-scripts.md)).
-- **One machine.** No site, no clustering, no failover.
+- **Several machines and a database standby are built, not yet run in production.** A site of two or more machines
+  behind Caddy, with a rolling upgrade ([ADR-012](docs/adr/ADR-012-clustering.md)), and a PostgreSQL standby the
+  server promotes by itself when the primary is lost and every machine agrees — about 12 s on one computer — with a
+  returned old primary fenced and never written to
+  ([ADR-319](docs/adr/ADR-319-the-platform-store-fails-over-to-a-standby.md)). All of it is tested on one computer;
+  `compose.standby.yaml` has not yet been run on Docker. A server that refuses to serve — an un-migrated store, say —
+  stays up and answers 503 with the reason, so a host reboot brings it back
+  ([ADR-318](docs/adr/ADR-318-a-refusing-server-stays-up-and-says-why.md)).
 
 ## Quickstart
 
