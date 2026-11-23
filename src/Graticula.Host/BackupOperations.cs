@@ -544,10 +544,11 @@ internal sealed partial class BackupOperations
             }
 
             // ---- 5. the state files ----
-            Save(operation, "files", "Putting the imagery, the package files and the serving certificate in place.");
-
+            // Inside the try, so nothing between the restored database's check and the switch can leave it behind — a
+            // record that could not be written once did, before the record stopped being able to fail (2026-11-23).
             try
             {
+                Save(operation, "files", "Putting the imagery, the package files and the serving certificate in place.");
                 undoFiles = _backups.PutStateFiles(FolderOf(operation), stamp);
                 Inject("files");
 
