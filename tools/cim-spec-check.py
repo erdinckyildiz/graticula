@@ -17,15 +17,26 @@ import re
 import sys
 import urllib.request
 
-PINNED = "740cc791df1a23fd3ce553296dfd12c7672880c1"  # main on 2026-10-15
+PINNED = "df5f40b3dcd9f7f7aac2b5e3273ac17e4da509c8"  # main on 2026-11-24: CIM 3.8.0, 889 types; 3.7.0 was 740cc791
 ADR = "docs/adr/ADR-052-the-canonical-symbology-document-is-cim.md"
 API = "https://api.github.com/repos/Esri/cim-spec/contents/docs/v3?ref={}"
 RAW = "https://raw.githubusercontent.com/Esri/cim-spec/{}/docs/v3/{}"
 
 
 def fetch(url):
+    """The file as text: UTF-8, or Windows-1252 where the specification saved one that way.
+
+    CIM 3.8.0 (2026-11-18) added docs/v3/CIMSimulation.md in Windows-1252 — `g/s/m²` is byte 0xB2 — and the nightly
+    run failed on the decode for six days before anybody read why, which said nothing about §3.2. The names this
+    reads are ASCII in either encoding, so falling back cannot change a result; refusing to read a file can.
+    """
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "graticula-cim-spec-check"})) as r:
-        return r.read().decode("utf-8")
+        data = r.read()
+
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
 
 
 def specification(commit):
