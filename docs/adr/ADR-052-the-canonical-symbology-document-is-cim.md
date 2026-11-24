@@ -97,6 +97,9 @@ The three rows below are taken from the projections themselves (`Cim.ProjectHeat
 and the published specification at a pinned commit (`740cc791`) and finds every type and all 59 properties,
 the three rows above included, which until then had come from the code alone. Nightly, `spec-drift.yml` runs it
 against the specification's `main`.
+**Again 2026-11-24, against CIM 3.8.0** (`df5f40b3`, now the pin): all 59 still resolve. The nightly run had been
+red for six days, not because anything moved but because 3.8.0 saved one file in Windows-1252 and the tool refused
+to decode it — a failure that said nothing about this table, and was read for the first time on that day.
 
 | Type | Properties read |
 |---|---|
